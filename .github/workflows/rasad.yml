@@ -1,0 +1,46 @@
+name: رصد - المراقبة كل 10 دقائق
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ["web/**", "rasad/**", "config.yaml", "requirements.txt", ".github/workflows/rasad.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rasad
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Bring back the memory and the app
+        run: bash scripts/branches.sh restore
+
+      - name: Watch the satellites
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RASAD_APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: python -m rasad --state _state --site _site cycle --auto-geo
+
+      - name: Save the memory and publish the app
+        if: always()
+        run: bash scripts/branches.sh save

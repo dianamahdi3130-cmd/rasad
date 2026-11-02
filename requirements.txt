@@ -1,0 +1,6 @@
+requests>=2.25
+numpy>=1.21
+Pillow>=9.1
+PyYAML>=5.4
+imageio>=2.9
+imageio-ffmpeg>=0.4

@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>رصد</title>
+<meta name="description" content="رصد الحرائق في الخليج والمنطقة من صور الأقمار الصناعية">
+<meta name="theme-color" content="#0a101c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="رصد">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@600;800&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+/* Layout: operations-room screen. Map on top (phone) or left (desktop), incident feed beside it.
+   Dark-first; verdict colours carry meaning, the thermal orange is the single accent. */
+:root{
+  --bg:#0a101c; --surface:#111a2b; --surface-2:#18233a; --line:#24314c;
+  --fg:#e8edf6; --muted:#93a0b8; --accent:#ff7a1a;
+  --sure:#ff4d4f; --likely:#ff9f1c; --check:#f2c94c; --ok:#3ddc97;
+  --shadow:0 10px 30px rgba(0,0,0,.45);
+  --font-ui:"IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;
+  --font-display:"Noto Kufi Arabic","IBM Plex Sans Arabic",system-ui,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f3f5f9; --surface:#ffffff; --surface-2:#eef1f6; --line:#d9dfea;
+    --fg:#141b2b; --muted:#5b6780; --accent:#e5600a;
+    --sure:#d92d30; --likely:#d97a00; --check:#b58a00; --ok:#11975e;
+    --shadow:0 10px 30px rgba(20,27,43,.12); color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f3f5f9; --surface:#ffffff; --surface-2:#eef1f6; --line:#d9dfea;
+  --fg:#141b2b; --muted:#5b6780; --accent:#e5600a;
+  --sure:#d92d30; --likely:#d97a00; --check:#b58a00; --ok:#11975e;
+  --shadow:0 10px 30px rgba(20,27,43,.12); color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--font-ui);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:var(--accent)}
+[hidden]{display:none!important}
+.wrap{padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
+
+/* header */
+header{position:sticky;top:0;z-index:1000;background:var(--bg);
+  padding-top:env(safe-area-inset-top,0px);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:10px;padding-block:10px}
+.brand{display:flex;align-items:center;gap:8px;font:800 22px/1 var(--font-display);letter-spacing:0}
+.brand svg{width:28px;height:28px}
+.pill{margin-inline-start:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);
+  background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.dot.warn{background:var(--likely)} .dot.bad{background:var(--sure)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-block:0 10px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+
+/* main layout */
+main{display:grid;grid-template-columns:1fr}
+#map{height:46vh;min-height:280px;background:var(--surface-2)}
+.panel{min-width:0}
+@media (min-width:900px){
+  main{grid-template-columns:minmax(360px,420px) 1fr;height:calc(100vh - 106px)}
+  #map{height:100%;order:2}
+  .panel{order:1;overflow-y:auto;border-inline-end:1px solid var(--line)}
+}
+.banner{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px;color:var(--muted)}
+.banner b{color:var(--fg)}
+.summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-block:12px}
+.count{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:14px}
+.count b{font:800 17px/1 var(--font-display)}
+.toggle{margin-inline-start:auto;border:1px solid var(--line);background:transparent;border-radius:10px;padding:6px 10px;font-size:13px;color:var(--muted)}
+.list{display:flex;flex-direction:column;gap:10px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+.card{display:grid;grid-template-columns:6px 1fr;gap:12px;text-align:start;width:100%;background:var(--surface);
+  border:1px solid var(--line);border-radius:14px;padding:12px 12px 12px 14px}
+.card:focus-visible,.chip:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stripe{border-radius:6px;background:var(--check)}
+.card h3{margin:0 0 2px;font:600 16px/1.45 var(--font-display);text-wrap:balance}
+.card .where{color:var(--muted);font-size:14px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:13px}
+.tag{border-radius:6px;padding:1px 8px;background:var(--surface-2);color:var(--muted)}
+.badge{border-radius:6px;padding:1px 8px;font-weight:600;color:#111}
+.v-sure{background:var(--sure)} .v-likely{background:var(--likely)} .v-check{background:var(--check)}
+.stripe.v-sure{background:var(--sure)} .stripe.v-likely{background:var(--likely)}
+.empty{color:var(--muted);text-align:center;padding:28px 10px;border:1px dashed var(--line);border-radius:14px}
+
+/* detail sheet */
+.sheet{position:fixed;inset:0;z-index:2000;background:var(--bg);overflow-y:auto;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+@media (min-width:900px){.sheet{inset:auto 0 0 auto;top:0;width:460px;border-inline-start:1px solid var(--line);box-shadow:var(--shadow)}}
+.sheet-top{position:sticky;top:0;background:var(--bg);display:flex;align-items:center;gap:10px;padding-block:10px;border-bottom:1px solid var(--line)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;font-size:14px;text-decoration:none;color:var(--fg);display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.sheet h2{font:800 22px/1.4 var(--font-display);margin:14px 0 6px;text-wrap:balance}
+.verdict{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;margin:12px 0}
+.verdict .badge{font-size:15px;white-space:nowrap}
+.verdict p{margin:0;color:var(--muted)}
+video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display:block}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:14px 0;font-size:15px}
+.facts dt{color:var(--muted);white-space:nowrap}
+.facts dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.help{margin-top:18px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:12px}
+.help b{color:var(--fg)}
+.toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);z-index:3000;
+  background:var(--fg);color:var(--bg);border-radius:10px;padding:8px 14px;font-size:14px}
+
+/* map markers */
+.fire{width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.35)}
+.fire.v-sure{background:var(--sure)} .fire.v-likely{background:var(--likely)} .fire.v-check{background:var(--check)}
+.fire.fresh::after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid currentColor;animation:pulse 1.8s infinite}
+.fire.v-sure{color:var(--sure)} .fire.v-likely{color:var(--likely)} .fire.v-check{color:var(--check)}
+.plant{width:14px;height:14px;background:#7dd3fc;border:2px solid #0b1220;transform:rotate(45deg)}
+@keyframes pulse{from{opacity:.9;transform:scale(.6)}to{opacity:0;transform:scale(1.6)}}
+@media (prefers-reduced-motion:reduce){.fire.fresh::after{animation:none}}
+.leaflet-container{font:inherit;background:var(--surface-2)}
+.leaflet-control-attribution{font-size:10px}
+.basemap{position:absolute;z-index:500;top:10px;left:10px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <div class="brand" aria-label="رصد">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="2"/><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="2"/><circle cx="21" cy="11" r="3.6" fill="#ff7a1a"/></svg>
+      رصد
+    </div>
+    <div class="pill" id="status"><span class="dot"></span><span>جارٍ التحميل…</span></div>
+  </div>
+  <div class="wrap chips" id="chips" role="toolbar" aria-label="المناطق"></div>
+</header>
+
+<main>
+  <div style="position:relative">
+    <div id="map" role="region" aria-label="الخريطة"></div>
+    <button class="btn basemap" id="basemapBtn" type="button">قمر صناعي</button>
+  </div>
+  <section class="panel wrap">
+    <div class="banner" id="learning" hidden><b>يتعلّم التطبيق المنطقة.</b> في اليوم الأول يسجّل الحرارة المعتادة (شعلات الغاز والمصانع) حتى لا ينبّهك عنها لاحقاً.</div>
+    <div class="banner" id="install" hidden><b>ثبّت رصد على هاتفك:</b> اضغط زر المشاركة في المتصفح، ثم «إضافة إلى الشاشة الرئيسية».</div>
+    <div class="summary" id="summary"></div>
+    <div class="list" id="list"></div>
+  </section>
+</main>
+
+<section class="sheet" id="sheet" hidden aria-modal="true" role="dialog" aria-labelledby="dTitle">
+  <div class="sheet-top wrap">
+    <button class="btn" id="closeBtn" type="button">رجوع</button>
+    <span id="dAgo" style="color:var(--muted);font-size:14px"></span>
+  </div>
+  <div class="wrap" id="detail"></div>
+</section>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+"use strict";
+const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false};
+const V = {"مؤكد":"v-sure","مرجّح":"v-likely","يحتاج تأكيداً":"v-check"};
+const PLACE = {sea:"في البحر", coast:"على الساحل", land:"على اليابسة"};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function plural(n, one, two, few, many){ return n===1?one : n===2?two : (n>=3&&n<=10)?`${n} ${few}` : `${n} ${many}`; }
+function ago(iso){
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (m < 1) return "الآن";
+  if (m < 60) return "قبل " + plural(m,"دقيقة","دقيقتين","دقائق","دقيقة");
+  const h = Math.round(m / 60);
+  if (h < 24) return "قبل " + plural(h,"ساعة","ساعتين","ساعات","ساعة");
+  const d = Math.round(h / 24);
+  return "قبل " + plural(d,"يوم","يومين","أيام","يوماً");
+}
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(t._h); t._h=setTimeout(()=>t.hidden=true,2200); }
+
+/* ---------- map ---------- */
+const TILES = {
+  dark: ["https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", "© OpenStreetMap © CARTO"],
+  light:["https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", "© OpenStreetMap © CARTO"],
+  sat:  ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", "Esri, Maxar, Earthstar"]
+};
+function initMap(){
+  if (!window.L) { $("#map").innerHTML = '<div class="empty" style="margin:16px">تعذّر تحميل الخريطة، والقائمة تعمل.</div>'; $("#basemapBtn").hidden = true; return; }
+  S.map = L.map("map", {zoomControl:false, attributionControl:true}).setView([26.5, 50], 5);
+  L.control.zoom({position:"bottomleft"}).addTo(S.map);
+  setBase();
+  S.layer = L.layerGroup().addTo(S.map);
+  S.focus = L.layerGroup().addTo(S.map);
+  matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", setBase);
+}
+function setBase(){
+  if (S.base) S.map.removeLayer(S.base);
+  const light = matchMedia("(prefers-color-scheme: light)").matches;
+  const [url, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
+  S.base = L.tileLayer(url, {maxZoom:18, attribution:attr, subdomains:"abcd"}).addTo(S.map);
+  $("#basemapBtn").textContent = S.sat ? "خريطة" : "قمر صناعي";
+}
+function fireIcon(it){
+  const fresh = Date.now() - Date.parse(it.last) < 3600e3;
+  return L.divIcon({className:"", iconSize:[18,18], iconAnchor:[9,9],
+    html:`<div class="fire ${V[it.verdict]||"v-check"} ${fresh?"fresh":""}" style="position:relative"></div>`});
+}
+
+/* ---------- data ---------- */
+async function load(){
+  try{
+    const bust = "?t=" + Date.now();
+    const [m, d] = await Promise.all([fetch("data/meta.json"+bust).then(r=>r.json()), fetch("data/incidents.json"+bust).then(r=>r.json())]);
+    S.meta = m; S.items = d.items || [];
+    renderChips(); render(); renderStatus();
+    if (!S.loaded && location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1)), false);
+    S.loaded = true;
+  }catch(e){
+    $("#status").innerHTML = `<span class="dot bad"></span><span>تعذّر تحميل البيانات</span>`;
+  }
+}
+function renderStatus(){
+  const g = S.meta?.generated; if (!g) return;
+  const m = (Date.now() - Date.parse(g)) / 60000;
+  const cls = m < 25 ? "ok" : m < 60 ? "warn" : "bad";
+  const word = m < 25 ? "يراقب" : m < 60 ? "متأخر قليلاً" : "متوقف";
+  $("#status").innerHTML = `<span class="dot ${cls}"></span><span>${word} · آخر فحص ${ago(g)}</span>`;
+  $("#learning").hidden = !S.meta.learning;
+}
+function renderChips(){
+  const regions = [{id:"all", name:"الكل"}, ...(S.meta?.regions || [])];
+  $("#chips").innerHTML = regions.map(r => `<button class="chip" type="button" data-id="${esc(r.id)}" aria-pressed="${r.id===S.region}">${esc(r.name)}</button>`).join("");
+}
+function visible(){
+  return S.items.filter(it => (S.region==="all" || (it.regions||[]).includes(S.region)) && (!S.important || it.priority==="high"));
+}
+function render(){
+  const items = visible();
+  const day = items.filter(it => Date.now() - Date.parse(it.last) < 864e5);
+  const n = v => day.filter(it => it.verdict === v).length;
+  $("#summary").innerHTML =
+    `<span class="count"><span class="badge v-sure">مؤكد</span><b>${n("مؤكد")}</b></span>
+     <span class="count"><span class="badge v-likely">مرجّح</span><b>${n("مرجّح")}</b></span>
+     <span class="count"><span class="badge v-check">للتأكيد</span><b>${n("يحتاج تأكيداً")}</b></span>
+     <button class="toggle" id="impBtn" type="button">${S.important ? "يعرض المهم فقط" : "يعرض كل الحرائق"}</button>`;
+  const list = $("#list");
+  if (!items.length){
+    list.innerHTML = `<div class="empty">لا حرائق جديدة هنا خلال آخر 7 أيام.<br>آخر فحص ${S.meta?.generated ? ago(S.meta.generated) : "—"}.</div>`;
+  } else {
+    list.innerHTML = items.map(it => `
+      <button class="card" type="button" data-id="${esc(it.id)}">
+        <span class="stripe ${V[it.verdict]||""}"></span>
+        <span>
+          <h3>${esc(it.headline)}</h3>
+          <span class="where">${esc(it.where||"")}</span>
+          <span class="meta">
+            <span class="badge ${V[it.verdict]||"v-check"}">${esc(it.verdict)}</span>
+            <span class="tag">${ago(it.first)}</span>
+            ${it.size ? `<span class="tag">حجمه ${esc(it.size)}</span>` : ""}
+            ${it.facility ? `<span class="tag">${esc(it.facility.km)} كم من ${esc(it.facility.cat)}</span>` : ""}
+          </span>
+        </span>
+      </button>`).join("");
+  }
+  if (!S.map) return;
+  S.layer.clearLayers();
+  const pts = [];
+  items.forEach(it => {
+    L.marker([it.lat, it.lon], {icon:fireIcon(it), title:it.headline}).on("click", () => openDetail(it.id)).addTo(S.layer);
+    pts.push([it.lat, it.lon]);
+  });
+  if (S.fitFor !== S.region){            // move the map only when the region changes
+    S.fitFor = S.region;
+    const reg = (S.meta?.regions || []).find(r => r.id === S.region);
+    if (reg) S.map.fitBounds([[reg.bbox[1], reg.bbox[0]], [reg.bbox[3], reg.bbox[2]]]);
+    else if (pts.length) S.map.fitBounds(pts, {maxZoom:8, padding:[30,30]});
+  }
+}
+
+/* ---------- detail ---------- */
+function links(it){
+  const out = [[`https://www.google.com/maps?q=${it.lat},${it.lon}&t=k`, "الموقع على الخريطة"]];
+  if (it.place === "sea" || it.place === "coast")
+    out.push([`https://www.marinetraffic.com/en/ais/home/centerx:${it.lon.toFixed(3)}/centery:${it.lat.toFixed(3)}/zoom:11`, "السفن في الموقع"]);
+  out.push([`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${it.lon.toFixed(3)},${it.lat.toFixed(3)},11.0z`, "ناسا"]);
+  return out;
+}
+function shareText(it){
+  return `${it.headline}\n${it.where||""}\nالحكم: ${it.verdict}، ${it.reason}\nبدأ: ${it.start_text}\n${it.lat.toFixed(4)},${it.lon.toFixed(4)}`;
+}
+function openDetail(id, push=true){
+  const it = S.items.find(x => x.id === id); if (!it) return;
+  const f = it.facility;
+  $("#detail").innerHTML = `
+    <h2 id="dTitle">${esc(it.headline)}</h2>
+    <div style="color:var(--muted)">${esc(it.where||"")}</div>
+    <div class="verdict"><span class="badge ${V[it.verdict]||"v-check"}">${esc(it.verdict)}</span><p>${esc(it.reason)}</p></div>
+    ${it.clip ? `<video src="${esc(it.clip)}" ${it.snap?`poster="${esc(it.snap)}"`:""} controls playsinline muted loop preload="metadata"></video>`
+              : it.snap ? `<img class="snap" src="${esc(it.snap)}" alt="صورة القمر الصناعي">` : ""}
+    <dl class="facts">
+      <dt>المكان</dt><dd>${esc(PLACE[it.place] || "غير محدد")}</dd>
+      <dt>أقرب منشأة</dt><dd>${f ? esc(f.text) : "لا توجد منشأة طاقة قريبة"}</dd>
+      <dt>بدأ</dt><dd>${esc(it.start_text)}</dd>
+      <dt>آخر رصد</dt><dd>${esc(it.last_text)} (${ago(it.last)})</dd>
+      <dt>الحجم</dt><dd>${it.size ? esc(it.size) : "يُعرف بعد مرور قمر أمريكي"}</dd>
+      <dt>رصدته</dt><dd>${esc(it.sources_text ? "أقمار: " + it.sources_text : "—")}</dd>
+      <dt>الإحداثيات</dt><dd><button class="btn" type="button" id="copyBtn" dir="ltr">${it.lat.toFixed(4)},${it.lon.toFixed(4)}</button></dd>
+      <dt>الدقة</dt><dd>${it.best === "polar" ? "دقيقة (نحو نصف كيلومتر)" : "تقريبية (نحو 3 كم) حتى يمر قمر أمريكي"}</dd>
+    </dl>
+    <div class="actions">
+      <button class="btn primary" type="button" id="shareBtn">مشاركة</button>
+      ${links(it).map(([u,t]) => `<a class="btn" href="${u}" target="_blank" rel="noopener">${t}</a>`).join("")}
+    </div>
+    <div class="help"><b>معنى الحكم:</b> «مؤكد» رآه قمران مختلفان أو ظهر في 3 صور متتالية. «مرجّح» ظهر مرتين أو رآه قمر أمريكي بوضوح. «يحتاج تأكيداً» رصدة واحدة فقط.<br>
+    الأقمار ترى الحرارة لا السبب. اسم المنشأة من خرائط OpenStreetMap.</div>`;
+  $("#dAgo").textContent = ago(it.last);
+  $("#sheet").hidden = false; $("#sheet").scrollTop = 0;
+  if (push) history.pushState(null, "", "#" + encodeURIComponent(id));
+  $("#copyBtn").onclick = () => copy(`${it.lat.toFixed(5)},${it.lon.toFixed(5)}`);
+  $("#shareBtn").onclick = async () => {
+    const text = shareText(it);
+    if (navigator.share) { try { await navigator.share({title:it.headline, text, url:location.href}); return; } catch(e){ if (e.name==="AbortError") return; } }
+    copy(text);
+  };
+  if (!S.map) return;
+  S.focus.clearLayers();
+  if (f){
+    L.marker([f.lat, f.lon], {icon:L.divIcon({className:"", iconSize:[14,14], iconAnchor:[7,7], html:'<div class="plant"></div>'}), title:f.text}).addTo(S.focus);
+    L.polyline([[f.lat,f.lon],[it.lat,it.lon]], {color:"#7dd3fc", weight:2, dashArray:"5 6"}).addTo(S.focus);
+  }
+  S.map.setView([it.lat, it.lon], f && f.km < 25 ? 11 : 9);
+}
+function closeDetail(){ $("#sheet").hidden = true; S.focus?.clearLayers(); if (location.hash) history.pushState(null, "", location.pathname + location.search); }
+async function copy(text){
+  try { await navigator.clipboard.writeText(text); toast("نُسخ"); }
+  catch { toast(text); }
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", e => {
+  const chip = e.target.closest(".chip");
+  if (chip){ S.region = chip.dataset.id; renderChips(); render(); return; }
+  const card = e.target.closest(".card");
+  if (card){ openDetail(card.dataset.id); return; }
+  if (e.target.closest("#impBtn")){ S.important = !S.important; render(); return; }
+});
+$("#closeBtn").onclick = closeDetail;
+$("#basemapBtn").onclick = () => { S.sat = !S.sat; setBase(); };
+addEventListener("popstate", () => { if (location.hash.length > 1) openDetail(decodeURIComponent(location.hash.slice(1)), false); else { $("#sheet").hidden = true; S.focus?.clearLayers(); } });
+addEventListener("keydown", e => { if (e.key === "Escape" && !$("#sheet").hidden) closeDetail(); });
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
+  try { if (!localStorage.getItem("rasad-install-seen")) { $("#install").hidden = false; localStorage.setItem("rasad-install-seen", "1"); } } catch {}
+}
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+initMap(); load();
+setInterval(load, 120000);
+setInterval(renderStatus, 30000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+</script>
+</body>
+</html>
