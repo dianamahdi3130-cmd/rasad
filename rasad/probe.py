@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -50,14 +51,19 @@ def _scan(wms, name, cad, lat, lon, start, end, half_km=40, px=160):
     Each picture is compared with the usual (median) picture of the period, after removing the
     whole-scene change of the night, so a fire shows as a small strong spot."""
     box = box_around(lat, lon, half_km)
-    frames, t = [], floor_time(start, cad)
+    frames, t, failed, empty = [], floor_time(start, cad), 0, 0
     while t <= end:
         img, actual = wms.getmap(name, box, px, px, t=t, quiet=True)
-        if img is not None:
+        if img is None:
+            failed += 1
+        else:
             a = np.asarray(img)
             if a[..., 3].mean() > 200:
                 frames.append((actual or t, a[..., :3].astype(np.float32).mean(axis=2)))
+            else:
+                empty += 1
         t += dt.timedelta(minutes=cad)
+    log.info("%s: %d pictures, %d failed, %d empty", name, len(frames), failed, empty)
     if len(frames) < 3:
         return []
     med = np.median(np.stack([g for _, g in frames]), axis=0)
@@ -96,10 +102,23 @@ def probe(cfg, lat, lon, start, end, radius_km=15.0, out_dir="probe-out"):
                      "; ".join(f"{f['km']} km, {f['frp']} MW" for f in r["fires"]))
 
     best = None  # (strength, layer, cadence, time)
-    for name, cad, label in IR_LAYERS:
+    layers = list(IR_LAYERS)
+    try:  # find the real name of Meteosat-12's 3.8 micron picture on this server
+        url = E["wms_url"].replace("/geoserver/wms", "/geoserver/mtg_fd/wms")
+        r = session.get(url, params={"service": "WMS", "version": "1.3.0", "request": "GetCapabilities"},
+                        timeout=180)
+        names = sorted(set(re.findall(r"<Name>((?:mtg_fd:)?[^<:]+)</Name>", r.text)))
+        log.info("Meteosat-12 layers on the server: %s", ", ".join(names))
+        ir38 = [n for n in names if re.search(r"ir_?38|3\.?8", n, re.I)]
+        if ir38:
+            pick = sorted(ir38, key=lambda n: ("hrfi" not in n, len(n)))[0]
+            pick = pick if pick.startswith("mtg_fd:") else f"mtg_fd:{pick}"
+            layers = [x for x in layers if not x[0].startswith("mtg_fd:")] + [(pick, 10, f"Meteosat-12 {pick}")]
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not list Meteosat-12 layers: %s", e)
+    for name, cad, label in layers:
         rows = _scan(wms, name, cad, lat, lon, start, end)
         report["ir"].append({"layer": name, "rows": rows})
-        log.info("%s: %d pictures", name, len(rows))
         for r in rows:
             dk, br = r["darker"], r["brighter"]
             flag = " <<<" if max(dk["dev"], br["dev"]) >= 25 else ""

@@ -21,7 +21,7 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, latest_time
 
 STALE_HOURS = 3
-RULES = 2  # bump when the importance rules change, so stored incidents are judged again
+RULES = 3  # bump when the importance rules change, so stored incidents are judged again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -31,7 +31,9 @@ DEFAULTS = {
     "paths": {"state": "data/state", "site": "data/site", "geodata": "data/state/geo"},
     "regions": [],
     "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
-               "big_fire_mw": 50, "max_new_per_run": 6, "max_age_hours": 8},
+               "big_fire_mw": 50, "faint_mw": 3, "max_new_per_run": 6, "max_age_hours": 8,
+               "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
+                                   "عُمان", "إيران", "اليمن"]},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 100,
                "unusual_facility_km": 3},
     "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7},
@@ -345,11 +347,26 @@ def run_cycle(cfg, send=True, alert_now=False):
     first_alerts, updates = [], []
     rejudge = S.state.get("rules") != RULES
     if rejudge:
+        keep, dropped = [], 0
+        steady_days = max(3, math.ceil(0.5 * min(avail, int(M["window_days"]))))
         for inc in S.incidents:
-            if inc["kind"] == "unusual" and not geo.facility_within(inc["lat"], inc["lon"],
-                                                                    float(M["unusual_facility_km"])):
-                inc["kind"] = "new"
+            typ, kd = inc.get("typical_frp") or 0.0, inc.get("known_days") or 0
+            if inc["kind"] == "unusual":
+                still = (kd >= steady_days and geo.facility_within(inc["lat"], inc["lon"],
+                                                                    float(M["unusual_facility_km"]))
+                         and (inc.get("max_frp") or 0) >= max(float(M["unusual_ratio"]) * typ,
+                                                              typ + float(M["unusual_add_mw"])))
+                if not still:
+                    dropped += 1  # it was the usual heat of that place after all
+                    continue
+            elif avail > 0 and kd >= min(int(M["persistent_min_days"]), avail):
+                dropped += 1  # a former 'unusual' one: the usual heat of that place
+                continue
+            inc.pop("_pos", None)  # describe it again (nearest facility rules changed too)
+            keep.append(inc)
+        S.incidents = keep
         S.state["rules"] = RULES
+        log.info("re-judged stored incidents with the current rules: %d kept, %d dropped", len(keep), dropped)
     for inc in S.incidents:
         recent = now - parse_time(inc["last"]) <= dt.timedelta(hours=24)
         stale_map = recent and (inc.get("_pos") or [None])[-1] != geo.version

@@ -162,15 +162,29 @@ def alert_worthy(inc, cfg):
     f = inc.get("facility")
     frp = inc.get("max_frp") or 0
     big = float(A["big_fire_mw"])
-    weak_only = (not inc["geo_slots"] and bool(inc["polar"]) and frp < 5
+    has_geo = bool(inc["geo_slots"])
+    # a faint single speck (hot exhaust, a small flare) is not a fire worth a look on its own
+    faint = not has_geo and frp < float(A.get("faint_mw", 3))
+    weak_only = (not has_geo and bool(inc["polar"]) and frp < 5
                  and all(p.get("conf") in ("l", "low") for p in inc["polar"]))
+    seen_before = (inc.get("known_days") or 0) > 0
     if inc["kind"] == "unusual":
         return True
-    if inc["place"] in ("sea", "coast") or (f and f["km"] <= float(A.get("at_facility_km", 2))):
-        return not weak_only
+    if inc["place"] in ("sea", "coast"):
+        return not weak_only and not (faint and seen_before)
+    if f and f["km"] <= float(A.get("at_facility_km", 2)):
+        return not faint and not weak_only
     if f and f["km"] <= float(A["near_facility_km"]) and frp >= float(A.get("near_facility_min_mw", big)):
         return True
-    return frp >= big
+    return frp >= big and in_focus(inc, cfg)
+
+
+def in_focus(inc, cfg):
+    """Big fires far from any facility matter only in the countries being watched
+    (the boxes of the Red Sea and Iraq also cover Ethiopia, Sudan, Syria, Turkey...)."""
+    names = cfg["alerts"].get("focus_countries") or []
+    country = inc.get("country") or ""
+    return not names or not country or any(n in country for n in names)
 
 
 def finalize(inc, cfg):
