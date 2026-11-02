@@ -10,7 +10,8 @@ import numpy as np
 
 from .clip import make_clip
 from .sources import firms_fetch, pick_frp
-from .util import bbox_px, box_around, floor_time, haversine_km, iso, log, make_session, px_to_latlon
+from .util import (bbox_px, box_around, floor_time, haversine_km, iso, log, make_session, parse_time,
+                   px_to_latlon)
 from .wms import WMS, components
 
 
@@ -41,23 +42,37 @@ def _geo_series(wms, L, lat, lon, start, end, radius_km):
     return rows
 
 
-def _ir_series(wms, L, lat, lon, start, end):
-    """Brightness of the thermal picture at the point versus its surroundings, slot by slot."""
-    cad = int(L["cadence_min"])
-    box = box_around(lat, lon, 25)
-    rows, t = [], floor_time(start, cad)
+IR_LAYERS = [("msg_iodc:ir039", 15, "Meteosat IODC IR3.9"), ("mtg_fd:ir38_hrfi", 10, "Meteosat-12 IR3.8")]
+
+
+def _scan(wms, name, cad, lat, lon, start, end, half_km=40, px=160):
+    """Thermal pictures of the area, slot by slot: where does something suddenly stand out?
+    Each picture is compared with the usual (median) picture of the period, after removing the
+    whole-scene change of the night, so a fire shows as a small strong spot."""
+    box = box_around(lat, lon, half_km)
+    frames, t = [], floor_time(start, cad)
     while t <= end:
-        img, actual = wms.getmap(L["name"], box, 50, 50, t=t, style=L.get("style", ""), quiet=True)
+        img, actual = wms.getmap(name, box, px, px, t=t, quiet=True)
         if img is not None:
-            g = np.asarray(img).astype(np.float32)[..., :3].mean(axis=2)
-            core = g[22:29, 22:29]
-            med = float(np.median(g))
-            rows.append({"asked": iso(t), "served": iso(actual) if actual else None,
-                         "brighter": round(float(core.max()) - med, 1),
-                         "darker": round(med - float(core.min()), 1)})
-        else:
-            rows.append({"asked": iso(t), "error": True})
+            a = np.asarray(img)
+            if a[..., 3].mean() > 200:
+                frames.append((actual or t, a[..., :3].astype(np.float32).mean(axis=2)))
         t += dt.timedelta(minutes=cad)
+    if len(frames) < 3:
+        return []
+    med = np.median(np.stack([g for _, g in frames]), axis=0)
+    rows = []
+    for when, g in frames:
+        d = g - med
+        d -= np.median(d)
+        out = {"t": iso(when)}
+        for key, arr in (("darker", -d), ("brighter", d)):
+            k = int(np.argmax(arr))
+            r, c = divmod(k, px)
+            plat, plon = px_to_latlon(box, px, px, c, r)
+            out[key] = {"dev": round(float(arr.max()), 1), "lat": round(plat, 3), "lon": round(plon, 3),
+                        "km": round(haversine_km(lat, lon, plat, plon), 1)}
+        rows.append(out)
     return rows
 
 
@@ -80,12 +95,20 @@ def probe(cfg, lat, lon, start, end, radius_km=15.0, out_dir="probe-out"):
             log.info("   %s (served %s): %s", r["asked"], r["served"],
                      "; ".join(f"{f['km']} km, {f['frp']} MW" for f in r["fires"]))
 
-    L = E["clip_layer"]
-    report["ir"] = _ir_series(wms, L, lat, lon, start, end)
-    for r in report["ir"]:
-        if not r.get("error"):
-            log.info("   IR3.9 %s (served %s): point vs surroundings  brighter %+6.1f  darker %+6.1f",
-                     r["asked"], r["served"], r["brighter"], r["darker"])
+    best = None  # (strength, layer, cadence, time)
+    for name, cad, label in IR_LAYERS:
+        rows = _scan(wms, name, cad, lat, lon, start, end)
+        report["ir"].append({"layer": name, "rows": rows})
+        log.info("%s: %d pictures", name, len(rows))
+        for r in rows:
+            dk, br = r["darker"], r["brighter"]
+            flag = " <<<" if max(dk["dev"], br["dev"]) >= 25 else ""
+            log.info("   %s  darker %5.1f at %.3f,%.3f (%4.1f km)   brighter %5.1f at %.3f,%.3f (%4.1f km)%s",
+                     r["t"], dk["dev"], dk["lat"], dk["lon"], dk["km"], br["dev"], br["lat"], br["lon"],
+                     br["km"], flag)
+            for side in (dk, br):
+                if side["km"] <= 30 and (best is None or side["dev"] > best[0]):
+                    best = (side["dev"], name, cad, label, parse_time(r["t"]))
 
     day = start.date()
     while day <= end.date():
@@ -102,13 +125,21 @@ def probe(cfg, lat, lon, start, end, radius_km=15.0, out_dir="probe-out"):
     if not report["nasa"]:
         log.info("   NASA: nothing within %s km", radius_km)
 
-    cad = int(L["cadence_min"])
-    frames = max(2, min(16, int((end - start).total_seconds() // (cad * 60)) + 1))
-    try:
-        video, snap = make_clip(cfg, wms, lat, lon, floor_time(end, cad), out / "clip", frames=frames)
-        report["clip"] = [video.name, snap.name]
-        log.info("clip: %s (%d frames up to %s)", video, frames, iso(floor_time(end, cad)))
-    except Exception as e:  # noqa: BLE001
-        log.warning("clip failed: %s", e)
+    # a clip around the strongest spot found near the point (or the end of the period)
+    clips = []
+    if best and best[0] >= 25:
+        _, name, cad, label, when = best
+        clips.append((name, cad, label, when + dt.timedelta(minutes=cad * 4), "clip_spot"))
+        log.info("strongest spot within 30 km: %s at %s (strength %.0f)", name, iso(when), best[0])
+    L = E["clip_layer"]
+    clips.append((L["name"], int(L["cadence_min"]), L["label"], end, "clip"))
+    for name, cad, label, t_end, base in clips:
+        c = dict(cfg, eumetview=dict(E, clip_layer=dict(L, name=name, cadence_min=cad, label=label)))
+        try:
+            video, snap = make_clip(c, wms, lat, lon, floor_time(min(t_end, end), cad), out / base, frames=16)
+            report.setdefault("clips", []).append([video.name, snap.name])
+            log.info("clip: %s", video)
+        except Exception as e:  # noqa: BLE001
+            log.warning("clip %s failed: %s", base, e)
     (out / "probe.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     return report

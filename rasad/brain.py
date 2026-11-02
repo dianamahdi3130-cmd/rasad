@@ -143,10 +143,11 @@ def headline(inc, cfg):
     near = float(cfg["alerts"]["near_facility_km"])
     if inc["kind"] == "unusual":
         return f"حرارة غير معتادة في {f['label']}" if f else "حرارة غير معتادة في موقع صناعي"
+    if f and f["km"] < 0.8:
+        # new heat right on a platform is often a flare being lit: say heat, not fire
+        return f"حرارة عند {f['label']}" if f.get("code") == "platform" else f"حريق في {f['label']}"
     if inc["place"] == "sea":
         return "حريق في البحر" + (f" قرب {region}" if region else "")
-    if f and f["km"] < 0.8:
-        return f"حريق في {f['label']}"
     if f and f["km"] <= near:
         return f"حريق قرب {f['label']}"
     if inc["place"] == "coast":
@@ -155,11 +156,21 @@ def headline(inc, cfg):
 
 
 def alert_worthy(inc, cfg):
+    """Important = what the watch is for: fires at sea or in ports, at energy facilities,
+    and big fires. Small fires a few km from a facility are usually fields or rubbish."""
     A = cfg["alerts"]
     f = inc.get("facility")
-    return (inc["kind"] == "unusual" or inc["place"] in ("sea", "coast")
-            or bool(f and f["km"] <= float(A["near_facility_km"]))
-            or (inc.get("max_frp") or 0) >= float(A["big_fire_mw"]))
+    frp = inc.get("max_frp") or 0
+    big = float(A["big_fire_mw"])
+    weak_only = (not inc["geo_slots"] and bool(inc["polar"]) and frp < 5
+                 and all(p.get("conf") in ("l", "low") for p in inc["polar"]))
+    if inc["kind"] == "unusual":
+        return True
+    if inc["place"] in ("sea", "coast") or (f and f["km"] <= float(A.get("at_facility_km", 2))):
+        return not weak_only
+    if f and f["km"] <= float(A["near_facility_km"]) and frp >= float(A.get("near_facility_min_mw", big)):
+        return True
+    return frp >= big
 
 
 def finalize(inc, cfg):

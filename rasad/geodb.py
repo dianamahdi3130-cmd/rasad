@@ -38,6 +38,15 @@ POWER_SOURCE_AR = {"gas": "غاز", "oil": "نفط", "diesel": "ديزل", "sola
                    "coal": "فحم", "wind": "رياح", "hydro": "مائية"}
 
 
+# A fire at a solar, wind or hydro farm is a grass fire, not an energy-infrastructure fire.
+SKIP_CATS = ("شمسية", "رياح", "مائية")
+
+
+def relevant_item(it):
+    """Facility index item [lat, lon, name, Arabic category, code] that matters for fires."""
+    return not any(w in (it[3] or "") for w in SKIP_CATS)
+
+
 NOT_ENERGY = ("edible", "food", "vegetable", "cooking", "palm", "olive", "sunflower", "soap", "sesame",
               "زيوت", "زيت الطعام", "صابون", "أغذية")
 
@@ -229,15 +238,20 @@ class Geo:
     def has_data(self):
         return bool(self.fac.items or self.places.items)
 
+    def facility_within(self, lat, lon, km):
+        """Is there an oil/gas/power/port facility within km? (no network, used while judging)"""
+        return self.fac.nearest(lat, lon, km, accept=relevant_item)[0] is not None
+
     # -- nearest facility -------------------------------------------------------
     def facility(self, lat, lon):
         max_km = float(self.cfg["geodata"]["facility_max_km"])
-        it, d = self.fac.nearest(lat, lon, max_km)
+        it, d = self.fac.nearest(lat, lon, max_km, accept=relevant_item)
         if not it:
             return None
         d_any = d
         if not it[2]:  # prefer a named facility when it is almost as close
-            named, dn = self.fac.nearest(lat, lon, min(max_km, d + 2.0), accept=lambda x: bool(x[2]))
+            named, dn = self.fac.nearest(lat, lon, min(max_km, d + 2.0),
+                                         accept=lambda x: bool(x[2]) and relevant_item(x))
             if named:
                 it, d = named, dn
         b = bearing_deg(it[0], it[1], lat, lon)

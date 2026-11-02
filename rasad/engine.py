@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import os
 import sys
 import time
@@ -20,6 +21,7 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, latest_time
 
 STALE_HOURS = 3
+RULES = 2  # bump when the importance rules change, so stored incidents are judged again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -28,9 +30,10 @@ DEFAULTS = {
     "local_time": {"offset_hours": 3, "name": "بغداد"},
     "paths": {"state": "data/state", "site": "data/site", "geodata": "data/state/geo"},
     "regions": [],
-    "alerts": {"min_verdict": "مرجّح", "near_facility_km": 10, "big_fire_mw": 50, "max_new_per_run": 6,
-               "max_age_hours": 8},
-    "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 3, "unusual_add_mw": 40},
+    "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
+               "big_fire_mw": 50, "max_new_per_run": 6, "max_age_hours": 8},
+    "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 100,
+               "unusual_facility_km": 3},
     "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7},
     "firms": {"map_key": "", "base_url": "https://firms.modaps.eosdis.nasa.gov",
               "sources": ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "VIIRS_SNPP_NRT", "MODIS_NRT"],
@@ -306,9 +309,13 @@ def run_cycle(cfg, send=True, alert_now=False):
         reach = {"mtg": 3, "msg_iodc": 2}.get(d["family"], 2) if d["kind"] == "geo" else 1
         n_days, typical = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), reach)
         known = avail > 0 and n_days >= min(int(M["persistent_min_days"]), avail)
+        # 'unusual' is for steady heat (a flare seen most days) at a real facility that suddenly
+        # burns far hotter, not for farm areas that burn now and then
+        steady = known and n_days >= max(3, math.ceil(0.5 * min(avail, int(M["window_days"]))))
         frp = d.get("frp")  # NASA gives the strength directly; European symbols are asked later
-        unusual = known and frp is not None and typical is not None and \
-            frp >= max(float(M["unusual_ratio"]) * typical, typical + float(M["unusual_add_mw"]))
+        unusual = steady and frp is not None and typical is not None and \
+            frp >= max(float(M["unusual_ratio"]) * typical, typical + float(M["unusual_add_mw"])) and \
+            geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"]))
         routine = known and not unusual
         mem.record(d["lat"], d["lon"], day, frp)
         inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h)
@@ -336,10 +343,18 @@ def run_cycle(cfg, send=True, alert_now=False):
     min_rank = VERDICT_RANK.get(cfg["alerts"]["min_verdict"], 1)
     max_age = dt.timedelta(hours=float(cfg["alerts"].get("max_age_hours", 8)))
     first_alerts, updates = [], []
+    rejudge = S.state.get("rules") != RULES
+    if rejudge:
+        for inc in S.incidents:
+            if inc["kind"] == "unusual" and not geo.facility_within(inc["lat"], inc["lon"],
+                                                                    float(M["unusual_facility_km"])):
+                inc["kind"] = "new"
+        S.state["rules"] = RULES
     for inc in S.incidents:
         recent = now - parse_time(inc["last"]) <= dt.timedelta(hours=24)
         stale_map = recent and (inc.get("_pos") or [None])[-1] != geo.version
-        if inc["id"] not in touched and not (recent and inc.get("status") == "pending") and not stale_map:
+        if inc["id"] not in touched and not (recent and inc.get("status") == "pending") \
+                and not stale_map and not rejudge:
             continue
         enrich(inc, cfg, geo)
         if inc["priority"] != "high" or inc.get("status") == "held":
@@ -421,6 +436,11 @@ def publish(cfg, S, status, now, learning, n_dets):
     site = Path(cfg["_site_dir"])
     items = [{k: i.get(k) for k in PUBLIC} for i in S.incidents if i.get("headline")]
     items.sort(key=lambda i: i["last"], reverse=True)
+    # every important incident, but only the latest small ones, so the app stays light on a phone
+    low = [i for i in items if i["priority"] != "high"][250:]
+    if low:
+        drop = {id(i) for i in low}
+        items = [i for i in items if id(i) not in drop]
     save_json(site / "data" / "incidents.json", {"generated": iso(now), "items": items}, compact=True)
     save_json(site / "data" / "meta.json", {
         "generated": iso(now), "app_name": cfg["app_name"], "learning": learning,
