@@ -222,6 +222,7 @@ class Geo:
         self.fac = GeoIndex(fac["items"])
         self.places = GeoIndex(load_json(d / "places.json", {"items": []})["items"])
         self.version = f"{fac.get('built')}|{len(fac['items'])}"
+        self.broken = False
         self._last_nominatim = 0.0
 
     @property
@@ -234,6 +235,7 @@ class Geo:
         it, d = self.fac.nearest(lat, lon, max_km)
         if not it:
             return None
+        d_any = d
         if not it[2]:  # prefer a named facility when it is almost as close
             named, dn = self.fac.nearest(lat, lon, min(max_km, d + 2.0), accept=lambda x: bool(x[2]))
             if named:
@@ -245,6 +247,7 @@ class Geo:
         else:
             text = f"{km_text(d)} {direction_ar(b)} {label}"
         return {"name": it[2], "cat": it[3], "code": it[4], "label": label, "km": round(d, 1),
+                "nearest_km": round(d_any, 1),
                 "dir": direction_ar(b), "lat": it[0], "lon": it[1], "text": text}
 
     # -- place names ---------------------------------------------------------------
@@ -297,27 +300,74 @@ class Geo:
 
     # -- sea or land ---------------------------------------------------------------
     def place_kind(self, lat, lon):
-        """'sea', 'coast' or 'land' using EUMETView's land polygons (cached)."""
+        """'sea', 'coast' or 'land' (cached). Says 'unknown' rather than guess 'sea'."""
+        if self.broken:
+            return "unknown"
         key = f"{round(lat, 3)},{round(lon, 3)}"
         cache = self.state.setdefault("landsea", {})
         if key in cache:
             return cache[key]
-        layer = self.cfg["eumetview"].get("land_layer")
-        if not layer:
-            return "unknown"
         coast_km = float(self.cfg["geodata"]["coast_km"])
-        bbox = box_around(lat, lon, 6)
-        img, _ = self.wms.getmap(layer, bbox, 96, 96, style=self.cfg["eumetview"].get("land_style", ""))
-        if img is None:
-            return "unknown"
-        m = np.asarray(img)[..., 3] > 0
-        c = 48
-        if m[c, c]:
-            kind = "land"
+        kind = "unknown"
+        mask = land_mask_points()
+        if mask is not None:
+            if mask([lat], [lon])[0]:
+                kind = "land"
+            else:
+                lats, lons = ring_points(lat, lon, (0.5, 1.0, coast_km))
+                kind = "coast" if mask(lats, lons).any() else "sea"
         else:
-            ys, xs = np.nonzero(m)
-            km_px = 12.0 / 96
-            near = len(ys) and np.sqrt(((ys - c) * km_px) ** 2 + ((xs - c) * km_px) ** 2).min() <= coast_km
-            kind = "coast" if near else "sea"
-        cache[key] = kind
+            layer = self.cfg["eumetview"].get("land_layer")
+            img, _ = (self.wms.getmap(layer, box_around(lat, lon, 25), 200, 200,
+                                      style=self.cfg["eumetview"].get("land_style", ""), quiet=True)
+                      if layer else (None, None))
+            if img is not None:
+                m = np.asarray(img)[..., 3] > 0
+                if m.any():  # a blank picture proves nothing, so it is not taken as 'sea'
+                    c, km_px = 100, 50.0 / 200
+                    if m[c, c]:
+                        kind = "land"
+                    else:
+                        ys, xs = np.nonzero(m)
+                        d = np.sqrt(((ys - c) * km_px) ** 2 + ((xs - c) * km_px) ** 2).min()
+                        kind = "coast" if d <= coast_km else "sea"
+        if kind != "unknown":
+            cache[key] = kind
         return kind
+
+    def self_test(self):
+        """Baghdad must be land and the middle of the Gulf must be sea, or sea/land is switched off."""
+        cache = self.state.setdefault("landsea", {})
+        cache.pop("33.31,44.36", None)
+        cache.pop("26.5,53.0", None)
+        ok = self.place_kind(33.31, 44.36) == "land" and self.place_kind(26.5, 53.0) == "sea"
+        if not ok:
+            self.broken = True
+            log.error("sea/land check failed its self-test; places will be reported as unknown")
+        return ok
+
+
+_GLOBE = None
+
+
+def land_mask_points():
+    """Vectorised land test from the global-land-mask package (1 km), or None if unavailable."""
+    global _GLOBE
+    if _GLOBE is None:
+        try:
+            from global_land_mask import globe
+            _GLOBE = lambda la, lo: np.asarray(globe.is_land(np.asarray(la, float), np.asarray(lo, float)))  # noqa: E731
+        except Exception as e:  # noqa: BLE001
+            log.warning("global-land-mask not available (%s)", e)
+            _GLOBE = False
+    return _GLOBE or None
+
+
+def ring_points(lat, lon, radii_km):
+    lats, lons = [], []
+    for r in radii_km:
+        for ang in range(0, 360, 30):
+            a = math.radians(ang)
+            lats.append(lat + r * math.cos(a) / 111.32)
+            lons.append(lon + r * math.sin(a) / (111.32 * max(math.cos(math.radians(lat)), 0.05)))
+    return lats, lons

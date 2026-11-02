@@ -28,12 +28,13 @@ DEFAULTS = {
     "local_time": {"offset_hours": 3, "name": "بغداد"},
     "paths": {"state": "data/state", "site": "data/site", "geodata": "data/state/geo"},
     "regions": [],
-    "alerts": {"min_verdict": "مرجّح", "near_facility_km": 10, "big_fire_mw": 50},
+    "alerts": {"min_verdict": "مرجّح", "near_facility_km": 10, "big_fire_mw": 50, "max_new_per_run": 6,
+               "max_age_hours": 8},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 3, "unusual_add_mw": 40},
     "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7},
     "firms": {"map_key": "", "base_url": "https://firms.modaps.eosdis.nasa.gov",
               "sources": ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "VIIRS_SNPP_NRT", "MODIS_NRT"],
-              "bootstrap_days": 10},
+              "bootstrap_days": 10, "max_day_range": 5, "live_hours": 36},
     "telegram": {"bot_token": "", "chat_id": "", "api_base": "https://api.telegram.org"},
     "eumetview": {
         "wms_url": "https://view.eumetsat.int/geoserver/wms",
@@ -121,27 +122,30 @@ class State:
         save_json(self.dir / "incidents.json", self.incidents, compact=True)
 
 
-def available_days(state, today, window):
-    lo = (dt.date.fromisoformat(today) - dt.timedelta(days=window)).isoformat()
-    return sum(1 for d in state.get("run_days", []) if lo <= d < today)
-
-
 def bootstrap(cfg, session, S, box):
-    """Learn the usual heat (gas flares, plants) from the last days of NASA data."""
+    """Learn the usual heat (gas flares, plants) from NASA data of the previous days.
+    Yesterday and today are left out on purpose: they are judged as live data, so a fire
+    from last night is reported instead of being learned as 'usual'.
+    NASA accepts at most 5 days per request, so the period is read in chunks."""
     days = int(cfg["firms"].get("bootstrap_days", 10))
-    start = (utcnow().date() - dt.timedelta(days=days)).isoformat()
+    chunk = int(cfg["firms"].get("max_day_range", 5))
     mem = Memory(S.memory)
-    dets = firms_fetch(session, cfg, box, min(days, 10), date=start)
-    today = utcnow().date().isoformat()
-    for d in dets:
-        if d["t"][:10] < today:
-            mem.record(d["lat"], d["lon"], d["t"][:10], d.get("frp"))
-    for k in range(1, days + 1):
-        day = (utcnow().date() - dt.timedelta(days=k)).isoformat()
-        if day not in S.state.setdefault("run_days", []):
-            S.state["run_days"].append(day)
-    log.info("learned usual heat from %d NASA detections over %d days", len(dets), days)
-    return len(dets)
+    today = utcnow().date()
+    first, last = today - dt.timedelta(days=days), today - dt.timedelta(days=2)
+    lo, hi = first.isoformat(), last.isoformat()
+    total, span, cur = 0, set(), first
+    while cur <= last:
+        n = min(chunk, (last - cur).days + 1)
+        for d in firms_fetch(session, cfg, box, n, date=cur.isoformat()):
+            day = d["t"][:10]
+            if lo <= day <= hi:
+                mem.record(d["lat"], d["lon"], day, d.get("frp"))
+                span.add(day)
+                total += 1
+        cur += dt.timedelta(days=n)
+    log.info("learned usual heat from %d NASA detections on %d days (%s .. %s)", total, len(span),
+             min(span, default="-"), max(span, default="-"))
+    return total
 
 
 def smallest_region(cfg, lat, lon):
@@ -187,6 +191,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     wms = WMS(cfg["eumetview"]["wms_url"], session)
     S = State(cfg)
     geo = Geo(cfg, session, wms, S.state)
+    geo.self_test()
     E, M, I = cfg["eumetview"], cfg["memory"], cfg["incidents"]
     regions = cfg["regions"]
     box = union_bbox([r["bbox"] for r in regions])
@@ -195,12 +200,19 @@ def run_cycle(cfg, send=True, alert_now=False):
     pbox = [pcenter[0] - 0.2, pcenter[1] - 0.2, pcenter[0] + 0.2, pcenter[1] + 0.2]
     status = {}
 
+    if S.state.get("schema", 1) < 3:
+        # the first learning step had failed and the sea/land test was wrong:
+        # the incidents made with them were false alarms, so start them again
+        S.incidents = []
+        for k in ("bootstrapped", "landsea", "seen"):
+            S.state.pop(k, None)
+        S.state["schema"] = 3
     if cfg["firms"]["map_key"] and not S.state.get("bootstrapped"):
-        bootstrap(cfg, session, S, box)
-        S.state["bootstrapped"] = iso(now)
+        if bootstrap(cfg, session, S, box) > 0:
+            S.state["bootstrapped"] = iso(now)
 
     if telegram_ready(cfg) and not S.state.get("hello_sent"):
-        active = available_days(S.state, today, int(M["window_days"])) > 0 or alert_now
+        active = Memory(S.memory).days_known(today, int(M["window_days"])) > 0 or alert_now
         hello = ("✅ <b>رصد يعمل الآن</b>\n"
                  f"يراقب: {'، '.join(r['name'] for r in regions)}\n"
                  "ستصلك هنا تنبيهات الحرائق الجديدة في البحر وقرب منشآت الطاقة، مع مقطع القمر الصناعي.\n"
@@ -246,17 +258,27 @@ def run_cycle(cfg, send=True, alert_now=False):
 
     log.info("European satellites: %d images read, %d fire points, %.0f s", n_images, len(dets), time.time() - t0)
 
-    # 2) NASA (VIIRS/MODIS), precise but a few hours late
+    # 2) NASA (VIIRS/MODIS), precise but a few hours late.
+    #    Ask for today AND yesterday (UTC): the night passes over the Gulf (about 21:30-23:30 UTC)
+    #    are published after midnight UTC, so "today only" would never see them.
     if cfg["firms"]["map_key"]:
         seen = S.state.setdefault("seen", {})
-        polar = firms_fetch(session, cfg, box, 1)
-        fresh_polar = []
+        polar = firms_fetch(session, cfg, box, 2)
+        live_from = now - dt.timedelta(hours=float(cfg["firms"].get("live_hours", 36)))
+        n_new = n_old = 0
         for d in polar:
             k = f"{d['src']}|{d['t']}|{d['lat']}|{d['lon']}"
-            if k not in seen:
-                seen[k] = d["t"]
-                fresh_polar.append(d)
-        dets += fresh_polar
+            if k in seen:
+                continue
+            seen[k] = d["t"]
+            if parse_time(d["t"]) < live_from:
+                d["_history"] = True  # too old to report: only remembered as heat history
+                n_old += 1
+            else:
+                n_new += 1
+            dets.append(d)
+        log.info("NASA: %d detections in the last 2 days, %d new to judge, %d kept as history",
+                 len(polar), n_new, n_old)
         status["firms"] = {"name": "الأقمار الأمريكية (ناسا)", "ok": True, "latest": max(
             (d["t"] for d in polar), default=None)}
 
@@ -268,7 +290,7 @@ def run_cycle(cfg, send=True, alert_now=False):
 
     # 3) judgement
     mem = Memory(S.memory)
-    avail = available_days(S.state, today, int(M["window_days"]))
+    avail = mem.days_known(today, int(M["window_days"]))  # days of real history, not days the bot ran
     learning = avail == 0 and not alert_now
     merge_km, merge_h = float(I["merge_km"]), float(I["merge_hours"])
     open_incs = [i for i in S.incidents if now - parse_time(i["last"]) <= dt.timedelta(hours=merge_h)]
@@ -277,7 +299,12 @@ def run_cycle(cfg, send=True, alert_now=False):
         if not any(in_bbox(r["bbox"], d["lat"], d["lon"]) for r in regions):
             continue
         day = d["t"][:10]
-        n_days, typical = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]))
+        if d.get("_history"):
+            mem.record(d["lat"], d["lon"], day, d.get("frp"))
+            continue
+        # European pixels are coarse (Meteosat-12 sees the Gulf at a steep angle): look wider around
+        reach = {"mtg": 3, "msg_iodc": 2}.get(d["family"], 2) if d["kind"] == "geo" else 1
+        n_days, typical = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), reach)
         known = avail > 0 and n_days >= min(int(M["persistent_min_days"]), avail)
         frp = d.get("frp")  # NASA gives the strength directly; European symbols are asked later
         unusual = known and frp is not None and typical is not None and \
@@ -307,35 +334,61 @@ def run_cycle(cfg, send=True, alert_now=False):
 
     # 4) describe, decide, alert
     min_rank = VERDICT_RANK.get(cfg["alerts"]["min_verdict"], 1)
+    max_age = dt.timedelta(hours=float(cfg["alerts"].get("max_age_hours", 8)))
+    first_alerts, updates = [], []
     for inc in S.incidents:
         recent = now - parse_time(inc["last"]) <= dt.timedelta(hours=24)
         stale_map = recent and (inc.get("_pos") or [None])[-1] != geo.version
         if inc["id"] not in touched and not (recent and inc.get("status") == "pending") and not stale_map:
             continue
         enrich(inc, cfg, geo)
-        if inc["priority"] != "high":
+        if inc["priority"] != "high" or inc.get("status") == "held":
             continue
         rank = VERDICT_RANK[inc["verdict"]]
         if inc.get("alerted_verdict") is None and rank >= min_rank:
-            inc["status"] = "pending"
-            media = None
-            if cfg["clip"].get("enabled", True) and not inc.get("clip"):
-                try:
-                    video, snap = clip_for(cfg, wms, S, inc)
-                    site = Path(cfg["_site_dir"])
-                    inc["clip"] = video.relative_to(site).as_posix()
-                    inc["snap"] = snap.relative_to(site).as_posix()
-                except Exception as e:  # noqa: BLE001
-                    log.warning("clip for %s failed: %s", inc["id"], e)
-            if inc.get("clip"):
-                media = Path(cfg["_site_dir"]) / inc["clip"]
-            if deliver(cfg, session, alert_message(inc, cfg), media, send):
-                inc["alerted_verdict"], inc["status"], inc["alerted_at"] = inc["verdict"], "alerted", iso(now)
-                log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
+            if now - parse_time(inc["last"]) > max_age:
+                # e.g. the first run after installing: shown in the app, not pushed as news
+                inc["alerted_verdict"], inc["status"] = inc["verdict"], "late"
+                log.info("not alerting %s: its newest evidence is older than %s", inc["id"], max_age)
+                continue
+            first_alerts.append(inc)
         elif inc.get("alerted_verdict") and rank > VERDICT_RANK[inc["alerted_verdict"]]:
-            if deliver(cfg, session, alert_message(inc, cfg, update=True), None, send):
-                inc["alerted_verdict"] = inc["verdict"]
-                log.info("UPDATE %s -> %s", inc["id"], inc["verdict"])
+            updates.append(inc)
+
+    # safety valve: many "new" fires at once usually means the memory is not ready, not a war
+    max_new = int(cfg["alerts"].get("max_new_per_run", 6))
+    if len(first_alerts) > max_new:
+        log.warning("%d new heat sources in one run: holding them, sending one summary", len(first_alerts))
+        for inc in first_alerts:
+            inc["status"], inc["alerted_verdict"] = "held", inc["verdict"]
+        summary = (f"⚠️ <b>رُصدت {len(first_alerts)} مصادر حرارة جديدة دفعة واحدة</b>\n"
+                   "هذا غير معتاد، وقد يكون بسبب نقص في ذاكرة الحرارة المعتادة لا بسبب حرائق حقيقية. "
+                   "لم أرسلها كتنبيهات منفصلة؛ راجعها في التطبيق قبل أي نشر.")
+        if cfg.get("app_url"):
+            summary += f'\n<a href="{cfg["app_url"]}">افتح التطبيق</a>'
+        deliver(cfg, session, summary, None, send)
+        first_alerts = []
+
+    for inc in first_alerts:
+        inc["status"] = "pending"
+        media = None
+        if cfg["clip"].get("enabled", True) and not inc.get("clip"):
+            try:
+                video, snap = clip_for(cfg, wms, S, inc)
+                site = Path(cfg["_site_dir"])
+                inc["clip"] = video.relative_to(site).as_posix()
+                inc["snap"] = snap.relative_to(site).as_posix()
+            except Exception as e:  # noqa: BLE001
+                log.warning("clip for %s failed: %s", inc["id"], e)
+        if inc.get("clip"):
+            media = Path(cfg["_site_dir"]) / inc["clip"]
+        if deliver(cfg, session, alert_message(inc, cfg), media, send):
+            inc["alerted_verdict"], inc["status"], inc["alerted_at"] = inc["verdict"], "alerted", iso(now)
+            log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
+    for inc in updates:
+        if deliver(cfg, session, alert_message(inc, cfg, update=True), None, send):
+            inc["alerted_verdict"] = inc["verdict"]
+            log.info("UPDATE %s -> %s", inc["id"], inc["verdict"])
 
     # 5) tidy up and publish
     keep = dt.timedelta(days=int(I["keep_days"]))
@@ -344,7 +397,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     S.state["slots"] = {k: v for k, v in slots.items()
                         if now - parse_time(k.rsplit("|", 1)[1]) <= dt.timedelta(hours=6)}
     S.state["seen"] = {k: v for k, v in S.state.get("seen", {}).items()
-                       if now - parse_time(v) <= dt.timedelta(days=2)}
+                       if now - parse_time(v) <= dt.timedelta(days=3)}
     for cache in ("geocode", "landsea"):
         c = S.state.get(cache, {})
         if len(c) > 5000:

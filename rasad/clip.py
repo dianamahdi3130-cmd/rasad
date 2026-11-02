@@ -144,16 +144,24 @@ def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
     hi = max(float(np.percentile(base_img, 99.5)), lo + 4)
     top = max(255.0, hi + 1)
     lut = _lut()
-    edges = None
-    land_layer = cfg["eumetview"].get("land_layer")
-    if land_layer:
-        limg, _ = wms.getmap(land_layer, bbox, N * 2, N * 2, style=cfg["eumetview"].get("land_style", ""),
-                             quiet=True)
+    edges, m = None, None
+    from .geodb import land_mask_points
+    mask = land_mask_points()
+    if mask is not None:  # 1 km land mask, good enough for a coastline outline
+        w, s, e, n = bbox
+        lons = w + (np.arange(N) + 0.5) / N * (e - w)
+        lats = n - (np.arange(N) + 0.5) / N * (n - s)
+        gl, go = np.meshgrid(lats, lons, indexing="ij")
+        m = mask(gl.ravel(), go.ravel()).reshape(N, N)
+    else:
+        land_layer = cfg["eumetview"].get("land_layer")
+        limg = wms.getmap(land_layer, bbox, N, N, style=cfg["eumetview"].get("land_style", ""),
+                          quiet=True)[0] if land_layer else None
         if limg is not None:
             m = np.asarray(limg)[..., 3] > 0
-            if 0 < m.mean() < 1:
-                e = m & ~_erode(m)
-                edges = Image.fromarray((e * 255).astype(np.uint8)).resize((OUT, OUT), NEAREST)
+    if m is not None and 0 < m.mean() < 1:
+        edge = m & ~_erode(m)
+        edges = Image.fromarray((edge * 255).astype(np.uint8)).resize((OUT, OUT), NEAREST)
     fonts = (_font(max(18, OUT // 40)), _font(max(14, OUT // 56)), _font(max(28, OUT // 16)))
     km_per_px = 2 * half / OUT
     out = []

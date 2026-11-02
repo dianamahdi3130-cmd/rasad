@@ -83,6 +83,13 @@ def main(argv=None):
     p.add_argument("--lon", type=float, required=True)
     p.add_argument("--time", help="event time UTC, e.g. 2026-11-01T21:30Z")
     p.add_argument("--send", action="store_true")
+    p = sub.add_parser("probe", help="what each satellite saw at a place and period (checks a known fire)")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--start", required=True, help="UTC, e.g. 2026-11-01T19:00Z")
+    p.add_argument("--end", required=True, help="UTC, e.g. 2026-11-01T23:00Z")
+    p.add_argument("--radius", type=float, default=15.0, help="km around the point")
+    p.add_argument("--out", default="probe-out")
     sub.add_parser("test-telegram")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -106,6 +113,9 @@ def main(argv=None):
             except Exception:  # noqa: BLE001
                 log.exception("cycle failed")
             time.sleep(max(30.0, args.interval * 60 - (time.time() - t0)))
+    elif args.cmd == "probe":
+        from .probe import probe
+        probe(cfg, args.lat, args.lon, parse_time(args.start), parse_time(args.end), args.radius, args.out)
     elif args.cmd == "build-geo":
         build_geodata(cfg, make_session())
     elif args.cmd == "clip":

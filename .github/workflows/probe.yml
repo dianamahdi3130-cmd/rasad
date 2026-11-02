@@ -1,0 +1,59 @@
+name: رصد - فحص حريق سابق
+
+# Checks what each satellite saw at one place and period (for example a fire shown by a channel).
+# Edit tools/probe-request.json and push, or run it by hand from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      lat: {description: "latitude", required: true}
+      lon: {description: "longitude", required: true}
+      start: {description: "start, UTC (2026-11-01T19:00Z)", required: true}
+      end: {description: "end, UTC (2026-11-01T23:00Z)", required: true}
+  push:
+    branches: [main]
+    paths: ["tools/probe-request.json"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Look back
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+          IN_LAT: ${{ github.event.inputs.lat }}
+          IN_LON: ${{ github.event.inputs.lon }}
+          IN_START: ${{ github.event.inputs.start }}
+          IN_END: ${{ github.event.inputs.end }}
+        run: |
+          if [ -z "$IN_LAT" ]; then
+            eval "$(python3 -c 'import json,shlex;r=json.load(open("tools/probe-request.json"));print("\n".join(f"IN_{k.upper()}={shlex.quote(str(v))}" for k,v in r.items()))')"
+          fi
+          python -m rasad --state /tmp/probe-state --site /tmp/probe-site probe \
+            --lat "$IN_LAT" --lon "$IN_LON" --start "$IN_START" --end "$IN_END" --out probe-out
+
+      - name: Keep the results on the probe branch
+        if: always()
+        run: |
+          mkdir -p probe-out && cd probe-out
+          git init -q && git checkout -q -b probe
+          git add -A
+          git -c user.name="rasad-bot" -c user.email="rasad-bot@users.noreply.github.com" commit -qm "probe $(date -u +%FT%TZ)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe

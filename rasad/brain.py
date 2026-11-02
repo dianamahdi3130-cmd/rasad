@@ -32,18 +32,24 @@ class Memory:
         c = self.cells.setdefault(self.key(lat, lon), {})
         c[day] = max(c.get(day, 0.0), float(frp or 0.0))
 
-    def profile(self, lat, lon, before_day, window_days):
-        """(number of earlier days with heat here, typical daily strongest fire)."""
+    def profile(self, lat, lon, before_day, window_days, reach=1):
+        """(number of earlier days with heat here, typical daily strongest fire).
+        reach = how many ~2 km cells around the point count as 'here'."""
         i, j = math.floor(lat / CELL), math.floor(lon / CELL)
         lo = (dt.date.fromisoformat(before_day) - dt.timedelta(days=window_days)).isoformat()
         per_day = {}
-        for di in (-1, 0, 1):
-            for dj in (-1, 0, 1):
+        for di in range(-reach, reach + 1):
+            for dj in range(-reach, reach + 1):
                 for day, frp in self.cells.get(f"{i + di},{j + dj}", {}).items():
                     if lo <= day < before_day:
                         per_day[day] = max(per_day.get(day, 0.0), frp)
         vals = [v for v in per_day.values() if v > 0]
         return len(per_day), (statistics.median(vals) if vals else None)
+
+    def days_known(self, before_day, window_days):
+        """How many earlier days the memory actually holds (0 = still learning)."""
+        lo = (dt.date.fromisoformat(before_day) - dt.timedelta(days=window_days)).isoformat()
+        return len({d for c in self.cells.values() for d in c if lo <= d < before_day})
 
     def prune(self, today, keep_days):
         lo = (dt.date.fromisoformat(today) - dt.timedelta(days=keep_days)).isoformat()
@@ -74,7 +80,8 @@ def add_to_incident(inc, det):
         inc["geo_slots"].append(det["t"])
         inc["geo_slots"] = sorted(inc["geo_slots"])[-60:]
     if det["kind"] == "polar":
-        inc["polar"].append({"t": det["t"], "frp": det.get("frp"), "conf": det.get("conf")})
+        inc["polar"].append({"t": det["t"], "frp": det.get("frp"), "conf": det.get("conf"),
+                             "night": det.get("night")})
         inc["polar"] = inc["polar"][-20:]
         if inc["best"] != "polar":  # NASA's position is accurate to a few hundred metres
             inc["lat"], inc["lon"], inc["best"] = det["lat"], det["lon"], "polar"
@@ -113,7 +120,21 @@ def verdict_of(inc):
     strong = any(p.get("conf") in ("h", "high") or (p.get("frp") or 0) >= 10 for p in inc["polar"])
     if strong:
         return "مرجّح", "رصده قمر أمريكي بوضوح"
+    if open_sea_night_fire(inc):
+        return "مرجّح", ("رصده قمر أمريكي ليلاً في عرض البحر، بعيداً عن أي منصة نفطية معروفة، "
+                         "ولم تُسجَّل حرارة في هذا المكان من قبل")
     return "يحتاج تأكيداً", "رصدة واحدة حتى الآن، وننتظر الصورة التالية"
+
+
+def open_sea_night_fire(inc):
+    """At night, out at sea, away from platforms and with no earlier heat there, a NASA hotspot
+    has few innocent explanations (no sun glint, no fields, no flare stacks): treat it as likely."""
+    if inc.get("place") != "sea" or inc.get("kind") != "new" or (inc.get("known_days") or 0) > 0:
+        return False
+    f = inc.get("facility")
+    if f and f.get("nearest_km", f["km"]) <= 3:
+        return False
+    return any(p.get("night") and p.get("conf") not in ("l", "low") for p in inc["polar"])
 
 
 def headline(inc, cfg):

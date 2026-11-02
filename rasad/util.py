@@ -19,7 +19,8 @@ log = logging.getLogger("rasad")
 
 # ----------------------------------------------------------------- time
 def utcnow():
-    return dt.datetime.now(UTC)
+    fake = os.environ.get("RASAD_NOW")  # only for tests and replays of a past night
+    return parse_time(fake) if fake else dt.datetime.now(UTC)
 
 
 def floor_time(t, minutes):
