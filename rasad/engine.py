@@ -24,7 +24,7 @@ from .wms import WMS, latest_time
 
 STALE_HOURS = 3
 RULES = 4  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 5  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 7  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -70,8 +70,8 @@ DEFAULTS = {
                 "nominatim_url": "https://nominatim.openstreetmap.org/reverse"},
     "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 20, "px_km": 0.25,
              "smooth_km": 0.6, "out_px": 1080, "fps": 3, "hold_last": 4, "format": "mp4", "per_run": 4,
-             "layout": "two", "context_layer": "mtg_fd:rgb_geocolour", "out_fps": 15,
-             "logo_width": 330, "logo_opacity": 0.6},
+             "layout": "two", "context_layer": "mtg_fd:rgb_geocolour", "out_fps": 24,
+             "logo_width": 300, "logo_opacity": 0.55, "logo_period_s": 2.4, "logo_tile_opacity": 0.05},
     # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
     "seawatch": {
         "enabled": True, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
@@ -226,7 +226,10 @@ def clip_for(cfg, wms, S, inc):
         after = int(cfg["clip"].get("frames_after", 2))
         t_end = min(latest, floor_time(parse_time(inc["first"]), cad) + dt.timedelta(minutes=cad * after))
         base = Path(cfg["_site_dir"]) / "clips" / inc["id"]
-        info = {"where": inc.get("where"), "region": inc.get("region_name"), "verdict": inc.get("verdict")}
+        fac = inc.get("facility")
+        info = {"where": inc.get("where"), "region": inc.get("region_name"), "verdict": inc.get("verdict"),
+                "size": inc.get("size"), "first": inc.get("first"),
+                "facility": fac["text"] if fac and fac.get("km", 99) <= 15 else None}
         try:
             return make_clip(dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L)), wms,
                              inc["lat"], inc["lon"], t_end, base, info=info)
