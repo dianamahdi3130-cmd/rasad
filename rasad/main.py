@@ -93,16 +93,16 @@ def main(argv=None):
     if args.cmd == "status":
         cmd_status(cfg)
     elif args.cmd == "cycle":
+        run_cycle(cfg, send=not args.no_send, alert_now=args.alert_now)  # watching comes first
         if args.auto_geo and geo_needed(cfg):
             build_geodata(cfg, make_session(), budget_s=args.geo_budget)
-        run_cycle(cfg, send=not args.no_send, alert_now=args.alert_now)
     elif args.cmd == "loop":
         while True:
             t0 = time.time()
             try:
+                run_cycle(cfg, send=not args.no_send)
                 if geo_needed(cfg):
                     build_geodata(cfg, make_session(), budget_s=240)
-                run_cycle(cfg, send=not args.no_send)
             except Exception:  # noqa: BLE001
                 log.exception("cycle failed")
             time.sleep(max(30.0, args.interval * 60 - (time.time() - t0)))
