@@ -24,7 +24,7 @@ from .wms import WMS, latest_time
 
 STALE_HOURS = 3
 RULES = 9  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 13  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 14  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
