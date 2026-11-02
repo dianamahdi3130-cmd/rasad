@@ -85,6 +85,30 @@ def facility_category(tags):
     return "منشأة صناعية", "industrial"
 
 
+SHORT_COUNTRY = {
+    "الإمارات العربية المتحدة": "الإمارات", "المملكة العربية السعودية": "السعودية",
+    "سلطنة عمان": "عُمان", "سلطنة عُمان": "عُمان", "عمان": "عُمان", "جمهورية العراق": "العراق",
+    "دولة الكويت": "الكويت", "دولة قطر": "قطر", "مملكة البحرين": "البحرين",
+    "جمهورية إيران الإسلامية": "إيران", "الجمهورية الإسلامية الإيرانية": "إيران",
+    "الجمهورية اليمنية": "اليمن", "جمهورية مصر العربية": "مصر", "المملكة الأردنية الهاشمية": "الأردن",
+    "الجمهورية العربية السورية": "سوريا", "سورية": "سوريا", "الأراضي الفلسطينية": "فلسطين",
+    "دولة فلسطين": "فلسطين", "جمهورية السودان": "السودان", "دولة إريتريا": "إريتريا",
+    "جمهورية جيبوتي": "جيبوتي", "جمهورية تركيا": "تركيا", "جمهورية إثيوبيا الفيدرالية الديمقراطية": "إثيوبيا",
+}
+
+
+def short_country(name):
+    """'الإمارات العربية المتحدة' -> 'الإمارات', 'المملكة العربية السعودية' -> 'السعودية'."""
+    name = (name or "").strip()
+    if name in SHORT_COUNTRY:
+        return SHORT_COUNTRY[name]
+    for prefix in ("المملكة ", "جمهورية ", "الجمهورية ", "دولة ", "سلطنة ", "مملكة ", "إمارة "):
+        if name.startswith(prefix) and len(name) > len(prefix) + 2:
+            rest = name[len(prefix):]
+            return SHORT_COUNTRY.get(rest, rest)
+    return name
+
+
 GEO_VERSION = 2  # 2: facilities also keep their operator, so unnamed ones can still be told apart
 
 
@@ -335,7 +359,7 @@ class Geo:
         any_, d_any = self.places.nearest(lat, lon, float(G["place_max_km"]))
         p, d = (any_, d_any) if any_ and (not big or d_any < 5 or d_any < d_big / 3) else (big, d_big)
         here = self.reverse(lat, lon) if place_kind != "sea" else {}
-        country = here.get("country") or (self.reverse(p[0], p[1]).get("country") if p else "")
+        country = short_country(here.get("country") or (self.reverse(p[0], p[1]).get("country") if p else ""))
         suffix = f" ({country})" if country else ""
         if p:
             rel = f"{km_text(d)} {direction_ar(bearing_deg(p[0], p[1], lat, lon))} {p[2]}"

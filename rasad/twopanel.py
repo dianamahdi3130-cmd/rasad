@@ -135,6 +135,25 @@ def _smooth(x):
     return x * x * (3 - 2 * x)
 
 
+def _monitor_overlay(PW, PH):
+    """Fine scan lines and a soft dark edge, the look of a surveillance monitor (very light)."""
+    a = np.zeros((PH, PW), np.float32)
+    a[::4, :] = 18                                        # scan lines
+    yy, xx = np.mgrid[0:PH, 0:PW]
+    dx, dy = (xx - PW / 2) / (PW / 2), (yy - PH / 2) / (PH / 2)
+    a += np.clip((dx * dx + dy * dy - 0.55) * 120, 0, 120)  # vignette
+    ov = Image.new("RGBA", (PW, PH), (0, 0, 0, 0))
+    ov.putalpha(Image.fromarray(np.clip(a, 0, 150).astype(np.uint8)))
+    return ov
+
+
+def _dashed_ring(d, cx, cy, r, col, angle, n=24, width=2):
+    """A ring of short dashes, turned by `angle` degrees (it turns slowly frame after frame)."""
+    for i in range(n):
+        a0 = angle + i * 360 / n
+        d.arc((cx - r, cy - r, cx + r, cy + r), a0, a0 + 360 / n * 0.55, fill=col, width=width)
+
+
 def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, info=None):
     """Make the clip. Returns (video, snapshot); raises NotVisible when the fire does not show."""
     from .clip import NotVisible, _write
@@ -142,7 +161,7 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     C = cfg["clip"]
     info = info or {}
     W, H = int(C.get("two_w", 1920)), int(C.get("two_h", 1080))
-    top_h, foot_h, m, gap = 128, 156, 12, 12
+    top_h, foot_h, m, gap = 128, 140, 12, 12
     PW, PH = (W - 2 * m - gap) // 2, H - top_h - foot_h - 2 * m
     LX, RX, PY = m, m + PW + gap, top_h + m
     half_h = float(C["half_size_km"])
@@ -186,15 +205,18 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     cx0, cx1 = nx // 2 - nx // 8, nx // 2 + nx // 8 + 1
     centre = [float(np.nanmax(v[cy0:cy1, cx0:cx1])) for _, v, _ in shots]
     change = max(centre) - centre[0]
-    contrast = max(c - float(np.nanmedian(v)) for c, (_, v, _) in zip(centre, shots))
-    if change < float(C.get("min_visible", 4)) and contrast < float(C.get("min_contrast", 15)):
+    contrast = [c - float(np.nanmedian(v)) for c, (_, v, _) in zip(centre, shots)]
+    vis = float(C.get("min_visible", 4))
+    if change < vis and max(contrast) < float(C.get("min_contrast", 15)):
         raise NotVisible("the fire does not show in these pictures")
     top = max(hi + float(C.get("min_span", 6)), max(centre))
     lut = _lut(FIRE)
-    fire_idx = next((i for i, c in enumerate(centre) if c - centre[0] >= float(C.get("min_visible", 4))), None)
+    # the reveal only when the fire really appears during the loop (nothing there in the first picture)
+    fire_idx = None
+    if contrast[0] < vis * 1.5:
+        fire_idx = next((i for i, c in enumerate(centre) if c - centre[0] >= max(vis, 0.4 * change)), None)
+    shown_from = fire_idx if fire_idx is not None else 0
 
-    # put the circle on the fire as this satellite sees it: the hottest point within ~6 km of the
-    # reported position (at this viewing angle a pixel is 2-5 km, so the speck can sit a little off)
     stack = np.stack([v for _, v, _ in shots])
     hot = stack.max(axis=0) - float(np.median(stack[0]))
     R = int(round(float(C.get("snap_km", 6)) / px_km))
@@ -202,9 +224,8 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     near = (yy - ny / 2) ** 2 + (xx - nx / 2) ** 2 <= R * R
     hv = np.where(near, hot, -1e9)
     hmax = float(hv.max())
-    if hmax >= float(C.get("min_visible", 4)):
-        blob = hv >= 0.7 * hmax  # the warm speck itself, so the circle sits on its middle
-        wts = np.where(blob, hv, 0.0)
+    if hmax >= vis:
+        wts = np.where(hv >= 0.7 * hmax, hv, 0.0)
         hr, hc = (yy * wts).sum() / wts.sum(), (xx * wts).sum() / wts.sum()
         tx_, ty_ = (hc + 0.5) / nx * PW, (hr + 0.5) / ny * PH
     else:
@@ -218,20 +239,20 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         first_t = shots[fire_idx][0]
     verdict = info.get("verdict") or ""
     vcol = VERDICT_COL.get(verdict, CYAN)
-    f_title, f_sub = _font(46, "arb"), _font(27, "ar")
-    f_brand, f_clock, f_date = _font(32, "mono"), _font(58, "mono"), _font(24, "monol")
-    f_coord, f_small, f_tl = _font(34, "mono"), _font(19, "monol"), _font(26, "mono")
-    f_lab, f_first, f_badge, f_tag = _font(26, "ar"), _font(30, "arb"), _font(32, "arb"), _font(22, "arb")
+    f_sub = _font(27, "ar")
+    f_brand, f_clock = _font(30, "mono"), _font(56, "mono")
+    f_coord, f_small = _font(30, "mono"), _font(18, "monol")
+    f_lab, f_first, f_badge = _font(26, "ar"), _font(30, "arb"), _font(32, "arb")
 
     static = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(static)
     d.rectangle((0, 0, W, top_h), fill=(*BG, 255))
-    d.line([(0, top_h - 1), (W, top_h - 1)], fill=(*CYAN, 80), width=2)
-    _text(d, (36, top_h // 2), str(C.get("hud_title", "Alfaqaar313")), f_brand, CYAN, anchor="lm")
+    d.line([(0, top_h - 1), (W, top_h - 1)], fill=(*CYAN, 70), width=2)
+    _text(d, (64, top_h // 2), str(C.get("hud_title", "Alfaqaar313")), f_brand, CYAN, anchor="lm")
     title = info.get("where") or f"{lat:.4f}, {lon:.4f}"
-    max_w = W - 2 * 450  # keep clear of the name on the left and the clock on the right
+    max_w = W - 2 * 450
     if _width(d, title, _font(38, "arb"), rtl=True) > max_w and "(" in title:
-        title = title[:title.rfind("(")].rstrip()  # the country is already in the line below
+        title = title[:title.rfind("(")].rstrip()
     for size in (46, 42, 38, 34, 31, 28):
         f_title = _font(size, "arb")
         if _width(d, title, f_title, rtl=True) <= max_w:
@@ -240,50 +261,62 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         while len(title) > 10 and _width(d, title + "…", f_title, rtl=True) > max_w:
             title = title[:-1]
         title = title.rstrip("، ") + "…"
-    _text(d, (W // 2, 46), title, f_title, WHITE, anchor="mm", rtl=True)
+    _text(d, (W // 2, 48), title, f_title, WHITE, anchor="mm", rtl=True)
     region, country = info.get("region") or "", info.get("country") or ""
     if region and country and (region in country or country in region):
-        region = ""  # 'الإمارات' and 'الإمارات العربية المتحدة' say the same thing
+        region = ""
     sub = " • ".join(x for x in (region, country) if x and x not in title)
     if sub:
-        _text(d, (W // 2, 98), sub, f_sub, DIM, anchor="mm", rtl=True)
+        _text(d, (W // 2, 100), sub, f_sub, DIM, anchor="mm", rtl=True)
+    overlay = _monitor_overlay(PW, PH)
     for x0, label in ((LX, "حراري"), (RX, "مرئي")):
-        _brackets(d, x0 + 8, PY + 8, x0 + PW - 8, PY + PH - 8, (*CYAN, 230), arm=40)
+        static.alpha_composite(overlay, (x0, PY))
+        _brackets(d, x0 + 8, PY + 8, x0 + PW - 8, PY + PH - 8, (*CYAN, 230), arm=44)
         lw = _width(d, label, f_lab, rtl=True)
-        d.rounded_rectangle((x0 + 24, PY + 24, x0 + 24 + lw + 32, PY + 68), radius=8, fill=(0, 0, 0, 160))
-        _text(d, (x0 + 40 + lw // 2, PY + 46), label, f_lab, WHITE, anchor="mm", rtl=True)
-    km_per_px = 2 * half_w / PW
-    bar_km = max([s for s in (2, 5, 10, 20) if s <= 2 * half_w / 4] or [1])
-    bx, by, bl = LX + 32, PY + PH - 40, int(bar_km / km_per_px)
-    d.line([(bx, by), (bx + bl, by)], fill=(*WHITE, 235), width=4)
-    for tx in (bx, bx + bl):
-        d.line([(tx, by - 8), (tx, by + 8)], fill=(*WHITE, 235), width=3)
-    _text(d, (bx + bl // 2, by - 12), f"{bar_km} km", f_date, (*WHITE, 235), anchor="mb")
+        d.rounded_rectangle((x0 + 26, PY + 26, x0 + 26 + lw + 32, PY + 70), radius=8, fill=(0, 0, 0, 160))
+        _text(d, (x0 + 42 + lw // 2, PY + 48), label, f_lab, WHITE, anchor="mm", rtl=True)
     fy = H - foot_h
     d.rectangle((0, fy, W, H), fill=(*BG, 255))
-    d.line([(0, fy), (W, fy)], fill=(*CYAN, 80), width=2)
-    _text(d, (36, fy + 62), f"{lat:.4f}°N  {lon:.4f}°E", f_coord, WHITE, anchor="lm")
-    _text(d, (36, fy + 112), "© EUMETSAT", f_small, (98, 110, 126), anchor="lm")
+    d.line([(0, fy), (W, fy)], fill=(*CYAN, 70), width=2)
+    _text(d, (40, fy + 58), f"{lat:.4f}°N  {lon:.4f}°E", f_coord, WHITE, anchor="lm")
+    _text(d, (40, fy + 104), "© EUMETSAT", f_small, (92, 104, 120), anchor="lm")
     if verdict:
         vw = _width(d, verdict, f_badge, rtl=True) + 56
-        d.rounded_rectangle((W - 36 - vw, fy + 46, W - 36, fy + 106), radius=12, fill=(*vcol, 245))
-        _text(d, (W - 36 - vw // 2, fy + 76), verdict, f_badge, (12, 12, 14), anchor="mm", rtl=True)
+        d.rounded_rectangle((W - 40 - vw, fy + 40, W - 40, fy + 100), radius=12, fill=(*vcol, 245))
+        _text(d, (W - 40 - vw // 2, fy + 70), verdict, f_badge, (12, 12, 14), anchor="mm", rtl=True)
 
-    logo = None
+    # a few small, faint logos drifting slowly over the pictures (hard to paint out, easy to ignore)
+    marks = []
     lp = cfg.get("watermark_logo")
     if lp:
         p = Path(lp)
-        logo = _logo(p if p.is_absolute() else ROOT / p, int(C.get("logo_width", 300)))
+        lg = _logo(p if p.is_absolute() else ROOT / p, int(C.get("mark_width", 150)))
+        if lg:
+            small = _with_opacity(lg[0], float(C.get("mark_opacity", 0.22)))
+            n_marks = int(C.get("marks", 4))
+            for j in range(n_marks):
+                x0 = LX if j % 2 == 0 else RX
+                marks.append((small, x0, (j * 0.37 + 0.13) % 1.0, (j * 0.61 + 0.27) % 1.0, 1 if j % 2 else -1))
+
+    pmask = Image.new("L", (W, H), 0)  # rings are drawn only inside the two pictures
+    pmd = ImageDraw.Draw(pmask)
+    for x0 in (LX, RX):
+        pmd.rectangle((x0, PY, x0 + PW - 1, PY + PH - 1), fill=255)
+    pmask_np = np.asarray(pmask, np.float32) / 255
+
+    def clipped(layer):
+        a = np.asarray(layer.getchannel("A"), np.float32) * pmask_np
+        layer.putalpha(Image.fromarray(a.astype(np.uint8)))
+        return layer
 
     sat_fps = int(C.get("fps", 2))
     out_fps = int(C.get("out_fps", 24))
     rep = max(1, out_fps // sat_fps)
-    wipe_n = int(out_fps * float(C.get("wipe_s", 2.5)))
+    reveal_n = int(out_fps * float(C.get("reveal_s", 1.6)))
     seq = list(range(len(shots))) + [len(shots) - 1] * int(C.get("hold_last", 4))
-    n_out = len(seq) * rep + (wipe_n if fire_idx else 0)
+    n_out = len(seq) * rep + (reveal_n if fire_idx else 0)
     r = int(C.get("ring_px", 50))
-    tl_x0, tl_x1, tl_y = 700, W - 700, fy + 86
-    n_sh = len(shots)
+    tl_x0, tl_x1, tl_y = 720, W - 720, fy + 84
     span = (shots[-1][0] - shots[0][0]).total_seconds() or 1
 
     def tl_x(t):
@@ -297,92 +330,81 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
                  else Image.new("RGB", (PW, PH), (12, 16, 28)))
         return left, right
 
-    def chrome(frame, si):
-        """Circles, clock and timeline for picture si."""
+    def chrome(frame, si, k, fire_on):
+        """Target marks, clock, live dot and timeline for picture si, output frame k."""
         t = shots[si][0]
         d = ImageDraw.Draw(frame)
+        rings = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        rd = ImageDraw.Draw(rings)
         for x0 in (LX, RX):
-            _reticle(d, x0 + int(tx_), PY + int(ty_), r, CYAN)
+            cx, cy = x0 + int(tx_), PY + int(ty_)
+            _reticle(rd, cx, cy, r, CYAN)
+            _dashed_ring(rd, cx, cy, r + 26, (*CYAN, 150), angle=(k * 1.5) % 360)
+            if fire_on:  # a radar ping from the fire, about every 1.6 s
+                ph = (k % int(out_fps * 1.6)) / (out_fps * 1.6)
+                rr = int(r + 10 + ph * 120)
+                rd.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(*vcol, int(200 * (1 - ph))), width=3)
+        frame.alpha_composite(clipped(rings))
         loc = t + dt.timedelta(hours=off)
-        _text(d, (W - 36, 50), f"{loc:%H:%M}", f_clock, WHITE, anchor="rm")
+        _text(d, (W - 40, top_h // 2 + 2), f"{loc:%H:%M}", f_clock, WHITE, anchor="rm")
         cw = _width(d, f"{loc:%H:%M}", f_clock)
-        _text(d, (W - 36 - cw - 16, 54), tzname, f_sub, DIM, anchor="rm", rtl=True)
-        _text(d, (W - 36, 102), f"{loc:%Y-%m-%d}", f_date, DIM, anchor="rm")
-        # timeline: what has been shown so far is filled in
+        _text(d, (W - 40 - cw - 16, top_h // 2 + 6), tzname, f_sub, DIM, anchor="rm", rtl=True)
+        live = 0.5 + 0.5 * math.sin(2 * math.pi * k / out_fps)  # the 'watching' dot breathes
+        d.ellipse((34, top_h // 2 - 8, 50, top_h // 2 + 8), fill=(235, 64, 64, int(120 + 135 * live)))
         px = tl_x(t)
-        d.rounded_rectangle((tl_x0, tl_y - 4, tl_x1, tl_y + 4), radius=4, fill=(*DIM, 110))
+        d.rounded_rectangle((tl_x0, tl_y - 4, tl_x1, tl_y + 4), radius=4, fill=(*DIM, 100))
         d.rounded_rectangle((tl_x0, tl_y - 4, max(tl_x0 + 8, px), tl_y + 4), radius=4, fill=(*CYAN, 255))
-        for j in range(n_sh):
-            jx = tl_x(shots[j][0])
-            d.line([(jx, tl_y - 10), (jx, tl_y + 10)], fill=(*WHITE, 120), width=2)
         d.ellipse((px - 11, tl_y - 11, px + 11, tl_y + 11), fill=(*CYAN, 255), outline=(*BG, 255), width=3)
-        _text(d, (tl_x0, tl_y + 22), f"{shots[0][0] + dt.timedelta(hours=off):%H:%M}", f_tl, DIM, anchor="mt")
-        _text(d, (tl_x1, tl_y + 22), f"{shots[-1][0] + dt.timedelta(hours=off):%H:%M}", f_tl, DIM, anchor="mt")
         if first_t and shots[0][0] <= first_t <= shots[-1][0]:
             fx = tl_x(first_t)
-            d.line([(fx, tl_y - 22), (fx, tl_y + 14)], fill=(*vcol, 255), width=4)
-            _text(d, (fx, tl_y - 28), f"أول رصد {first_t + dt.timedelta(hours=off):%H:%M}", f_first, (*vcol, 255),
+            d.line([(fx, tl_y - 20), (fx, tl_y + 14)], fill=(*vcol, 255), width=4)
+            _text(d, (fx, tl_y - 26), f"أول رصد {first_t + dt.timedelta(hours=off):%H:%M}", f_first, (*vcol, 255),
                   anchor="mb", rtl=True)
 
-    def add_logo(fr, k):
-        if not logo:
-            return
-        lg, sh = logo
-        ph = 2 * math.pi * k / max(n_out, 1)
-        cx = LX + int(tx_) + int(PW * 0.24 * math.sin(ph))
-        cy = PY + int(ty_) + int(PH * 0.14 * math.sin(2 * ph))
-        cx = min(max(cx, LX + lg.width // 2), LX + PW - lg.width // 2)
-        cy = min(max(cy, PY + lg.height // 2), PY + PH - lg.height // 2)
-        op = float(C.get("logo_opacity", 0.5))
-        fr.alpha_composite(_with_opacity(sh, op), (cx - lg.width // 2 + 2, cy - lg.height // 2 + 3))
-        fr.alpha_composite(_with_opacity(lg, op), (cx - lg.width // 2, cy - lg.height // 2))
-
-    glow = Image.new("RGBA", (PW, 64), (0, 0, 0, 0))  # soft light trailing the sweep line
-    ga = np.zeros((64, PW), np.float32)
-    ga[:] = np.linspace(0, 1, 64)[:, None] ** 2 * 110
-    glow.putalpha(Image.fromarray(ga.astype(np.uint8)))
-    glow_rgb = Image.new("RGBA", (PW, 64), (*CYAN, 255))
-    glow_rgb.putalpha(glow.getchannel("A"))
+    def add_marks(fr, k):
+        for (img, x0, fx, fy_, sgn) in marks:
+            ph = k / max(n_out, 1)
+            x = x0 + int(((fx + 0.18 * ph * sgn) % 1.0) * (PW - img.width))
+            y = PY + int(((fy_ + 0.12 * math.sin(2 * math.pi * ph)) % 1.0) * (PH - img.height))
+            fr.alpha_composite(img, (x, y))
 
     out, best, k, prev = [], None, 0, None
     for i, si in enumerate(seq):
         left, right = panels(si)
+        fire_on = si >= shown_from
         if fire_idx and i == fire_idx and prev is not None:
-            # before / after: one slow, smooth sweep uncovers the picture where the fire appears
+            # the fire appears: a circle opens from the target and uncovers the new picture
             pl, pr = prev
-            for w in range(wipe_n):
-                yy_ = int(PH * _smooth((w + 1) / wipe_n))
+            rmax = int(math.hypot(PW, PH))
+            for w in range(reveal_n):
+                rr = int(rmax * _smooth((w + 1) / reveal_n))
                 fr = Image.new("RGBA", (W, H), (*BG, 255))
-                for (old, new, x0) in ((pl, left, LX), (pr, right, RX)):
+                mask = Image.new("L", (PW, PH), 0)
+                ImageDraw.Draw(mask).ellipse((int(tx_) - rr, int(ty_) - rr, int(tx_) + rr, int(ty_) + rr), fill=255)
+                for (old, new_, x0) in ((pl, left, LX), (pr, right, RX)):
                     fr.paste(old, (x0, PY))
-                    if yy_ > 0:
-                        fr.paste(new.crop((0, 0, PW, yy_)), (x0, PY))
-                    gy = max(PY, PY + yy_ - 64)
-                    g = glow_rgb.crop((0, 64 - (PY + yy_ - gy), PW, 64))
-                    fr.alpha_composite(g, (x0, gy))
+                    fr.paste(new_, (x0, PY), mask)
                 fr.alpha_composite(static)
-                chrome(fr, si)
-                dd = ImageDraw.Draw(fr)
-                for x0 in (LX, RX):
-                    dd.line([(x0, PY + yy_), (x0 + PW, PY + yy_)], fill=(*WHITE, 255), width=3)
-                if 40 < yy_ < PH - 40:  # small tags: after above the line, before below it
-                    for x0 in (LX, RX):
-                        for txt, ty, col in (("بعد", PY + yy_ - 24, CYAN), ("قبل", PY + yy_ + 26, DIM)):
-                            tw = _width(dd, txt, f_tag, rtl=True)
-                            dd.rounded_rectangle((x0 + PW - 36 - tw - 20, ty - 17, x0 + PW - 36, ty + 17),
-                                                 radius=6, fill=(0, 0, 0, 170))
-                            _text(dd, (x0 + PW - 46 - tw // 2, ty), txt, f_tag, col, anchor="mm", rtl=True)
-                add_logo(fr, k)
+                chrome(fr, si, k, True)
+                edge = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+                ed = ImageDraw.Draw(edge)
+                fade = int(255 * (1 - _smooth((w + 1) / reveal_n)) ** 0.5)
+                for x0 in (LX, RX):  # the edge of the opening circle, with a soft glow
+                    cx, cy = x0 + int(tx_), PY + int(ty_)
+                    ed.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(*CYAN, max(30, fade // 3)), width=12)
+                    ed.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(*WHITE, max(40, fade)), width=3)
+                fr.alpha_composite(clipped(edge))
+                add_marks(fr, k)
                 k += 1
-                out.append(fr.convert("RGB"))
+                out.append(fr.crop((0, 0, W, H)).convert("RGB"))
         frame = Image.new("RGBA", (W, H), (*BG, 255))
         frame.paste(left, (LX, PY))
         frame.paste(right, (RX, PY))
         frame.alpha_composite(static)
-        chrome(frame, si)
         for _ in range(rep):
             fr = frame.copy()
-            add_logo(fr, k)
+            chrome(fr, si, k, fire_on)
+            add_marks(fr, k)
             k += 1
             out.append(fr.convert("RGB"))
         if best is None or centre[si] > best[0]:
