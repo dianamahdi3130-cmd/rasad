@@ -69,6 +69,13 @@ class Pictures:
     def __init__(self, wms):
         self.wms, self.cache = wms, {}
 
+    def prefetch(self, requests_):
+        """Ask for several pictures at once (the server is slow per picture, not per request)."""
+        from concurrent.futures import ThreadPoolExecutor
+        todo = [r for r in requests_ if (r[0], tuple(r[1]), r[2], r[3], iso(r[4])) not in self.cache]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda r: self.get(*r), todo))
+
     def get(self, layer, bbox, W, H, t):
         key = (layer, tuple(bbox), W, H, iso(t))
         if key not in self.cache:
@@ -120,14 +127,17 @@ def _ir105_change(pics, cfg, lat, lon, t, refs):
     return round(float(np.nanmax(np.abs(c - med))) / max(sig, 0.5), 1)
 
 
+def box_size(box, km):
+    w, s, e, n = box["bbox"]
+    wkm = (e - w) * 111.32 * math.cos(math.radians((s + n) / 2))
+    return max(50, int(round(wkm / km))), max(50, int(round((n - s) * 111.32 / km)))
+
+
 def find_spots(cfg, pics, box, t, mem=None, geo=None):
     """Specks in one sea box at one slot. Returns (spots, notes) or (None, reason) if not ready."""
     C = cfg["seawatch"]
     km = float(C["km_per_px"])
-    w, s, e, n = box["bbox"]
-    wkm = (e - w) * 111.32 * math.cos(math.radians((s + n) / 2))
-    W = max(50, int(round(wkm / km)))
-    H = max(50, int(round((n - s) * 111.32 / km)))
+    W, H = box_size(box, km)
     if not any(_night(box["bbox"], t, float(C["sun_max_elev"]))):
         return [], "daylight"
     refs = [int(m) for m in C["ref_minutes"]]
@@ -138,7 +148,9 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None):
     sea = sea_grid(box["bbox"], W, H, float(C["min_coast_km"]), km)
     if sea is None:
         return [], "no land mask"
-    ref = np.fmax(old[0], old[1]) if len(old) > 1 else old[0]
+    ref = old[0]
+    for o in old[1:]:
+        ref = np.fmax(ref, o)
     rise = cur - ref
     # window sizes are in km, so the finder behaves the same at any picture detail
     spot = rise - local_mean(rise, max(2, round(5 / km)))     # what warmed more than its surroundings
@@ -194,16 +206,32 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None):
     return out, notes
 
 
+def confirm(cands, spot, km=3.0, minutes=40):
+    """A speck counts only when another picture shows one at the same place within 40 minutes."""
+    from .util import haversine_km
+    t = parse_time(spot["t"])
+    return [c for c in cands if c["t"] != spot["t"]
+            and abs((t - parse_time(c["t"])).total_seconds()) <= minutes * 60
+            and haversine_km(c["lat"], c["lon"], spot["lat"], spot["lon"]) <= km]
+
+
 def watch(cfg, wms, state, now, mem=None, geo=None):
-    """Run the finder on the newest Meteosat-12 slots not looked at yet."""
+    """Run the finder on the newest Meteosat-12 slots not looked at yet. A speck is reported only
+    once a second picture shows one at the same place (single specks are mostly noise)."""
     C = cfg["seawatch"]
     cad = int(C["cadence_min"])
+    km = float(C["km_per_px"])
     done = state.setdefault("seawatch", {})
+    cands = state.setdefault("sea_candidates", [])
     pics = Pictures(wms)
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []
     for k in range(int(C["slots_per_run"]) - 1, -1, -1):
         t = latest - dt.timedelta(minutes=cad * k)
+        boxes = [b for b in C["boxes"] if f"{b['id']}|{iso(t)}" not in done and any(
+            _night(b["bbox"], t, float(C["sun_max_elev"])))]
+        pics.prefetch([(C["layer"], b["bbox"], *box_size(b, km), tt) for b in boxes
+                       for tt in [t] + [t - dt.timedelta(minutes=int(m)) for m in C["ref_minutes"]]])
         for box in C["boxes"]:
             key = f"{box['id']}|{iso(t)}"
             if key in done:
@@ -212,13 +240,22 @@ def watch(cfg, wms, state, now, mem=None, geo=None):
             if spots is None:
                 continue  # not published yet: try again next run
             done[key] = iso(t)
-            found += spots
+            for sp in spots:
+                pair = confirm(cands, sp)
+                cands.append({k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")})
+                if pair:
+                    found += [dict(sp, src=SRC, family="mtg", kind="geo", frp=None) for sp in pair + [sp]]
             if spots or (isinstance(notes, dict) and notes.get("candidates")):
                 log.info("sea watch %s %s: %s", box["id"], iso(t),
-                         notes if not spots else f"{len(spots)} spot(s) {notes}")
+                         notes if not spots else f"{len(spots)} speck(s) {notes}")
+        pics.cache = {}  # pictures are big: keep memory low between slots
     for key in [k for k, v in done.items() if now - parse_time(v) > dt.timedelta(hours=6)]:
         del done[key]
-    return found
+    state["sea_candidates"] = [c for c in cands if now - parse_time(c["t"]) <= dt.timedelta(hours=2)]
+    uniq = {}
+    for d in found:
+        uniq[(d["t"], d["lat"], d["lon"])] = d
+    return list(uniq.values())
 
 
 def look_back(cfg, wms, inc, mem=None, geo=None, hours_before=3.0, minutes_after=30, radius_km=6.0):
@@ -249,6 +286,10 @@ def scan(cfg, wms, start, end, mem=None, geo=None, boxes=None):
     pics = Pictures(wms)
     rows, t = [], floor_time(start, cad)
     while t <= end:
+        km = float(C["km_per_px"])
+        pics.prefetch([(C["layer"], b["bbox"], *box_size(b, km), tt) for b in C["boxes"]
+                       if (not boxes or b["id"] in boxes) and any(_night(b["bbox"], t, float(C["sun_max_elev"])))
+                       for tt in [t] + [t - dt.timedelta(minutes=int(m)) for m in C["ref_minutes"]]])
         for box in C["boxes"]:
             if boxes and box["id"] not in boxes:
                 continue
@@ -281,7 +322,8 @@ def group(rows, km=4.0, minutes=40):
             if haversine_km(r["lat"], r["lon"], g["lat"], g["lon"]) <= km and \
                     (t - parse_time(g["last"])).total_seconds() <= minutes * 60:
                 g["last"] = r["t"]
-                g["slots"].append(r["t"])
+                if r["t"] not in g["slots"]:
+                    g["slots"].append(r["t"])
                 g["max_rise"] = max(g["max_rise"], r["rise"])
                 break
         else:

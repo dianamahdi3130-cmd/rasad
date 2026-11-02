@@ -73,8 +73,8 @@ DEFAULTS = {
         "enabled": False, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
-        "cadence_min": 10, "delay_min": 20, "slots_per_run": 2, "km_per_px": 1.25,
-        "ref_minutes": [30, 60], "min_rise": 5.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
+        "cadence_min": 10, "delay_min": 20, "slots_per_run": 2, "km_per_px": 0.5,
+        "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
         "min_coast_km": 3.0, "platform_km": 4.0, "max_z_ir105": 4.0, "sun_max_elev": -6.0,
         "boxes": [
             {"id": "hormuz_oman", "bbox": [55.0, 22.4, 60.2, 27.2]},
