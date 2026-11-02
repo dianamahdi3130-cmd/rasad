@@ -50,7 +50,7 @@ DEFAULTS = {
         "land_layer": "osmgray:land_polygons",
         "land_style": "",
     },
-    "geodata": {"facility_max_km": 30, "place_max_km": 80, "coast_km": 1.5, "query_tile_deg": 6,
+    "geodata": {"facility_max_km": 30, "place_max_km": 80, "coast_km": 1.5, "query_tile_deg": 8,
                 "rebuild_days": 7,
                 "overpass_urls": ["https://overpass-api.de/api/interpreter",
                                   "https://overpass.kumi.systems/api/interpreter"],
@@ -152,8 +152,8 @@ def smallest_region(cfg, lat, lon):
 
 def enrich(inc, cfg, geo):
     """Where is it, what is near it, which region: only redone when the position moves."""
-    pos = [round(inc["lat"], 3), round(inc["lon"], 3)]
-    if inc.get("_pos") != pos:
+    pos = [round(inc["lat"], 3), round(inc["lon"], 3), geo.version]
+    if inc.get("_pos") != pos:  # redo when the fire moved or the facility map grew
         inc["place"] = geo.place_kind(inc["lat"], inc["lon"])
         inc["facility"] = geo.facility(inc["lat"], inc["lon"])
         inc["where"], inc["country"] = geo.describe(inc["lat"], inc["lon"], inc["place"])
@@ -285,7 +285,8 @@ def run_cycle(cfg, send=True, alert_now=False):
     min_rank = VERDICT_RANK.get(cfg["alerts"]["min_verdict"], 1)
     for inc in S.incidents:
         recent = now - parse_time(inc["last"]) <= dt.timedelta(hours=24)
-        if inc["id"] not in touched and not (recent and inc.get("status") == "pending"):
+        stale_map = recent and (inc.get("_pos") or [None])[-1] != geo.version
+        if inc["id"] not in touched and not (recent and inc.get("status") == "pending") and not stale_map:
             continue
         enrich(inc, cfg, geo)
         if inc["priority"] != "high":

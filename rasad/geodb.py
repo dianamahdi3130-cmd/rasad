@@ -1,7 +1,6 @@
 """Facilities and places database (OpenStreetMap), place names, sea/land check."""
 from __future__ import annotations
 
-import datetime as dt
 import math
 import time
 from pathlib import Path
@@ -10,30 +9,28 @@ import numpy as np
 import requests
 
 from .sources import region_tiles
-from .util import (bearing_deg, box_around, direction_ar, haversine_km, km_text, load_json, log,
-                   save_json, utcnow, iso)
+from .util import (bearing_deg, box_around, direction_ar, haversine_km, iso, km_text, load_json, log,
+                   parse_time, save_json, utcnow)
 
-FACILITY_QUERY = """[out:json][timeout:300];
+FACILITY_QUERY = """[out:json][timeout:150];
 (
   nwr["man_made"="offshore_platform"]({b});
   nwr["industrial"~"^(refinery|oil_refinery|oil|gas|petroleum|petrochemical|liquefied_natural_gas|fuel)$"]({b});
   nwr["man_made"="works"]["product"~"oil|gas|petrol|fuel|lng",i]({b});
   nwr["power"="plant"]({b});
-  nwr["man_made"="water_works"]({b});
   nwr["water_works"="desalination"]({b});
   nwr["landuse"="port"]({b});
   nwr["industrial"="port"]({b});
-  nwr["harbour"="yes"]["name"]({b});
   nwr["man_made"="storage_tank"]["content"~"oil|fuel|gas|crude|petrol",i]({b});
   nwr["man_made"="pumping_station"]["substance"~"oil|gas",i]({b});
-  nwr["landuse"="industrial"]["name"~"refin|oil|gas|petro|lng|مصفا|نفط|غاز|بترو",i]({b});
 );
 out center tags;"""
 
-PLACE_QUERY = """[out:json][timeout:300];
+PLACE_QUERY = """[out:json][timeout:150];
 (
-  node["place"~"^(city|town|village)$"]["name"]({b});
-  nwr["place"~"^(island|islet)$"]["name"]({b});
+  node["place"~"^(city|town)$"]["name"]({b});
+  nwr["place"="island"]["name"]({b});
+  node["place"="islet"]["name"]({b});
 );
 out center tags;"""
 
@@ -89,17 +86,18 @@ def facility_label(name, cat):
     return name if any(w in name for w in TYPE_WORDS) else f"{cat} {name}"
 
 
-def overpass(session, urls, query, tries=3, retry_wait=20):
+def overpass(session, urls, query, tries=2, retry_wait=20):
     for attempt in range(tries):
         for url in urls:
             try:
-                r = session.post(url, data={"data": query}, timeout=360)
+                r = session.post(url, data={"data": query}, timeout=180)
                 if r.status_code == 200:
                     return r.json().get("elements", [])
                 log.warning("Overpass %s: HTTP %s", url, r.status_code)
             except (requests.RequestException, ValueError) as e:
                 log.warning("Overpass %s: %s", url, e)
-        time.sleep(retry_wait * (attempt + 1))
+        if attempt + 1 < tries:
+            time.sleep(retry_wait)
     return None
 
 
@@ -110,54 +108,79 @@ def _center(el):
     return (c["lat"], c["lon"]) if c else (None, None)
 
 
-def build_geodata(cfg, session):
-    """Download facilities and places for every enabled region (run weekly)."""
+def _write_db(out_dir, fac, places, built):
+    """Write the lookup files (one entry per category per ~1 km, so tank farms count once)."""
+    thinned, seen = [], set()
+    for lat, lon, name, cat, code in sorted(fac.values(), key=lambda f: (f[2] == "", f[4])):
+        k = (code, round(lat, 2), round(lon, 2))
+        if k not in seen:
+            seen.add(k)
+            thinned.append([lat, lon, name, cat, code])
+    save_json(out_dir / "facilities.json", {"built": built, "items": thinned}, compact=True)
+    save_json(out_dir / "places.json", {"built": built, "items": list(places.values())}, compact=True)
+    return len(thinned), len(places)
+
+
+def geodata_status(cfg):
+    """(age in days of the last complete build or None, build in progress?)"""
+    d = Path(cfg["_geodata_dir"])
+    built = load_json(d / "facilities.json", {}).get("built")
+    prog = load_json(d / "progress.json", {})
+    age = None if not built else (utcnow() - parse_time(built)).total_seconds() / 86400
+    return age, bool(prog.get("done"))
+
+
+def build_geodata(cfg, session, budget_s=None):
+    """Download facilities and places tile by tile; resumable, so it can run in short slices."""
     G = cfg["geodata"]
-    tiles = region_tiles(cfg["regions"], max_deg=float(G.get("query_tile_deg", 4.0)))
-    facilities, places, failed = {}, {}, 0
-    for i, (w, s, e, n) in enumerate(tiles, 1):
+    out_dir = Path(cfg["_geodata_dir"])
+    tiles = region_tiles(cfg["regions"], max_deg=float(G.get("query_tile_deg", 8)))
+    keys = [",".join(f"{v:.2f}" for v in t) for t in tiles]
+    prog = load_json(out_dir / "progress.json", {})
+    if prog.get("tiles") != keys:
+        prog = {"tiles": keys, "done": {}, "fac": {}, "place": {}}
+    t0, pause, tried = time.time(), float(G.get("overpass_pause_s", 5)), 0
+    for i, (key, (w, s, e, n)) in enumerate(zip(keys, tiles), 1):
+        if prog["done"].get(key):
+            continue
+        if budget_s is not None and tried and time.time() - t0 > budget_s:
+            break  # at least one tile per run, then stop when the time slice is used
+        tried += 1
         b = f"{s:.4f},{w:.4f},{n:.4f},{e:.4f}"
-        log.info("geodata tile %d/%d", i, len(tiles))
+        ok = True
         for kind, query in (("fac", FACILITY_QUERY), ("place", PLACE_QUERY)):
             els = overpass(session, G["overpass_urls"], query.format(b=b),
                            retry_wait=float(G.get("overpass_retry_s", 20)))
             if els is None:
-                failed += 1
-                continue
+                ok = False
+                break
             for el in els:
                 lat, lon = _center(el)
-                tags = el.get("tags") or {}
                 if lat is None:
                     continue
-                key = f"{el['type'][0]}{el['id']}"
+                tags = el.get("tags") or {}
+                oid = f"{el['type'][0]}{el['id']}"
                 if kind == "fac":
                     cat, code = facility_category(tags)
-                    facilities[key] = [round(lat, 5), round(lon, 5), osm_name(tags), cat, code]
+                    prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), cat, code]
                 else:
-                    places[key] = [round(lat, 5), round(lon, 5), osm_name(tags), tags.get("place", "")]
-            time.sleep(float(G.get("overpass_pause_s", 5)))
-    out_dir = Path(cfg["_geodata_dir"])
-    built = utcnow()
-    fac_items, place_items = list(facilities.values()), list(places.values())
-    if failed:
-        # keep what we had for the parts that failed, and try again tomorrow
-        fac_items += load_json(out_dir / "facilities.json", {"items": []})["items"]
-        place_items += load_json(out_dir / "places.json", {"items": []})["items"]
-        built -= dt.timedelta(days=max(0.0, float(G.get("rebuild_days", 7)) - 1))
-    # thin out tank farms and similar clusters: keep one entry per category per ~1 km
-    thinned, seen = [], set()
-    for lat, lon, name, cat, code in sorted(fac_items, key=lambda f: (f[2] == "", f[4])):
-        k = (code, round(lat, 2), round(lon, 2))
-        if k in seen:
-            continue
-        seen.add(k)
-        thinned.append([lat, lon, name, cat, code])
-    uniq_places = list({(round(p[0], 4), round(p[1], 4), p[2]): p for p in place_items}.values())
-    save_json(out_dir / "facilities.json", {"built": iso(built), "items": thinned}, compact=True)
-    save_json(out_dir / "places.json", {"built": iso(built), "items": uniq_places}, compact=True)
-    places = uniq_places
-    log.info("geodata: %d facilities, %d places (%d failed queries)", len(thinned), len(places), failed)
-    return len(thinned), len(places), failed
+                    prog["place"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), tags.get("place", "")]
+            time.sleep(pause)
+        if ok:
+            prog["done"][key] = True
+        log.info("facility map: tile %d/%d %s", i, len(tiles), "done" if ok else "failed, retry next run")
+        save_json(out_dir / "progress.json", prog, compact=True)
+    complete = all(prog["done"].get(k) for k in keys)
+    first_build = not (out_dir / "facilities.json").exists() or not load_json(
+        out_dir / "facilities.json", {}).get("built")
+    if complete:
+        nf, npl = _write_db(out_dir, prog["fac"], prog["place"], iso(utcnow()))
+        save_json(out_dir / "progress.json", {"tiles": keys, "done": {}, "fac": {}, "place": {}}, compact=True)
+        log.info("facility map complete: %d facilities, %d places", nf, npl)
+    elif first_build:
+        nf, npl = _write_db(out_dir, prog["fac"], prog["place"], None)  # usable while still loading
+        log.info("facility map partly loaded: %d/%d tiles", sum(1 for k in keys if prog["done"].get(k)), len(keys))
+    return complete
 
 
 class GeoIndex:
@@ -188,8 +211,10 @@ class Geo:
     def __init__(self, cfg, session, wms, state):
         self.cfg, self.s, self.wms, self.state = cfg, session, wms, state
         d = Path(cfg["_geodata_dir"])
-        self.fac = GeoIndex(load_json(d / "facilities.json", {"items": []})["items"])
+        fac = load_json(d / "facilities.json", {"items": []})
+        self.fac = GeoIndex(fac["items"])
         self.places = GeoIndex(load_json(d / "places.json", {"items": []})["items"])
+        self.version = f"{fac.get('built')}|{len(fac['items'])}"
         self._last_nominatim = 0.0
 
     @property

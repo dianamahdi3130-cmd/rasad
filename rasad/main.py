@@ -9,16 +9,16 @@ import time
 from pathlib import Path
 
 from .engine import STALE_HOURS, State, load_config, run_cycle
-from .geodb import build_geodata
+from .geodb import build_geodata, geodata_status
 from .notify import telegram_ready, tg_send
 from .sources import firms_fetch, region_tiles, union_bbox
-from .util import VERSION, floor_time, iso, load_json, log, make_session, parse_time, utcnow
+from .util import VERSION, floor_time, iso, log, make_session, parse_time, utcnow
 from .wms import WMS, latest_time
 
 
-def geodata_age_days(cfg):
-    built = load_json(Path(cfg["_geodata_dir"]) / "facilities.json", {}).get("built")
-    return None if not built else (utcnow() - parse_time(built)).total_seconds() / 86400
+def geo_needed(cfg):
+    age, in_progress = geodata_status(cfg)
+    return in_progress or age is None or age > float(cfg["geodata"]["rebuild_days"])
 
 
 def cmd_status(cfg):
@@ -49,8 +49,9 @@ def cmd_status(cfg):
         print(f"  ✓ ناسا: {n} رصدة خلال 24 ساعة")
     else:
         print("  - ناسا: لا يوجد مفتاح FIRMS (اختياري لكنه مستحسن)")
-    age = geodata_age_days(cfg)
-    print("  قاعدة المنشآت: " + ("غير موجودة، شغّل build-geo" if age is None else f"عمرها {age:.0f} يوم"))
+    age, in_progress = geodata_status(cfg)
+    print("  قاعدة المنشآت: " + ("قيد التحميل" if in_progress else "غير موجودة، شغّل build-geo"
+                                  if age is None else f"عمرها {age:.0f} يوم"))
     print("  تلغرام: " + ("جاهز" if telegram_ready(cfg) else "غير مضبوط"))
     print(f"  حوادث محفوظة: {len(S.incidents)}، خلايا ذاكرة: {len(S.memory)}")
 
@@ -72,6 +73,7 @@ def main(argv=None):
     p.add_argument("--no-send", action="store_true")
     p.add_argument("--alert-now", action="store_true", help="alert even during the learning day")
     p.add_argument("--auto-geo", action="store_true", help="(re)build the facility database when old")
+    p.add_argument("--geo-budget", type=float, default=240, help="seconds per run for the facility map")
     p = sub.add_parser("loop", help="monitor continuously on this computer")
     p.add_argument("--interval", type=int, default=10)
     p.add_argument("--no-send", action="store_true")
@@ -91,18 +93,15 @@ def main(argv=None):
     if args.cmd == "status":
         cmd_status(cfg)
     elif args.cmd == "cycle":
-        if args.auto_geo:
-            age = geodata_age_days(cfg)
-            if age is None or age > float(cfg["geodata"]["rebuild_days"]):
-                build_geodata(cfg, make_session())
+        if args.auto_geo and geo_needed(cfg):
+            build_geodata(cfg, make_session(), budget_s=args.geo_budget)
         run_cycle(cfg, send=not args.no_send, alert_now=args.alert_now)
     elif args.cmd == "loop":
         while True:
             t0 = time.time()
             try:
-                age = geodata_age_days(cfg)
-                if age is None or age > float(cfg["geodata"]["rebuild_days"]):
-                    build_geodata(cfg, make_session())
+                if geo_needed(cfg):
+                    build_geodata(cfg, make_session(), budget_s=240)
                 run_cycle(cfg, send=not args.no_send)
             except Exception:  # noqa: BLE001
                 log.exception("cycle failed")
