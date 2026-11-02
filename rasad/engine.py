@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ from .wms import WMS, latest_time
 
 STALE_HOURS = 3
 RULES = 3  # bump when the importance rules change, so stored incidents are judged again
+CLIP_STYLE = 2  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -64,8 +66,8 @@ DEFAULTS = {
                 "overpass_urls": ["https://overpass-api.de/api/interpreter",
                                   "https://overpass.kumi.systems/api/interpreter"],
                 "nominatim_url": "https://nominatim.openstreetmap.org/reverse"},
-    "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 40, "native_px": 320,
-             "out_px": 1280, "fps": 3, "hold_last": 4, "format": "mp4"},
+    "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 20, "px_km": 0.25,
+             "smooth_km": 0.6, "out_px": 1080, "fps": 3, "hold_last": 4, "format": "mp4", "per_run": 4},
     # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
     "seawatch": {
         "enabled": False, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
@@ -297,12 +299,18 @@ def run_cycle(cfg, send=True, alert_now=False):
             t = t_latest - dt.timedelta(minutes=cad * k)
             age = (now - t).total_seconds() / 60
             failed = 0
+            todo = []
             for tile in tiles:
                 key = f"{L['id']}|{','.join(map(str, tile))}|{iso(t)}"
                 prev = slots.get(key)
                 if prev is not None and (prev >= E["settle_minutes"] or age < E["settle_minutes"]):
                     continue
-                res = detect_geo_layer(wms, dict(L, tile_px=L.get("tile_px", E["tile_px"])), tile, t)
+                todo.append((key, tile))
+            # the tiles are asked for in parallel: the server is slow per picture, not per request
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                results = list(pool.map(lambda kt: detect_geo_layer(
+                    wms, dict(L, tile_px=L.get("tile_px", E["tile_px"])), kt[1], t), todo))
+            for (key, tile), res in zip(todo, results):
                 n_images += 1
                 if res is None:
                     failed += 1  # not ready yet or server busy: retried next run
@@ -411,7 +419,33 @@ def run_cycle(cfg, send=True, alert_now=False):
     min_rank = VERDICT_RANK.get(cfg["alerts"]["min_verdict"], 1)
     max_age = dt.timedelta(hours=float(cfg["alerts"].get("max_age_hours", 8)))
     first_alerts, updates = [], []
-    look_budget = 1
+    look_budget = 2
+
+    def look_back(inc):
+        """NASA saw a fire at sea hours late: find when it first showed on Meteosat-12."""
+        fac = inc.get("facility")
+        if not (SW.get("look_back") and inc.get("place") in ("sea", "coast") and inc.get("polar")
+                and seawatch.SRC not in (inc.get("srcs") or []) and not inc.get("looked_back")
+                and inc.get("priority") == "high" and not (fac and fac["km"] <= 3)):
+            return False
+        inc["looked_back"] = iso(now)
+        try:
+            spots = seawatch.look_back(cfg, wms, inc, Memory(S.memory), geo)
+        except Exception as e:  # noqa: BLE001
+            log.warning("look back for %s failed: %s", inc["id"], e)
+            spots = []
+        for sp in spots:
+            add_to_incident(inc, sp)
+        if spots:
+            log.info("look back %s: seen on Meteosat-12 from %s (%d pictures)", inc["id"],
+                     min(sp["t"] for sp in spots), len(spots))
+            finalize(inc, cfg)
+            inc.pop("clip", None)  # remake the clip around the real start
+            inc.pop("snap", None)
+            inc.pop("clip_tried", None)
+        else:
+            log.info("look back %s: nothing on Meteosat-12 before NASA's pass", inc["id"])
+        return True
     rejudge = S.state.get("rules") != RULES
     if rejudge:
         keep, dropped = [], 0
@@ -441,24 +475,8 @@ def run_cycle(cfg, send=True, alert_now=False):
                 and not stale_map and not rejudge:
             continue
         enrich(inc, cfg, geo)
-        fac = inc.get("facility")
-        if look_budget > 0 and SW.get("look_back") and inc["place"] in ("sea", "coast") and inc.get("polar") \
-                and seawatch.SRC not in (inc.get("srcs") or []) and not inc.get("looked_back") \
-                and inc["priority"] == "high" and not (fac and fac["km"] <= 3):
-            # NASA saw a fire at sea hours late: find when it first showed on Meteosat-12
+        if look_budget > 0 and look_back(inc):
             look_budget -= 1
-            inc["looked_back"] = iso(now)
-            try:
-                spots = seawatch.look_back(cfg, wms, inc, Memory(S.memory), geo)
-            except Exception as e:  # noqa: BLE001
-                log.warning("look back for %s failed: %s", inc["id"], e)
-                spots = []
-            for sp in spots:
-                add_to_incident(inc, sp)
-            if spots:
-                log.info("look back %s: seen on Meteosat-12 from %s (%d pictures)", inc["id"],
-                         min(sp["t"] for sp in spots), len(spots))
-                finalize(inc, cfg)
         if inc["priority"] != "high" or inc.get("status") == "held":
             continue
         rank = VERDICT_RANK[inc["verdict"]]
@@ -503,7 +521,19 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["alerted_verdict"] = inc["verdict"]
             log.info("UPDATE %s -> %s", inc["id"], inc["verdict"])
 
+    # sea incidents found before the look-back existed, or not touched in this run
+    for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
+        if look_budget <= 0:
+            break
+        if now - parse_time(inc["last"]) <= dt.timedelta(days=2) and inc.get("place") and look_back(inc):
+            look_budget -= 1
+
     # every important incident gets its clip in the app, even when it was not sent (a few per run)
+    if S.state.get("clip_style") != CLIP_STYLE:
+        for inc in S.incidents:
+            for k in ("clip", "snap", "clip_tried"):
+                inc.pop(k, None)
+        S.state["clip_style"] = CLIP_STYLE
     budget = int(cfg["clip"].get("per_run", 4))
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
         if budget <= 0:

@@ -12,6 +12,8 @@ from .util import box_around, log
 from .wms import coverage
 
 NEAREST = getattr(Image, "Resampling", Image).NEAREST
+BILINEAR = getattr(Image, "Resampling", Image).BILINEAR
+BICUBIC = getattr(Image, "Resampling", Image).BICUBIC
 PALETTE = [(0.00, (0, 0, 38)), (0.20, (14, 0, 50)), (0.34, (50, 0, 40)), (0.48, (92, 0, 24)),
            (0.56, (140, 0, 14)), (0.66, (215, 35, 0)), (0.78, (255, 115, 0)),
            (0.90, (255, 195, 40)), (1.00, (255, 250, 205))]
@@ -57,12 +59,12 @@ def _hot_is_bright(shots, c, r=6):
     return None if max(up, down) < 10 else up > down
 
 
-def _decorate(im, cfg, t, lat, lon, km_per_px, label, fonts):
+def _decorate(im, cfg, t, lat, lon, km_per_px, fonts):
     big, small, wm = fonts
     OUT = im.size[0]
     over = Image.new("RGBA", im.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(over)
-    c, R = OUT // 2, OUT // 17
+    c, R = OUT // 2, OUT // 11
     d.ellipse((c - R - 2, c - R - 2, c + R + 2, c + R + 2), outline=(0, 0, 0, 255), width=9)
     d.ellipse((c - R, c - R, c + R, c + R), outline=(70, 225, 255, 255), width=5)
     pad = max(10, OUT // 64)
@@ -73,8 +75,8 @@ def _decorate(im, cfg, t, lat, lon, km_per_px, label, fonts):
     d.text((pad, pad), line1, font=big, fill=(255, 255, 255, 255), **stroke)
     h1 = d.textbbox((0, 0), line1, font=big)[3]
     ns, ew = ("N" if lat >= 0 else "S"), ("E" if lon >= 0 else "W")
-    d.text((pad, pad + h1 + 8), f"{label}   {abs(lat):.3f}{ns}  {abs(lon):.3f}{ew}", font=small,
-           fill=(225, 225, 225, 255), **stroke)
+    d.text((pad, pad + h1 + 10), f"{abs(lat):.4f}{ns}   {abs(lon):.4f}{ew}", font=big,
+           fill=(255, 255, 255, 255), **stroke)
     total_km = km_per_px * OUT
     bar_km = max([v for v in (2, 5, 10, 20, 25, 50, 100) if v <= total_km / 4] or [1])
     bar_px = int(bar_km / km_per_px)
@@ -97,8 +99,8 @@ def _write(frames, base, fps, fmt):
         try:
             import imageio.v2 as iio
             p = Path(f"{base}.mp4")
-            with iio.get_writer(str(p), fps=fps, codec="libx264", pixelformat="yuv420p", quality=7,
-                                macro_block_size=16, ffmpeg_log_level="error") as w:
+            with iio.get_writer(str(p), fps=fps, codec="libx264", pixelformat="yuv420p", quality=9,
+                                macro_block_size=8, ffmpeg_log_level="error") as w:
                 for f in frames:
                     w.append_data(np.asarray(f.convert("RGB")))
             return p
@@ -111,14 +113,29 @@ def _write(frames, base, fps, fmt):
     return p
 
 
+def _blur(a, sigma):
+    """Gaussian blur (separable, edges repeated)."""
+    if sigma <= 0.2:
+        return a
+    r = int(3 * sigma + 0.5)
+    x = np.arange(-r, r + 1, dtype=np.float32)
+    k = np.exp(-x * x / (2 * sigma * sigma))
+    k /= k.sum()
+    p = np.pad(a.astype(np.float32), r, mode="edge")
+    v = sum(k[i] * p[i:i + a.shape[0], :] for i in range(2 * r + 1))
+    return sum(k[i] * v[:, i:i + a.shape[1]] for i in range(2 * r + 1))
+
+
 def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
-    """Loop of the thermal channel around (lat, lon) ending at t_end. Returns (video, snapshot)."""
+    """Close-up loop of the thermal picture around (lat, lon) ending at t_end.
+    Returns (video, snapshot). The satellite's own pixels are 2-5 km here, so the picture is
+    sampled finely, softened a little and enlarged smoothly instead of showing hard blocks."""
     C, L = cfg["clip"], cfg["eumetview"]["clip_layer"]
     cad, n = int(L["cadence_min"]), int(frames or C["frames"])
     half = float(half_km or C["half_size_km"])
-    N = int(C["native_px"])
-    scale = max(1, int(C["out_px"]) // N)
-    OUT = N * scale
+    px_km = float(C.get("px_km", 0.25))
+    N = max(64, int(round(2 * half / px_km)))
+    OUT = int(C["out_px"])
     bbox = box_around(lat, lon, half)
     shots, seen = [], set()
     for k in range(n - 1, -1, -1):
@@ -130,12 +147,12 @@ def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
         h = hashlib.md5(g.tobytes()).hexdigest()
         if h not in seen:
             seen.add(h)
-            shots.append((actual or t, g))
+            shots.append((actual or t, _blur(g, float(C.get("smooth_km", 0.6)) / px_km)))
     if len(shots) < 2:
         raise RuntimeError(f"only {len(shots)} usable image(s) from {L['name']}")
     hot = L.get("hot_is_bright", "auto")
     if hot in ("auto", None):
-        hot = _hot_is_bright(shots, N // 2)
+        hot = _hot_is_bright(shots, N // 2, r=max(6, N // 25))
         if hot is None:
             hot = bool(L.get("hot_is_bright_fallback", False))
     vals = [(t, g if hot else 255.0 - g) for t, g in shots]
@@ -144,39 +161,42 @@ def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
     hi = max(float(np.percentile(base_img, 99.5)), lo + 4)
     # the warmest value near the centre over the whole loop sets the top of the colour scale, but
     # never less than min_span above the usual warmth, so plain noise is not painted as fire
-    c0, c1 = N // 2 - N // 16, N // 2 + N // 16 + 1
+    c0, c1 = N // 2 - N // 8, N // 2 + N // 8 + 1
     peak = max(float(np.nanmax(v[c0:c1, c0:c1])) for _, v in vals)
     top = max(hi + float(C.get("min_span", 6)), peak)
     lut = _lut()
     edges, m = None, None
     from .geodb import land_mask_points
     mask = land_mask_points()
-    if mask is not None:  # 1 km land mask, good enough for a coastline outline
-        w, s, e, n = bbox
+    if mask is not None:  # 1 km land mask, smoothed into a clean coastline
+        w, s, e, n_ = bbox
         lons = w + (np.arange(N) + 0.5) / N * (e - w)
-        lats = n - (np.arange(N) + 0.5) / N * (n - s)
+        lats = n_ - (np.arange(N) + 0.5) / N * (n_ - s)
         gl, go = np.meshgrid(lats, lons, indexing="ij")
-        m = mask(gl.ravel(), go.ravel()).reshape(N, N)
+        m = mask(gl.ravel(), go.ravel()).reshape(N, N).astype(np.float32)
     else:
         land_layer = cfg["eumetview"].get("land_layer")
         limg = wms.getmap(land_layer, bbox, N, N, style=cfg["eumetview"].get("land_style", ""),
                           quiet=True)[0] if land_layer else None
         if limg is not None:
-            m = np.asarray(limg)[..., 3] > 0
+            m = (np.asarray(limg)[..., 3] > 0).astype(np.float32)
     if m is not None and 0 < m.mean() < 1:
-        edge = m & ~_erode(m)
-        edges = Image.fromarray((edge * 255).astype(np.uint8)).resize((OUT, OUT), NEAREST)
-    fonts = (_font(max(18, OUT // 40)), _font(max(14, OUT // 56)), _font(max(28, OUT // 16)))
+        soft = _blur(m, 0.5 / px_km)
+        big = np.asarray(Image.fromarray((soft * 255).astype(np.uint8)).resize((OUT, OUT), BILINEAR)) > 127
+        edge = big & ~_erode(_erode(big))
+        edges = Image.fromarray((edge * 255).astype(np.uint8))
+    fonts = (_font(max(20, OUT // 34)), _font(max(16, OUT // 46)), _font(max(28, OUT // 16)))
     km_per_px = 2 * half / OUT
     out = []
     for t, v in vals:
         x = np.where(v <= hi, 0.5 * (v - lo) / (hi - lo), 0.5 + 0.5 * (v - hi) / (top - hi))
-        im = Image.fromarray(lut[np.clip(np.round(x * 255), 0, 255).astype(np.uint8)]).resize((OUT, OUT), NEAREST)
+        rgb = lut[np.clip(np.round(x * 255), 0, 255).astype(np.uint8)]
+        im = Image.fromarray(rgb).resize((OUT, OUT), BICUBIC)
         if edges is not None:
             im.paste((235, 235, 235), (0, 0, OUT, OUT), edges)
-        out.append(_decorate(im, cfg, t, lat, lon, km_per_px, L["label"], fonts))
+        out.append(_decorate(im, cfg, t, lat, lon, km_per_px, fonts))
     out += [out[-1]] * int(C.get("hold_last", 4))
     Path(base).parent.mkdir(parents=True, exist_ok=True)
     snap = Path(f"{base}.jpg")
-    out[-1].save(snap, quality=85)
+    out[-1].save(snap, quality=90)
     return _write(out, base, int(C.get("fps", 3)), str(C.get("format", "mp4"))), snap
