@@ -187,10 +187,15 @@ function ago(iso){
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(t._h); t._h=setTimeout(()=>t.hidden=true,2200); }
 
 /* ---------- map ---------- */
+// Free map tiles that need no key: [background, labels, credit]
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
 const TILES = {
-  dark: ["https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", "© OpenStreetMap © CARTO"],
-  light:["https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", "© OpenStreetMap © CARTO"],
-  sat:  ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", "Esri, Maxar, Earthstar"]
+  dark: [ESRI + "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+         ESRI + "Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", "Esri, HERE, Garmin, © OpenStreetMap"],
+  light:[ESRI + "Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+         ESRI + "Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", "Esri, HERE, Garmin, © OpenStreetMap"],
+  sat:  [ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}",
+         ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", "Esri, Maxar, Earthstar"]
 };
 function initMap(){
   if (!window.L) { $("#map").innerHTML = '<div class="empty" style="margin:16px">تعذّر تحميل الخريطة، والقائمة تعمل.</div>'; $("#basemapBtn").hidden = true; return; }
@@ -204,8 +209,11 @@ function initMap(){
 function setBase(){
   if (S.base) S.map.removeLayer(S.base);
   const light = matchMedia("(prefers-color-scheme: light)").matches;
-  const [url, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
-  S.base = L.tileLayer(url, {maxZoom:18, attribution:attr, subdomains:"abcd"}).addTo(S.map);
+  const [base, labels, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
+  S.base = L.layerGroup([
+    L.tileLayer(base, {maxZoom:16, attribution:attr}),
+    L.tileLayer(labels, {maxZoom:16, opacity:.9})
+  ]).addTo(S.map);
   $("#basemapBtn").textContent = S.sat ? "خريطة" : "قمر صناعي";
 }
 function fireIcon(it){
