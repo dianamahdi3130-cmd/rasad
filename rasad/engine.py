@@ -493,6 +493,12 @@ def run_cycle(cfg, send=True, alert_now=False):
         else:
             log.info("look back %s: nothing on Meteosat-12 before NASA's pass", inc["id"])
         return True
+    # clips in an older look are dropped before any alert, so an alert never carries an old clip
+    if S.state.get("clip_style") != CLIP_STYLE:
+        for inc in S.incidents:
+            for k in ("clip", "snap", "clip_tried"):
+                inc.pop(k, None)
+        S.state["clip_style"] = CLIP_STYLE
     rejudge = S.state.get("rules") != RULES
     if rejudge:
         keep, dropped = [], 0
@@ -589,11 +595,6 @@ def run_cycle(cfg, send=True, alert_now=False):
             look_budget -= 1
 
     # every important incident gets its clip in the app, even when it was not sent (a few per run)
-    if S.state.get("clip_style") != CLIP_STYLE:
-        for inc in S.incidents:
-            for k in ("clip", "snap", "clip_tried"):
-                inc.pop(k, None)
-        S.state["clip_style"] = CLIP_STYLE
     budget = int(cfg["clip"].get("per_run", 4))
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
         if budget <= 0:
