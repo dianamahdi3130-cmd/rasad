@@ -6,6 +6,7 @@
 app_name: "رصد"
 app_url: ""          # رابط التطبيق بعد نشره، يضاف تلقائياً في GitHub
 watermark: ""        # العلامة المائية على المقاطع (اسم قناتك مثلاً)
+watermark_logo: "assets/logo.png"   # شعار القناة (شفاف ومتحرك) على صورة الحرارة
 
 local_time:
   offset_hours: 3

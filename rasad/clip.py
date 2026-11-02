@@ -99,8 +99,9 @@ def _write(frames, base, fps, fmt):
         try:
             import imageio.v2 as iio
             p = Path(f"{base}.mp4")
-            with iio.get_writer(str(p), fps=fps, codec="libx264", pixelformat="yuv420p", quality=9,
-                                macro_block_size=8, ffmpeg_log_level="error") as w:
+            with iio.get_writer(str(p), fps=fps, codec="libx264", pixelformat="yuv420p", quality=8,
+                                macro_block_size=2, ffmpeg_log_level="error",
+                                output_params=["-preset", "veryfast", "-movflags", "+faststart"]) as w:
                 for f in frames:
                     w.append_data(np.asarray(f.convert("RGB")))
             return p
@@ -130,11 +131,17 @@ def _blur(a, sigma):
     return sum(k[i] * v[:, i:i + a.shape[1]] for i in range(2 * r + 1))
 
 
-def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
+def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None, info=None):
     """Close-up loop of the thermal picture around (lat, lon) ending at t_end.
     Returns (video, snapshot). The satellite's own pixels are 2-5 km here, so the picture is
     sampled finely, softened a little and enlarged smoothly instead of showing hard blocks."""
     C, L = cfg["clip"], cfg["eumetview"]["clip_layer"]
+    if C.get("layout", "two") == "two":  # heat picture and natural picture side by side
+        from .twopanel import render
+        ctx = C.get("context_layer")
+        c2 = dict(cfg, clip=dict(C, half_size_km=float(half_km or C["half_size_km"])))
+        return render(c2, wms, lat, lon, t_end, base, L, {"name": ctx} if ctx else None,
+                      int(frames or C["frames"]), info)
     cad, n = int(L["cadence_min"]), int(frames or C["frames"])
     half = float(half_km or C["half_size_km"])
     px_km = float(C.get("px_km", 0.25))

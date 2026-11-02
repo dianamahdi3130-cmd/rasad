@@ -30,6 +30,18 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt
 
+      - name: Keep the Arabic font for the clips
+        uses: actions/cache@v4
+        with:
+          path: fonts
+          key: fonts-noto-arabic-v1
+
+      - name: Arabic font for the clips (first time only)
+        run: |
+          mkdir -p fonts
+          [ -s fonts/NotoSansArabic.ttf ] || curl -sSL --retry 3 -o fonts/NotoSansArabic.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf" || true
+
       - name: Bring back the memory and the app
         run: bash scripts/branches.sh restore
 
