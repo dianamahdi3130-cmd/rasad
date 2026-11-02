@@ -24,7 +24,7 @@ from .wms import WMS, latest_time
 
 STALE_HOURS = 3
 RULES = 4  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 7  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 9  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -69,9 +69,9 @@ DEFAULTS = {
                                   "https://overpass.kumi.systems/api/interpreter"],
                 "nominatim_url": "https://nominatim.openstreetmap.org/reverse"},
     "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 20, "px_km": 0.25,
-             "smooth_km": 0.6, "out_px": 1080, "fps": 3, "hold_last": 4, "format": "mp4", "per_run": 4,
+             "smooth_km": 0.6, "out_px": 1080, "fps": 2, "hold_last": 4, "format": "mp4", "per_run": 4,
              "layout": "two", "context_layer": "mtg_fd:rgb_geocolour", "out_fps": 24,
-             "logo_width": 300, "logo_opacity": 0.55, "logo_period_s": 2.4, "logo_tile_opacity": 0.05},
+             "logo_width": 300, "logo_opacity": 0.5, "wipe_s": 1.0, "hud_title": "Alfaqaar313"},
     # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
     "seawatch": {
         "enabled": True, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
