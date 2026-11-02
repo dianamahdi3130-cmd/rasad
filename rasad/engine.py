@@ -23,7 +23,7 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, latest_time
 
 STALE_HOURS = 3
-RULES = 9  # bump when the importance rules change, so stored incidents are judged again
+RULES = 10  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 15  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
@@ -280,8 +280,19 @@ def add_clip(cfg, wms, S, inc, now):
         inc["clip"] = video.relative_to(site).as_posix()
         inc["snap"] = snap.relative_to(site).as_posix()
         inc.pop("clip_note", None)
+        if inc.pop("unseen_close", None):
+            finalize(inc, cfg)
     except NotVisible:
-        inc["clip_note"] = "لا يظهر هذا الحريق في صور الأقمار الأوروبية (صغير أو قصير المدة)، رصدته ناسا وحدها"
+        if inc.get("srcs") and set(inc["srcs"]) <= {seawatch.SRC}:
+            # found by Rasad's own sea finder only, and the closer look does not show it either
+            inc["clip_note"] = ("وجده الباحث الحراري في صور القمر الأوروبي، لكنه لا يظهر بوضوح عند التدقيق في "
+                                "الصور القريبة، وقد يكون تغيّراً في الغيوم أو الضباب لا حريقاً. ننتظر مرور قمر أمريكي")
+            inc["unseen_close"] = True
+            finalize(inc, cfg)
+        elif inc.get("polar"):
+            inc["clip_note"] = "لا يظهر هذا الحريق في صور القمر الأوروبي (صغير أو قصير المدة)، رصدته ناسا وحدها"
+        else:
+            inc["clip_note"] = "لا يظهر هذا الحريق بوضوح في الصور القريبة للقمر الأوروبي، وننتظر مرور قمر أمريكي"
         log.info("clip for %s: the fire does not show in the European pictures", inc["id"])
     except Exception as e:  # noqa: BLE001
         log.warning("clip for %s failed: %s", inc["id"], e)
@@ -516,6 +527,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             elif avail > 0 and kd >= min(int(M["persistent_min_days"]), avail):
                 dropped += 1  # a former 'unusual' one: the usual heat of that place
                 continue
+            if inc.get("srcs") and set(inc["srcs"]) <= {seawatch.SRC} and inc.get("clip_note") and not inc.get("clip"):
+                inc["unseen_close"] = True  # the sea finder's speck that the closer look did not show
             inc.pop("_pos", None)  # describe it again (nearest facility rules changed too)
             if inc.get("area_days") is None:
                 inc["area_days"] = mem.profile(inc["lat"], inc["lon"], inc["first"][:10],

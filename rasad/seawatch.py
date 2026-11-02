@@ -208,6 +208,14 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None):
         out.append({"src": SRC, "family": "mtg", "kind": "geo", "t": iso(t), "lat": round(lat, 4),
                     "lon": round(lon, 4), "frp": None, "rise": round(float(vals[k]), 1),
                     "z": round(float(vals[k]) / sig, 1), "z10": z10, "area_px": int(len(pts))})
+    # fires at sea do not come by the dozen: many specks in one picture is the weather (low cloud
+    # or fog thinning at night makes the sea look warmer at 3.8 micron); keep only the strongest
+    burst = int(C.get("burst_max", 4))
+    if len(out) > burst:
+        strong = [sp for sp in out if sp["z"] >= 2 * zmin and sp["rise"] >= 2 * rmin]
+        if len(out) - len(strong):
+            notes["rejected"]["weather (many specks at once)"] = len(out) - len(strong)
+        out = strong
     return out, notes
 
 

@@ -121,6 +121,8 @@ def verdict_of(inc):
     names = "، ".join(sorted({FAMILY_AR.get(f, f) for f in fams}))
     if len(fams) >= 2:
         return "مؤكد", f"رصده {count_ar(len(fams), 'قمر', 'قمران مختلفان', 'أقمار مختلفة')} ({names})"
+    if sea_finder_doubt(inc):
+        return "يحتاج تأكيداً", "وجده الباحث الحراري في صورتين، لكنه لم يظهر بوضوح عند التدقيق"
     if slots >= 3:
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
         return "مؤكد", f"ظهر في {slots} صور متتالية خلال {span:.0f} دقيقة"
@@ -140,6 +142,12 @@ def verdict_of(inc):
     if nc and inc.get("place") == "sea" and any(_clear(p) for p in inc["polar"]):
         return "مرجّح", "رصده قمر أمريكي في البحر" + ctx
     return "يحتاج تأكيداً", "رصدة واحدة حتى الآن، وننتظر الصورة التالية"
+
+
+def sea_finder_doubt(inc):
+    """Only Rasad's sea finder saw it, and the closer look at the pictures did not show it."""
+    srcs = set(inc.get("srcs") or [])
+    return bool(inc.get("unseen_close")) and bool(srcs) and srcs <= {"mtg_spot"}
 
 
 def _clear(p):
@@ -218,6 +226,8 @@ def alert_worthy(inc, cfg):
     weak_only = (not has_geo and bool(inc["polar"]) and frp < 5
                  and all(p.get("conf") in ("l", "low") for p in inc["polar"]))
     seen_before = (inc.get("known_days") or 0) > 0
+    if sea_finder_doubt(inc):
+        return False
     if inc["kind"] == "unusual":
         return True
     if inc["place"] in ("sea", "coast"):
