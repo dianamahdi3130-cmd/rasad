@@ -178,9 +178,14 @@ def alert_worthy(inc, cfg):
         return not weak_only and not (faint and seen_before)
     if f and f["km"] <= float(A.get("at_facility_km", 2)):
         return not faint and not weak_only
+    # away from facilities, a fire where fires are common (fields burnt every season, flare
+    # fields) is not news, however big: Khuzestan's sugar-cane burning is the classic case
+    busy = (inc.get("area_days") or 0) >= int(A.get("busy_area_days", 2))
+    if busy:
+        return False
     if f and f["km"] <= float(A["near_facility_km"]) and frp >= float(A.get("near_facility_min_mw", big)):
         return True
-    return frp >= big and in_focus(inc, cfg)
+    return frp >= float(A.get("big_fire_far_mw", big)) and in_focus(inc, cfg)
 
 
 def in_focus(inc, cfg):

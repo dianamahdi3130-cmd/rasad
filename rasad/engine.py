@@ -13,7 +13,7 @@ import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
                     new_incident)
-from .clip import make_clip
+from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from .notify import deliver, telegram_ready, tg_send
@@ -23,8 +23,8 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, latest_time
 
 STALE_HOURS = 3
-RULES = 3  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 3  # bump when clips change look, so the app's clips are made again
+RULES = 4  # bump when the importance rules change, so stored incidents are judged again
+CLIP_STYLE = 4  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -34,7 +34,8 @@ DEFAULTS = {
     "paths": {"state": "data/state", "site": "data/site", "geodata": "data/state/geo"},
     "regions": [],
     "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
-               "big_fire_mw": 50, "faint_mw": 3, "max_new_per_run": 6, "max_age_hours": 8,
+               "big_fire_mw": 50, "big_fire_far_mw": 100, "busy_area_days": 2, "faint_mw": 3,
+               "max_new_per_run": 6, "max_age_hours": 8,
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
                                    "عُمان", "إيران", "اليمن"]},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 100,
@@ -225,9 +226,11 @@ def clip_for(cfg, wms, S, inc):
         try:
             return make_clip(dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L)), wms,
                              inc["lat"], inc["lon"], t_end, base)
+        except NotVisible as e:
+            err = e  # try the other satellite; if neither shows it, say so instead of a misleading clip
         except Exception as e:  # noqa: BLE001
-            err = f"{L['name']}: {e}"
-    raise RuntimeError(err)
+            err = RuntimeError(f"{L['name']}: {e}")
+    raise err if isinstance(err, Exception) else RuntimeError(err)
 
 
 def add_clip(cfg, wms, S, inc, now):
@@ -243,6 +246,10 @@ def add_clip(cfg, wms, S, inc, now):
         site = Path(cfg["_site_dir"])
         inc["clip"] = video.relative_to(site).as_posix()
         inc["snap"] = snap.relative_to(site).as_posix()
+        inc.pop("clip_note", None)
+    except NotVisible:
+        inc["clip_note"] = "لا يظهر هذا الحريق في صور الأقمار الأوروبية (صغير أو قصير المدة)، رصدته ناسا وحدها"
+        log.info("clip for %s: the fire does not show in the European pictures", inc["id"])
     except Exception as e:  # noqa: BLE001
         log.warning("clip for %s failed: %s", inc["id"], e)
 
@@ -411,6 +418,8 @@ def run_cycle(cfg, send=True, alert_now=False):
         if inc is None:
             inc = new_incident(d, "unusual" if unusual else "new")
             inc["known_days"], inc["typical_frp"] = n_days, typical
+            # days with heat within ~10 km: farmland burnt every season and flare fields are busy
+            inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
             S.incidents.append(inc)
             open_incs.append(inc)
         add_to_incident(inc, d)
@@ -469,6 +478,9 @@ def run_cycle(cfg, send=True, alert_now=False):
                 dropped += 1  # a former 'unusual' one: the usual heat of that place
                 continue
             inc.pop("_pos", None)  # describe it again (nearest facility rules changed too)
+            if inc.get("area_days") is None:
+                inc["area_days"] = mem.profile(inc["lat"], inc["lon"], inc["first"][:10],
+                                               int(M["window_days"]), 5)[0]
             keep.append(inc)
         S.incidents = keep
         S.state["rules"] = RULES
@@ -573,7 +585,7 @@ def run_cycle(cfg, send=True, alert_now=False):
 
 PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "start_text", "last_text",
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
-          "sources_text", "regions", "clip", "snap"]
+          "sources_text", "regions", "clip", "snap", "clip_note"]
 
 
 def publish(cfg, S, status, now, learning, n_dets):

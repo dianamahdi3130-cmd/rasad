@@ -113,6 +113,10 @@ def _write(frames, base, fps, fmt):
     return p
 
 
+class NotVisible(RuntimeError):
+    """The pictures do not show the fire (too small or too short-lived for this satellite)."""
+
+
 def _blur(a, sigma):
     """Gaussian blur (separable, edges repeated)."""
     if sigma <= 0.2:
@@ -167,6 +171,13 @@ def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
     c0, c1 = N // 2 - N // 8, N // 2 + N // 8 + 1
     peak = max(float(np.nanmax(v[c0:c1, c0:c1])) for _, v in vals)
     top = max(hi + float(C.get("min_span", 6)), peak)
+    # does the fire show at all? Either a spot near the centre warms up during the loop, or a steady
+    # hot spot there stands well above the rest of the picture. Otherwise the clip would mislead.
+    centre = [float(np.nanmax(v[c0:c1, c0:c1])) for _, v in vals]
+    change = max(centre) - centre[0]
+    contrast = max(c - float(np.nanmedian(v)) for c, (_, v) in zip(centre, vals))
+    if change < float(C.get("min_visible", 4)) and contrast < float(C.get("min_contrast", 15)):
+        raise NotVisible("the fire does not show in these pictures")
     lut = _lut()
     edges, m = None, None
     from .geodb import land_mask_points
