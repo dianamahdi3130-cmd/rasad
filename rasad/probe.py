@@ -123,12 +123,12 @@ def probe(cfg, lat, lon, start, end, radius_km=15.0, out_dir="probe-out"):
         report["ir"].append({"layer": name, "rows": rows})
         for r in rows:
             dk, br = r["darker"], r["brighter"]
-            flag = " <<<" if max(dk["dev"], br["dev"]) >= 25 else ""
+            flag = " <<<" if max(dk["dev"], br["dev"]) >= 6 else ""
             log.info("   %s  darker %5.1f at %.3f,%.3f (%4.1f km)   brighter %5.1f at %.3f,%.3f (%4.1f km)%s",
                      r["t"], dk["dev"], dk["lat"], dk["lon"], dk["km"], br["dev"], br["lat"], br["lon"],
                      br["km"], flag)
             for side in (dk, br):
-                if side["km"] <= 30 and (best is None or side["dev"] > best[0]):
+                if side["km"] <= 10 and (best is None or side["dev"] > best[0]):
                     best = (side["dev"], name, cad, label, parse_time(r["t"]))
 
     day = start.date()
@@ -148,10 +148,10 @@ def probe(cfg, lat, lon, start, end, radius_km=15.0, out_dir="probe-out"):
 
     # a clip around the strongest spot found near the point (or the end of the period)
     clips = []
-    if best and best[0] >= 25:
+    if best and best[0] >= 6:  # night-time noise over the sea is about 1-2
         _, name, cad, label, when = best
         clips.append((name, cad, label, when + dt.timedelta(minutes=cad * 4), "clip_spot"))
-        log.info("strongest spot within 30 km: %s at %s (strength %.0f)", name, iso(when), best[0])
+        log.info("strongest spot within 10 km: %s at %s (strength %.1f)", name, iso(when), best[0])
     L = E["clip_layer"]
     clips.append((L["name"], int(L["cadence_min"]), L["label"], end, "clip"))
     for name, cad, label, t_end, base in clips:
