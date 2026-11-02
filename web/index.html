@@ -430,7 +430,6 @@ function showFocus(id, move=true){
   S.focus.clearLayers();
   if (f){
     L.marker([f.lat, f.lon], {icon:L.divIcon({className:"", iconSize:[14,14], iconAnchor:[7,7], html:'<div class="plant"></div>'}), title:f.text}).addTo(S.focus);
-    L.polyline([[f.lat,f.lon],[it.lat,it.lon]], {color:"#7dd3fc", weight:2, dashArray:"5 6"}).addTo(S.focus);
   }
   if (!move) return;
   const top = $("#focusBar").offsetHeight + 16, bottom = (innerWidth >= 900 ? 0 : $("#focusCard").offsetHeight) + 24;
