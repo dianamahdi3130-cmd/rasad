@@ -35,7 +35,12 @@ save() {
     fi
     # shellcheck disable=SC2086
     commit=$(git commit-tree "$tree" $parent -m "$msg")
-    git push -q -f origin "$commit:refs/heads/$branch"
+    # GitHub sometimes refuses a push for a moment (e.g. while the site is being deployed): retry
+    for attempt in 1 2 3; do
+      git push -q -f origin "$commit:refs/heads/$branch" && break
+      [ "$attempt" = 3 ] && exit 1
+      sleep 10
+    done
     echo "$branch: saved"
   )
 }
