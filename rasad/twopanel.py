@@ -52,6 +52,8 @@ def _font(size, kind="ar"):
         cands = ["DejaVuSansMono-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"]
     elif kind == "monol":
         cands = ["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"]
+    elif kind == "sym":  # signs the Arabic font lacks (≈)
+        cands = ["DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
     elif kind in ("brand", "brandm"):  # the channel's name in Latin letters
         name = "ChakraPetch-Bold.ttf" if kind == "brand" else "ChakraPetch-Medium.ttf"
         cands = [str(ROOT / "assets/fonts" / name), "DejaVuSans-Bold.ttf",
@@ -438,6 +440,7 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     f_clock = _font(56, "mono")
     f_coord, f_small = _font(30, "mono"), _font(18, "monol")
     f_lab, f_first, f_badge, f_mw = _font(26, "ar"), _font(30, "arb"), _font(32, "arb"), _font(30, "arb")
+    f_sym = _font(28, "sym")
 
     static = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(static)
@@ -558,8 +561,9 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         cx, cy = LX + int(tx_), PY + int(ty_)
         sx = -1 if tx_ > PW * 0.62 else 1   # point towards the open side of the picture
         sy = 1 if ty_ < PH * 0.30 else -1
-        text = ("≈ " if val[1] else "") + _mw_text(val[0])
-        tw = _width(d, text, f_mw, rtl=True)
+        text = _mw_text(val[0])
+        sym_w = _width(d, "≈", f_sym) + 10 if val[1] else 0  # estimates carry ≈ before the number
+        tw = _width(d, text, f_mw, rtl=True) + sym_w
         rr = r + 12
         p0 = (cx + sx * rr * 0.7071, cy + sy * rr * 0.7071)
         p1 = (p0[0] + sx * 46, p0[1] + sy * 46)
@@ -575,10 +579,12 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
             d.line([p1, q2], fill=(*CYAN, 255), width=3)
             d.ellipse((q2[0] - 5, q2[1] - 5, q2[0] + 5, q2[1] + 5), fill=(*CYAN, 255))
         if grow >= 0.999:
-            mid = (p1[0] + p2[0]) / 2
+            left = (p1[0] + p2[0]) / 2 - tw / 2
             ty = p1[1] - 24 if sy < 0 else p1[1] + 26
-            _text(d, (mid + 2, ty + 2), text, f_mw, (0, 0, 0, 200), anchor="mm", rtl=True)
-            _text(d, (mid, ty), text, f_mw, WHITE, anchor="mm", rtl=True)
+            for dx, col in ((2, (0, 0, 0, 200)), (0, WHITE)):  # a soft shadow, then the text
+                _text(d, (left + dx, ty + dx), text, f_mw, col, anchor="lm", rtl=True)
+                if sym_w:
+                    _text(d, (left + tw - sym_w + 10 + dx, ty + dx), "≈", f_sym, col, anchor="lm")
 
     def chrome(frame, si, k, fire_on):
         """Target marks, strength line, brand light, clock and timeline for picture si, frame k."""

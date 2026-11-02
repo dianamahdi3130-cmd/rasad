@@ -15,7 +15,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@600;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@600;800&family=Chakra+Petch:wght@500;700&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
 /* Layout: operations-room screen. Map on top (phone) or left (desktop), incident feed beside it.
@@ -168,6 +168,16 @@ body.focus #focusCard{display:block;position:fixed;z-index:1600;left:0;right:0;b
 body.focus .basemap{top:calc(66px + env(safe-area-inset-top,0px))}
 body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
 @media (min-width:900px){body.focus .leaflet-bottom{bottom:0}}
+
+/* the incident picture: preview, then save to the phone's photos */
+.shot{position:fixed;inset:0;z-index:3500;background:rgba(3,6,10,.92);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;
+  padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.shot img{max-width:100%;max-height:62vh;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);-webkit-touch-callout:default}
+.shot p{margin:0;color:#c9d3e3;font-size:14px;text-align:center;max-width:520px}
+.shot .actions{justify-content:center}
+.spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -208,6 +218,7 @@ body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
   </div>
   <div class="wrap" id="detail"></div>
 </section>
+<section class="shot" id="shot" hidden aria-modal="true" role="dialog" aria-label="صورة الحدث"></section>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -418,10 +429,11 @@ function showFocus(id, move=true){
     </div>
     <div class="actions">
       <button class="btn primary" type="button" id="infoBtn">${it.clip ? "التفاصيل والفيديو" : "التفاصيل"}</button>
+      <button class="btn" type="button" id="fShot">📸 صورة</button>
       <button class="btn" type="button" id="fShare">مشاركة</button>
-      <a class="btn" href="${links(it)[0][0]}" target="_blank" rel="noopener">الموقع على الخريطة</a>
     </div>`;
   $("#infoBtn").onclick = () => setRoute(id + ":i");
+  $("#fShot").onclick = () => takePicture(it);
   $("#fShare").onclick = () => share(it);
   document.documentElement.style.setProperty("--card-h", $("#focusCard").offsetHeight + "px");
   if (!S.map) return;
@@ -491,6 +503,7 @@ function openDetail(id){
     </dl>
     <div class="actions">
       <button class="btn primary" type="button" id="shareBtn">مشاركة</button>
+      <button class="btn" type="button" id="shotBtn">📸 صورة</button>
       ${links(it).map(([u,t]) => `<a class="btn" href="${u}" target="_blank" rel="noopener">${t}</a>`).join("")}
     </div>
     <div class="help"><b>«مؤكد»</b> يعني أن قمرين مختلفين رأياه أو ظهر في 3 صور متتالية. باقي الأحداث رصدات لم تتأكد بعد، ولونها على الخريطة برتقالي أو أصفر.<br>
@@ -499,6 +512,219 @@ function openDetail(id){
   $("#sheet").hidden = false; $("#sheet").scrollTop = 0;
   $("#copyBtn").onclick = () => copy(`${it.lat.toFixed(5)},${it.lon.toFixed(5)}`);
   $("#shareBtn").onclick = () => share(it);
+  $("#shotBtn").onclick = () => takePicture(it);
+}
+
+/* ---------- the incident picture (when there is no satellite clip, or to post a still) ---------- */
+const EMBLEM = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>
+<linearGradient id="a" x1="0" y1="25" x2="0" y2="73" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ff7828"/><stop offset=".55" stop-color="#fa541c"/><stop offset="1" stop-color="#e2301e"/></linearGradient>
+<linearGradient id="b" x1="0" y1="46" x2="0" y2="71" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffec8c"/><stop offset=".6" stop-color="#ffd65a"/><stop offset="1" stop-color="#ffb232"/></linearGradient></defs>
+<g fill="none" stroke="#40d6ec" stroke-width="5" stroke-linecap="butt">
+<path d="M88.98 59A40 40 0 0 1 59 88.98M41 88.98A40 40 0 0 1 11.02 59M11.02 41A40 40 0 0 1 41 11.02M59 11.02A40 40 0 0 1 88.98 41"/>
+<path d="M83 50H99M50 83V99M17 50H1M50 17V1"/></g>
+<path fill="url(#a)" d="M50 73C60.64 73 67.1 64.36 67.1 53.8C67.1 43.24 61.4 35.56 54.56 25C55.32 34.6 50.76 40.36 46.2 45.16C43.92 42.28 41.64 39.88 40.12 35.56C34.8 44.2 32.9 51.88 32.9 56.68C32.9 66.28 40.12 73 50 73Z"/>
+<path fill="url(#b)" d="M50 70.6C56.08 70.6 59.5 65.8 59.5 60.52C59.5 54.76 54.94 51.4 52.66 46.12C51.14 51.4 46.2 53.8 43.16 58.6C40.5 63.4 43.16 70.6 50 70.6Z"/></svg>`;
+function loadImg(src, cors){
+  return new Promise(res => {
+    const im = new Image();
+    if (cors) im.crossOrigin = "anonymous";
+    const t = setTimeout(() => res(null), 9000);
+    im.onload = () => { clearTimeout(t); res(im); };
+    im.onerror = () => { clearTimeout(t); res(null); };
+    im.src = src;
+  });
+}
+function spaced(g, text, x, y, track){       // Latin capitals with letter spacing, left to right
+  for (const ch of text){ g.fillText(ch, x, y); x += g.measureText(ch).width + track; }
+  return x - track;
+}
+async function renderPicture(it){
+  const W = 1920, H = 1080, TOP = 128, FOOT = 140, M = 12;
+  const MX = M, MY = TOP + M, MW = W - 2 * M, MH = H - TOP - FOOT - 2 * M;
+  const CYAN = "#40d6ec", BGC = "#06090e", WHITE = "#f0f4fa", DIMC = "#808ea0";
+  const SURE = "#e83e3e", HOTC = "#ff9632";
+  const accent = sure(it) ? SURE : HOTC;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  cv.setAttribute("dir", "rtl"); cv.style.cssText = "position:fixed;left:-99999px;top:0";
+  document.body.appendChild(cv);
+  const g = cv.getContext("2d");
+  const rtl = on => { try { g.direction = on ? "rtl" : "ltr"; } catch {} };
+  await Promise.all(['700 34px "Chakra Petch"', '500 34px "Chakra Petch"', '800 44px "Noto Kufi Arabic"',
+                     '600 30px "Noto Kufi Arabic"', '500 26px "IBM Plex Sans Arabic"'].map(f => document.fonts?.load(f).catch(() => null)));
+  const AR = '"IBM Plex Sans Arabic","Noto Kufi Arabic",Tahoma,sans-serif', KUFI = '"Noto Kufi Arabic",' + AR;
+  const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,monospace';
+  g.fillStyle = BGC; g.fillRect(0, 0, W, H);
+
+  // satellite picture around the incident (Web Mercator tiles), north up
+  const z = Math.max(9, Math.min(16, Math.round((S.map ? S.map.getZoom() : 11) + 2)));
+  const n = 256 * 2 ** z;
+  const wx = (it.lon + 180) / 360 * n;
+  const sl = Math.sin(it.lat * Math.PI / 180);
+  const wy = (0.5 - Math.log((1 + sl) / (1 - sl)) / (4 * Math.PI)) * n;
+  const ox = wx - MW / 2, oy = wy - MH / 2;
+  const jobs = [];
+  for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + MW) / 256); tx++)
+    for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + MH) / 256); ty++)
+      jobs.push({tx, ty});
+  const layer = async (path, alpha) => {
+    const ims = await Promise.all(jobs.map(j => loadImg(`${ESRI}${path}/MapServer/tile/${z}/${j.ty}/${j.tx}`, true)));
+    g.save(); g.beginPath(); g.rect(MX, MY, MW, MH); g.clip(); g.globalAlpha = alpha;
+    ims.forEach((im, k) => { if (im) g.drawImage(im, MX + jobs[k].tx * 256 - ox, MY + jobs[k].ty * 256 - oy); });
+    g.restore();
+    return ims.filter(Boolean).length;
+  };
+  g.fillStyle = "#0c1420"; g.fillRect(MX, MY, MW, MH);
+  const got = await layer("World_Imagery", 1);
+  await layer("Reference/World_Boundaries_and_Places", .85);
+  g.save(); g.beginPath(); g.rect(MX, MY, MW, MH); g.clip();
+  g.fillStyle = "rgba(4,9,16,.22)"; g.fillRect(MX, MY, MW, MH);           // a little darker: the marks read better
+  if (!got){                                                                // no imagery: a plain coordinate grid
+    g.strokeStyle = "rgba(64,214,236,.12)"; g.lineWidth = 1;
+    for (let x = MX; x < MX + MW; x += 96){ g.beginPath(); g.moveTo(x, MY); g.lineTo(x, MY + MH); g.stroke(); }
+    for (let y = MY; y < MY + MH; y += 96){ g.beginPath(); g.moveTo(MX, y); g.lineTo(MX + MW, y); g.stroke(); }
+  }
+  // the faint slanted pattern of the channel logo (as on the clips)
+  const logo = await loadImg("brand-logo.png", false);
+  if (logo){
+    const lw = 150, lh = logo.height * lw / logo.width, sx = lw + 130, sy = lh + 120;
+    g.globalAlpha = .07;
+    g.translate(MX + MW / 2, MY + MH / 2); g.rotate(22 * Math.PI / 180);
+    for (let j = -8, row = 0; j <= 8; j++, row++)
+      for (let i = -9; i <= 9; i++) g.drawImage(logo, i * sx + (row % 2) * sx / 2, j * sy, lw, lh);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
+  }
+  const vg = g.createRadialGradient(MX + MW / 2, MY + MH / 2, MH * .45, MX + MW / 2, MY + MH / 2, MW * .62);
+  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.55)");
+  g.fillStyle = vg; g.fillRect(MX, MY, MW, MH);
+  g.fillStyle = "rgba(0,0,0,.07)";
+  for (let y = MY; y < MY + MH; y += 4) g.fillRect(MX, y, MW, 1);           // scan lines
+  // the target: hot centre, ring with ticks, dashed outer ring
+  const cx = MX + MW / 2, cy = MY + MH / 2, r = 54;
+  const hot = g.createRadialGradient(cx, cy, 0, cx, cy, 34);
+  hot.addColorStop(0, "rgba(255,240,190,1)"); hot.addColorStop(.35, "rgba(255,120,30,.95)"); hot.addColorStop(1, "rgba(220,40,20,0)");
+  g.fillStyle = hot; g.beginPath(); g.arc(cx, cy, 34, 0, 2 * Math.PI); g.fill();
+  g.lineWidth = 7; g.strokeStyle = "rgba(0,0,0,.55)"; g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.stroke();
+  g.lineWidth = 3.5; g.strokeStyle = CYAN; g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.stroke();
+  for (let a = 0; a < 4; a++){
+    const c = Math.cos(a * Math.PI / 2), s2 = Math.sin(a * Math.PI / 2);
+    g.beginPath(); g.moveTo(cx + c * (r + 7), cy + s2 * (r + 7)); g.lineTo(cx + c * (r + 21), cy + s2 * (r + 21)); g.stroke();
+  }
+  g.setLineDash([9, 7]); g.lineWidth = 2; g.strokeStyle = "rgba(64,214,236,.65)";
+  g.beginPath(); g.arc(cx, cy, r + 30, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]);
+  g.lineWidth = 3; g.strokeStyle = accent; g.globalAlpha = .7;
+  g.beginPath(); g.arc(cx, cy, r + 64, 0, 2 * Math.PI); g.stroke(); g.globalAlpha = 1;
+  // the strength on a short line from the ring
+  const m = latestMeasure(it), mw = m ? m[1] : it.max_frp;
+  if (mw != null){
+    const p0 = [cx + (r + 12) * .7071, cy - (r + 12) * .7071], p1 = [p0[0] + 52, p0[1] - 52];
+    g.font = `700 34px ${KUFI}`; rtl(true);
+    const label = mwText(mw), tw = g.measureText(label).width, p2 = [p1[0] + tw + 36, p1[1]];
+    g.lineWidth = 7; g.strokeStyle = "rgba(0,0,0,.55)";
+    g.beginPath(); g.moveTo(...p0); g.lineTo(...p1); g.lineTo(...p2); g.stroke();
+    g.lineWidth = 3; g.strokeStyle = CYAN; g.beginPath(); g.moveTo(...p0); g.lineTo(...p1); g.lineTo(...p2); g.stroke();
+    g.fillStyle = CYAN; g.beginPath(); g.arc(p2[0], p2[1], 6, 0, 2 * Math.PI); g.fill();
+    g.textAlign = "center"; g.textBaseline = "alphabetic";
+    g.fillStyle = "rgba(0,0,0,.75)"; g.fillText(label, (p1[0] + p2[0]) / 2 + 2, p1[1] - 14 + 2);
+    g.fillStyle = WHITE; g.fillText(label, (p1[0] + p2[0]) / 2, p1[1] - 14);
+  }
+  g.restore();
+  // corner brackets, north and scale
+  g.strokeStyle = CYAN; g.lineWidth = 3;
+  for (const [x, y, dx, dy] of [[MX + 8, MY + 8, 1, 1], [MX + MW - 8, MY + 8, -1, 1], [MX + 8, MY + MH - 8, 1, -1], [MX + MW - 8, MY + MH - 8, -1, -1]]){
+    g.beginPath(); g.moveTo(x + dx * 46, y); g.lineTo(x, y); g.lineTo(x, y + dy * 46); g.stroke();
+  }
+  rtl(false); g.textAlign = "center"; g.fillStyle = WHITE; g.font = `700 22px ${MONO}`;
+  g.beginPath(); g.moveTo(MX + MW - 52, MY + 34); g.lineTo(MX + MW - 62, MY + 62); g.lineTo(MX + MW - 52, MY + 56); g.lineTo(MX + MW - 42, MY + 62); g.closePath(); g.fill();
+  g.fillText("N", MX + MW - 52, MY + 86);
+  const mpp = 156543.03392 * Math.cos(it.lat * Math.PI / 180) / 2 ** z;
+  const km = [1, 2, 5, 10, 20].find(k => k * 1000 / mpp >= 160) || 20, bar = km * 1000 / mpp;
+  const bx = MX + 40, by = MY + MH - 40;
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(bx - 12, by - 40, bar + 24, 56);
+  g.strokeStyle = WHITE; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(bx, by - 8); g.lineTo(bx, by); g.lineTo(bx + bar, by); g.lineTo(bx + bar, by - 8); g.stroke();
+  g.font = `600 20px ${MONO}`; g.fillStyle = WHITE; g.fillText(`${km} km`, bx + bar / 2, by - 14);
+
+  // header: brand, place, time
+  g.fillStyle = BGC; g.fillRect(0, 0, W, TOP); g.fillRect(0, H - FOOT, W, FOOT);
+  g.fillStyle = "rgba(64,214,236,.28)"; g.fillRect(0, TOP - 2, W, 2); g.fillRect(0, H - FOOT, W, 2);
+  const em = await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(EMBLEM), false);
+  if (em){
+    const glow = g.createRadialGradient(66, TOP / 2, 4, 66, TOP / 2, 44);
+    glow.addColorStop(0, "rgba(255,110,30,.45)"); glow.addColorStop(1, "rgba(255,110,30,0)");
+    g.fillStyle = glow; g.fillRect(16, 16, 100, 96);
+    g.drawImage(em, 34, (TOP - 64) / 2, 64, 64);
+  }
+  rtl(false); g.textAlign = "left"; g.textBaseline = "alphabetic";
+  g.font = '700 34px "Chakra Petch",' + AR; g.fillStyle = WHITE;
+  let bx2 = spaced(g, "ALFAQAAR", 118, TOP / 2 + 12, 3);
+  g.fillStyle = "rgba(64,214,236,.7)"; g.fillRect(bx2 + 13, TOP / 2 - 15, 2, 30);
+  g.font = '500 34px "Chakra Petch",' + AR; g.fillStyle = CYAN;
+  bx2 = spaced(g, "FIRMS", bx2 + 28, TOP / 2 + 12, 3);
+  const off = (S.meta?.local_offset_hours ?? 3) * 3600e3, last = new Date(Date.parse(it.last) + off);
+  const hhmm = d => String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+  g.textAlign = "right"; g.font = `700 56px ${MONO}`; g.fillStyle = WHITE;
+  g.fillText(hhmm(last), W - 40, TOP / 2 + 20);
+  const cw = g.measureText("00:00").width;
+  rtl(true); g.font = `500 26px ${AR}`; g.fillStyle = DIMC;
+  g.fillText(S.meta?.local_name || "بغداد", W - 40 - cw - 16, TOP / 2 + 14);
+  const maxW = 2 * Math.min(W / 2 - bx2 - 40, W - 40 - cw - 120 - W / 2);
+  let title = it.where || it.headline, size = 44;
+  g.textAlign = "center";
+  for (; size >= 28; size -= 4){ g.font = `800 ${size}px ${KUFI}`; if (g.measureText(title).width <= maxW) break; }
+  if (g.measureText(title).width > maxW && title.includes("(")) title = title.slice(0, title.lastIndexOf("(")).trim();
+  g.fillStyle = WHITE; g.fillText(title, W / 2, 58);
+  const sub = [it.region_name, it.country].filter((x, i, a) => x && !title.includes(x) && a.indexOf(x) === i).join(" • ");
+  if (sub){ g.font = `500 26px ${AR}`; g.fillStyle = DIMC; g.fillText(sub, W / 2, 104); }
+
+  // footer: coordinates, first sighting, confirmed
+  rtl(false); g.textAlign = "left"; g.font = `700 30px ${MONO}`; g.fillStyle = WHITE;
+  g.fillText(`${it.lat.toFixed(4)}°N  ${it.lon.toFixed(4)}°E`, 40, H - FOOT + 66);
+  g.font = `500 17px ${MONO}`; g.fillStyle = "#5c6878";
+  g.fillText(got ? "Imagery © Esri, Maxar, Earthstar Geographics" : "", 40, H - FOOT + 108);
+  const first = new Date(Date.parse(it.first) + off);
+  rtl(true); g.textAlign = "center"; g.font = `700 34px ${KUFI}`; g.fillStyle = accent;
+  g.fillText(`أول رصد ${hhmm(first)}`, W / 2, H - FOOT + 66);
+  g.font = `500 22px ${AR}`; g.fillStyle = DIMC;
+  g.fillText(`${first.getUTCFullYear()}/${String(first.getUTCMonth() + 1).padStart(2, "0")}/${String(first.getUTCDate()).padStart(2, "0")}`, W / 2, H - FOOT + 106);
+  if (sure(it)){
+    g.font = `800 34px ${KUFI}`;
+    const vw = g.measureText("مؤكد").width + 60;
+    g.fillStyle = SURE; g.beginPath(); g.roundRect ? g.roundRect(W - 40 - vw, H - FOOT + 38, vw, 62, 12) : g.rect(W - 40 - vw, H - FOOT + 38, vw, 62); g.fill();
+    g.fillStyle = "#0c0c0e"; g.fillText("مؤكد", W - 40 - vw / 2, H - FOOT + 81);
+  }
+  const blob = await new Promise(res => { try { cv.toBlob(res, "image/png"); } catch { res(null); } });
+  cv.remove();
+  return blob;
+}
+async function takePicture(it){
+  const box = $("#shot");
+  box.innerHTML = `<div class="spin" aria-hidden="true"></div><p>جارٍ تجهيز صورة الحدث…</p>`;
+  box.hidden = false;
+  let blob = null;
+  try { blob = await renderPicture(it); } catch (e) { blob = null; }
+  if (!blob){
+    box.innerHTML = `<p>تعذّر تجهيز الصورة. حاول مرة أخرى.</p><div class="actions"><button class="btn" type="button" id="shotClose">إغلاق</button></div>`;
+    $("#shotClose").onclick = () => box.hidden = true;
+    return;
+  }
+  const name = `ALFAQAAR-${it.id}.png`, file = new File([blob], name, {type:"image/png"});
+  const url = URL.createObjectURL(blob);
+  const canShare = !!(navigator.canShare && navigator.canShare({files:[file]}));
+  box.innerHTML = `<img src="${url}" alt="صورة الحدث">
+    <div class="actions">
+      <button class="btn primary" type="button" id="shotSave">${canShare ? "حفظ في الصور" : "تنزيل الصورة"}</button>
+      <button class="btn" type="button" id="shotClose">إغلاق</button>
+    </div>
+    <p>${canShare ? "ستفتح نافذة المشاركة: اختر «حفظ الصورة». أو اضغط مطولاً على الصورة واختر «إضافة إلى الصور»." : "أو اضغط مطولاً على الصورة لحفظها."}</p>`;
+  $("#shotClose").onclick = () => { box.hidden = true; URL.revokeObjectURL(url); };
+  $("#shotSave").onclick = async () => {
+    if (canShare){
+      try { await navigator.share({files:[file], title:it.headline}); return; }
+      catch (e) { if (e.name === "AbortError") return; }
+    }
+    const a = document.createElement("a"); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); toast("حُفظت الصورة");
+  };
 }
 async function copy(text){
   try { await navigator.clipboard.writeText(text); toast("نُسخ"); }
@@ -519,6 +745,7 @@ $("#basemapBtn").onclick = () => { S.sat = !S.sat; setBase(); };
 addEventListener("popstate", route);
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
+  if (!$("#shot").hidden) { $("#shot").hidden = true; return; }
   if (!$("#sheet").hidden) setRoute(S.sel || ""); else if (S.sel) setRoute("");
 });
 addEventListener("resize", () => { if (S.sel) document.documentElement.style.setProperty("--card-h", $("#focusCard").offsetHeight + "px"); });

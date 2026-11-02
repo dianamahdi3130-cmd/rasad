@@ -23,7 +23,7 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, latest_time
 
 STALE_HOURS = 3
-RULES = 8  # bump when the importance rules change, so stored incidents are judged again
+RULES = 9  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 13  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
@@ -205,10 +205,10 @@ def enrich(inc, cfg, geo):
         inc["place"] = geo.place_kind(inc["lat"], inc["lon"])
         inc["facility"] = geo.facility(inc["lat"], inc["lon"])
         inc["where"], inc["country"] = geo.describe(inc["lat"], inc["lon"], inc["place"])
-        region, ids = smallest_region(cfg, inc["lat"], inc["lon"])
-        inc["regions"] = ids
-        inc["region_name"] = region["name"] if region else None
         inc["_pos"] = pos
+    region, ids = smallest_region(cfg, inc["lat"], inc["lon"])  # cheap: follows renamed regions
+    inc["regions"] = ids
+    inc["region_name"] = region["name"] if region else None
     return finalize(inc, cfg)
 
 
@@ -629,7 +629,7 @@ def run_cycle(cfg, send=True, alert_now=False):
 
 PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "start_text", "last_text",
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
-          "sources_text", "regions", "clip", "snap", "clip_note", "frp_series"]
+          "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series"]
 
 
 def publish(cfg, S, status, now, learning, n_dets):
