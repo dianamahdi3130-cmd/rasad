@@ -68,11 +68,11 @@ DEFAULTS = {
              "out_px": 1280, "fps": 3, "hold_last": 4, "format": "mp4"},
     # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
     "seawatch": {
-        "enabled": True, "alerts": False,
+        "enabled": False, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         "cadence_min": 10, "delay_min": 20, "slots_per_run": 2, "km_per_px": 1.25,
-        "ref_minutes": [30, 60], "min_rise": 5.0, "min_z": 5.0, "max_area_px": 20, "max_was_hot": 4.0,
+        "ref_minutes": [30, 60], "min_rise": 5.0, "min_z": 5.0, "max_area_km2": 30, "max_was_hot": 4.0,
         "min_coast_km": 3.0, "platform_km": 4.0, "max_z_ir105": 4.0, "sun_max_elev": -6.0,
         "boxes": [
             {"id": "hormuz_oman", "bbox": [55.0, 22.4, 60.2, 27.2]},
@@ -411,6 +411,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     min_rank = VERDICT_RANK.get(cfg["alerts"]["min_verdict"], 1)
     max_age = dt.timedelta(hours=float(cfg["alerts"].get("max_age_hours", 8)))
     first_alerts, updates = [], []
+    look_budget = 1
     rejudge = S.state.get("rules") != RULES
     if rejudge:
         keep, dropped = [], 0
@@ -440,6 +441,24 @@ def run_cycle(cfg, send=True, alert_now=False):
                 and not stale_map and not rejudge:
             continue
         enrich(inc, cfg, geo)
+        fac = inc.get("facility")
+        if look_budget > 0 and SW.get("look_back") and inc["place"] in ("sea", "coast") and inc.get("polar") \
+                and seawatch.SRC not in (inc.get("srcs") or []) and not inc.get("looked_back") \
+                and inc["priority"] == "high" and not (fac and fac["km"] <= 3):
+            # NASA saw a fire at sea hours late: find when it first showed on Meteosat-12
+            look_budget -= 1
+            inc["looked_back"] = iso(now)
+            try:
+                spots = seawatch.look_back(cfg, wms, inc, Memory(S.memory), geo)
+            except Exception as e:  # noqa: BLE001
+                log.warning("look back for %s failed: %s", inc["id"], e)
+                spots = []
+            for sp in spots:
+                add_to_incident(inc, sp)
+            if spots:
+                log.info("look back %s: seen on Meteosat-12 from %s (%d pictures)", inc["id"],
+                         min(sp["t"] for sp in spots), len(spots))
+                finalize(inc, cfg)
         if inc["priority"] != "high" or inc.get("status") == "held":
             continue
         rank = VERDICT_RANK[inc["verdict"]]

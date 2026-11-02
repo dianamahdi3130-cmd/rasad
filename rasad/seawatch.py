@@ -140,8 +140,10 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None):
         return [], "no land mask"
     ref = np.fmax(old[0], old[1]) if len(old) > 1 else old[0]
     rise = cur - ref
-    spot = rise - local_mean(rise, 4)          # what warmed more than its surroundings
-    was_hot = ref - local_mean(ref, 10)        # already warm before (a flare, a hot plant)
+    # window sizes are in km, so the finder behaves the same at any picture detail
+    spot = rise - local_mean(rise, max(2, round(5 / km)))     # what warmed more than its surroundings
+    was_hot = ref - local_mean(ref, max(4, round(12 / km)))   # already warm before (a flare, a plant)
+    max_area = float(C["max_area_km2"]) / (km * km)
     sig = robust_sigma(np.where(sea, spot, np.nan))
     if sig is None:
         return [], "no sea in view"
@@ -156,7 +158,7 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None):
     mask_fn = land_mask_points()
     for pts in components(cand, limit=5000):
         notes["candidates"] += 1
-        if len(pts) > int(C["max_area_px"]):
+        if len(pts) > max_area:
             reject("too big (clouds)")
             continue
         vals = spot[pts[:, 0], pts[:, 1]]
@@ -219,6 +221,27 @@ def watch(cfg, wms, state, now, mem=None, geo=None):
     return found
 
 
+def look_back(cfg, wms, inc, mem=None, geo=None, hours_before=3.0, minutes_after=30, radius_km=6.0):
+    """NASA reports a fire at sea hours later: when did it first show on Meteosat-12?
+    Returns the specks found near it in the pictures before (and just after) NASA's pass."""
+    from .util import haversine_km
+    C = cfg["seawatch"]
+    # a small area, so the full-detail picture can be asked for (big areas come back averaged)
+    cfg = dict(cfg, seawatch=dict(C, km_per_px=float(C.get("look_back_km_per_px", 0.5))))
+    cad = int(C["cadence_min"])
+    first = parse_time(inc["first"])
+    box = {"id": "lookback", "bbox": box_around(inc["lat"], inc["lon"], 30)}
+    pics = Pictures(wms)
+    t, end, found = floor_time(first - dt.timedelta(hours=hours_before), cad), \
+        first + dt.timedelta(minutes=minutes_after), []
+    while t <= end:
+        spots, _ = find_spots(cfg, pics, box, t, mem, geo)
+        found += [sp for sp in spots or []
+                  if haversine_km(sp["lat"], sp["lon"], inc["lat"], inc["lon"]) <= radius_km]
+        t += dt.timedelta(minutes=cad)
+    return found
+
+
 def scan(cfg, wms, start, end, mem=None, geo=None, boxes=None):
     """Replay the finder over a past period (for checking it before trusting it)."""
     C = cfg["seawatch"]
@@ -232,6 +255,11 @@ def scan(cfg, wms, start, end, mem=None, geo=None, boxes=None):
             spots, notes = find_spots(cfg, pics, box, t, mem, geo)
             if spots:
                 rows += [dict(sp, box=box["id"]) for sp in spots]
+                for sp in spots:
+                    near = geo.facility(sp["lat"], sp["lon"]) if geo is not None else None
+                    log.info("   spot %.4f,%.4f rise %.1f z10 %s area %d px%s", sp["lat"], sp["lon"], sp["rise"],
+                             sp["z10"], sp["area_px"], f"  nearest facility {near['km']} km ({near['label']})"
+                             if near else "")
             if spots or (isinstance(notes, dict) and notes.get("candidates")):
                 log.info("%s %s: %s %s", iso(t), box["id"], f"{len(spots)} spot(s)" if spots else "-", notes)
             elif spots is None:
