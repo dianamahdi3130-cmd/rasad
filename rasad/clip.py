@@ -140,7 +140,10 @@ def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
     shots, seen = [], set()
     for k in range(n - 1, -1, -1):
         t = t_end - dt.timedelta(minutes=cad * k)
-        img, actual = wms.getmap(L["name"], bbox, N, N, t=t, style=L.get("style", ""), quiet=True)
+        for _attempt in range(2):  # the server sometimes fails one picture: ask once more
+            img, actual = wms.getmap(L["name"], bbox, N, N, t=t, style=L.get("style", ""), quiet=True)
+            if img is not None:
+                break
         if img is None or coverage(img) < 0.5:
             continue
         g = np.asarray(img).astype(np.float32)[..., :3].mean(axis=2)

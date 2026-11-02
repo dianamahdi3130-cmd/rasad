@@ -24,7 +24,7 @@ from .wms import WMS, latest_time
 
 STALE_HOURS = 3
 RULES = 3  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 2  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 3  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -74,7 +74,7 @@ DEFAULTS = {
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         "cadence_min": 10, "delay_min": 20, "slots_per_run": 2, "km_per_px": 1.25,
-        "ref_minutes": [30, 60], "min_rise": 5.0, "min_z": 5.0, "max_area_km2": 30, "max_was_hot": 4.0,
+        "ref_minutes": [30, 60], "min_rise": 5.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
         "min_coast_km": 3.0, "platform_km": 4.0, "max_z_ir105": 4.0, "sun_max_elev": -6.0,
         "boxes": [
             {"id": "hormuz_oman", "bbox": [55.0, 22.4, 60.2, 27.2]},
