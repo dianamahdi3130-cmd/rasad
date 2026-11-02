@@ -74,7 +74,7 @@ DEFAULTS = {
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         "cadence_min": 10, "delay_min": 20, "slots_per_run": 2, "km_per_px": 0.5,
-        "ref_minutes": [30], "min_rise": 7.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
+        "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
         "min_coast_km": 3.0, "platform_km": 10.0, "known_heat_km": 10.0, "max_z_ir105": 99.0,
         "sun_max_elev": -6.0,
         "boxes": [
