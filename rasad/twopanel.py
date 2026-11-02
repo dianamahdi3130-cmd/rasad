@@ -228,9 +228,22 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     d.rectangle((0, 0, W, top_h), fill=(*BG, 255))
     d.line([(0, top_h - 1), (W, top_h - 1)], fill=(*CYAN, 80), width=2)
     _text(d, (36, top_h // 2), str(C.get("hud_title", "Alfaqaar313")), f_brand, CYAN, anchor="lm")
-    _text(d, (W // 2, 46), info.get("where") or f"{lat:.4f}, {lon:.4f}", f_title, WHITE, anchor="mm", rtl=True)
-    if info.get("region"):
-        _text(d, (W // 2, 98), info["region"], f_sub, DIM, anchor="mm", rtl=True)
+    title = info.get("where") or f"{lat:.4f}, {lon:.4f}"
+    max_w = W - 2 * 450  # keep clear of the name on the left and the clock on the right
+    if _width(d, title, _font(38, "arb"), rtl=True) > max_w and "(" in title:
+        title = title[:title.rfind("(")].rstrip()  # the country is already in the line below
+    for size in (46, 42, 38, 34, 31, 28):
+        f_title = _font(size, "arb")
+        if _width(d, title, f_title, rtl=True) <= max_w:
+            break
+    else:
+        while len(title) > 10 and _width(d, title + "…", f_title, rtl=True) > max_w:
+            title = title[:-1]
+        title = title.rstrip("، ") + "…"
+    _text(d, (W // 2, 46), title, f_title, WHITE, anchor="mm", rtl=True)
+    sub = " • ".join(x for x in (info.get("region"), info.get("country")) if x and x not in title)
+    if sub:
+        _text(d, (W // 2, 98), sub, f_sub, DIM, anchor="mm", rtl=True)
     for x0, label in ((LX, "حراري"), (RX, "مرئي")):
         _brackets(d, x0 + 8, PY + 8, x0 + PW - 8, PY + PH - 8, (*CYAN, 230), arm=40)
         lw = _width(d, label, f_lab, rtl=True)

@@ -24,7 +24,7 @@ from .wms import WMS, latest_time
 
 STALE_HOURS = 3
 RULES = 6  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 10  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 11  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -228,6 +228,7 @@ def clip_for(cfg, wms, S, inc):
         base = Path(cfg["_site_dir"]) / "clips" / inc["id"]
         fac = inc.get("facility")
         info = {"where": inc.get("where"), "region": inc.get("region_name"), "verdict": inc.get("verdict"),
+                "country": inc.get("country"),
                 "size": inc.get("size"), "first": inc.get("first"),
                 "facility": fac["text"] if fac and fac.get("km", 99) <= 15 else None}
         try:
