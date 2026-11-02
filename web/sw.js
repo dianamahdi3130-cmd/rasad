@@ -1,5 +1,5 @@
 // Rasad service worker: the app opens offline; incidents are always fetched fresh first.
-const CACHE = "rasad-v3";
+const CACHE = "rasad-v4";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => {

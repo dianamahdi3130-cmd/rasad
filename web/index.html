@@ -125,6 +125,13 @@ video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display
 .fire.fresh::after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid currentColor;animation:pulse 1.8s infinite}
 .fire.v-sure{color:var(--sure)} .fire.v-likely{color:var(--likely)} .fire.v-check{color:var(--check)}
 .plant{width:14px;height:14px;background:#7dd3fc;border:2px solid #0b1220;transform:rotate(45deg)}
+/* fire strength next to the circle, shown once the map is zoomed in */
+.mw{display:none;position:absolute;left:26px;top:-3px;white-space:nowrap;direction:rtl;
+  background:rgba(8,12,20,.86);color:#fff;border:1px solid currentColor;border-radius:8px;
+  padding:1px 7px;font-size:12px;font-weight:600;line-height:20px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.mw.v-sure{color:var(--sure)} .mw.v-likely{color:var(--likely)} .mw.v-check{color:var(--check)}
+.mw b{color:#fff;font-weight:700}
+#map.zoomed .mw{display:block}
 @keyframes pulse{from{opacity:.9;transform:scale(.6)}to{opacity:0;transform:scale(1.6)}}
 @media (prefers-reduced-motion:reduce){.fire.fresh::after{animation:none}}
 .leaflet-container{font:inherit;background:var(--surface-2)}
@@ -205,6 +212,8 @@ function initMap(){
   setBase();
   S.layer = L.layerGroup().addTo(S.map);
   S.focus = L.layerGroup().addTo(S.map);
+  S.map.on("zoomend", zoomLabels);
+  zoomLabels();
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", setBase);
 }
 function setBase(){
@@ -217,10 +226,19 @@ function setBase(){
   ]).addTo(S.map);
   $("#basemapBtn").textContent = S.sat ? "خريطة" : "قمر صناعي";
 }
+function mwText(v){
+  if (v == null || isNaN(v)) return "";
+  return (v < 10 ? (Math.round(v * 10) / 10) : Math.round(v)) + " ميغاواط";
+}
 function fireIcon(it){
   const fresh = Date.now() - Date.parse(it.last) < 3600e3;
+  const mw = mwText(it.max_frp);
   return L.divIcon({className:"", iconSize:[18,18], iconAnchor:[9,9],
-    html:`<div class="fire ${V[it.verdict]||"v-check"} ${fresh?"fresh":""}" style="position:relative"></div>`});
+    html:`<div class="fire ${V[it.verdict]||"v-check"} ${fresh?"fresh":""}" style="position:relative"></div>`
+       + (mw ? `<span class="mw ${V[it.verdict]||"v-check"}"><b>${esc(mw)}</b></span>` : "")});
+}
+function zoomLabels(){
+  if (S.map) S.map.getContainer().classList.toggle("zoomed", S.map.getZoom() >= 7);
 }
 
 /* ---------- data ---------- */
@@ -320,7 +338,7 @@ function openDetail(id, push=true){
       <dt>أقرب منشأة</dt><dd>${f ? esc(f.text) : "لا توجد منشأة طاقة قريبة"}</dd>
       <dt>بدأ</dt><dd>${esc(it.start_text)}</dd>
       <dt>آخر رصد</dt><dd>${esc(it.last_text)} (${ago(it.last)})</dd>
-      <dt>الحجم</dt><dd>${it.size ? esc(it.size) : "يُعرف بعد مرور قمر أمريكي"}</dd>
+      <dt>الحجم</dt><dd>${it.size ? esc(it.size) + (it.max_frp != null ? ` (${esc(mwText(it.max_frp))})` : "") : "يُعرف بعد مرور قمر أمريكي"}</dd>
       <dt>رصدته</dt><dd>${esc(it.sources_text ? "أقمار: " + it.sources_text : "—")}</dd>
       <dt>الإحداثيات</dt><dd><button class="btn" type="button" id="copyBtn" dir="ltr">${it.lat.toFixed(4)},${it.lon.toFixed(4)}</button></dd>
       <dt>الدقة</dt><dd>${it.best === "polar" ? "دقيقة (نحو نصف كيلومتر)" : "تقريبية (نحو 3 كم) حتى يمر قمر أمريكي"}</dd>
