@@ -241,7 +241,10 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
             title = title[:-1]
         title = title.rstrip("، ") + "…"
     _text(d, (W // 2, 46), title, f_title, WHITE, anchor="mm", rtl=True)
-    sub = " • ".join(x for x in (info.get("region"), info.get("country")) if x and x not in title)
+    region, country = info.get("region") or "", info.get("country") or ""
+    if region and country and (region in country or country in region):
+        region = ""  # 'الإمارات' and 'الإمارات العربية المتحدة' say the same thing
+    sub = " • ".join(x for x in (region, country) if x and x not in title)
     if sub:
         _text(d, (W // 2, 98), sub, f_sub, DIM, anchor="mm", rtl=True)
     for x0, label in ((LX, "حراري"), (RX, "مرئي")):
