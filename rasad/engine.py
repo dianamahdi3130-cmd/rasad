@@ -13,7 +13,7 @@ from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finali
                     new_incident)
 from .clip import make_clip
 from .geodb import Geo
-from .notify import deliver
+from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse_time, save_json,
                    utcnow)
@@ -198,6 +198,18 @@ def run_cycle(cfg, send=True, alert_now=False):
     if cfg["firms"]["map_key"] and not S.state.get("bootstrapped"):
         bootstrap(cfg, session, S, box)
         S.state["bootstrapped"] = iso(now)
+
+    if telegram_ready(cfg) and not S.state.get("hello_sent"):
+        active = available_days(S.state, today, int(M["window_days"])) > 0 or alert_now
+        hello = ("✅ <b>رصد يعمل الآن</b>\n"
+                 f"يراقب: {'، '.join(r['name'] for r in regions)}\n"
+                 "ستصلك هنا تنبيهات الحرائق الجديدة في البحر وقرب منشآت الطاقة، مع مقطع القمر الصناعي.\n"
+                 + ("التنبيهات تعمل من الآن." if active else
+                    "اليوم يتعلّم الحرارة المعتادة، وتبدأ التنبيهات غداً. أضف مفتاح ناسا لتبدأ فوراً."))
+        if cfg.get("app_url"):
+            hello += f'\n<a href="{cfg["app_url"]}">افتح التطبيق</a>'
+        if tg_send(cfg, session, hello):
+            S.state["hello_sent"] = iso(now)
 
     # 1) European weather satellites, every 10-15 minutes
     dets, n_images, t0 = [], 0, time.time()
