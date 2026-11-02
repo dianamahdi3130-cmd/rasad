@@ -38,11 +38,17 @@ POWER_SOURCE_AR = {"gas": "غاز", "oil": "نفط", "diesel": "ديزل", "sola
                    "coal": "فحم", "wind": "رياح", "hydro": "مائية"}
 
 
+NOT_ENERGY = ("edible", "food", "vegetable", "cooking", "palm", "olive", "sunflower", "soap", "sesame",
+              "زيوت", "زيت الطعام", "صابون", "أغذية")
+
+
 def facility_category(tags):
-    """(Arabic category, short code) for an OSM energy/industrial feature."""
+    """(Arabic category, short code) for an OSM energy/industrial feature, or None if not energy."""
     mm, ind = tags.get("man_made", ""), tags.get("industrial", "")
     prod = tags.get("product", "").lower()
     names = " ".join(tags.get(k, "") for k in ("name", "name:en", "name:ar", "operator")).lower()
+    if any(w in names or w in prod for w in NOT_ENERGY):
+        return None
     if mm == "offshore_platform":
         return "منصة نفط بحرية", "platform"
     if ind in ("refinery", "oil_refinery") or "refin" in names or "مصفا" in names:
@@ -161,8 +167,9 @@ def build_geodata(cfg, session, budget_s=None):
                 tags = el.get("tags") or {}
                 oid = f"{el['type'][0]}{el['id']}"
                 if kind == "fac":
-                    cat, code = facility_category(tags)
-                    prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), cat, code]
+                    kind_of = facility_category(tags)
+                    if kind_of:
+                        prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), *kind_of]
                 else:
                     prog["place"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), tags.get("place", "")]
             time.sleep(pause)

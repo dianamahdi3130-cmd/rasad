@@ -216,6 +216,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         for k in range(int(E["lookback_slots"])):
             t = t_latest - dt.timedelta(minutes=cad * k)
             age = (now - t).total_seconds() / 60
+            failed = 0
             for tile in tiles:
                 key = f"{L['id']}|{','.join(map(str, tile))}|{iso(t)}"
                 prev = slots.get(key)
@@ -223,9 +224,13 @@ def run_cycle(cfg, send=True, alert_now=False):
                     continue
                 res = detect_geo_layer(wms, dict(L, tile_px=L.get("tile_px", E["tile_px"])), tile, t)
                 n_images += 1
-                if res is not None:
+                if res is None:
+                    failed += 1  # not ready yet or server busy: retried next run
+                else:
                     dets += res
                     slots[key] = age
+            if failed:
+                log.info("%s %s: %d of %d images not available yet, will retry", L["id"], iso(t), failed, len(tiles))
 
     log.info("European satellites: %d images read, %d fire points, %.0f s", n_images, len(dets), time.time() - t0)
 

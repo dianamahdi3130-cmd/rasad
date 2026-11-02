@@ -46,7 +46,7 @@ def pick_frp(props):
 def detect_geo_layer(wms, L, tile, t):
     """Fire symbols drawn by a WMS fire layer over one tile -> detections (None on error)."""
     W, H = bbox_px(tile, int(L.get("tile_px", 1600)))
-    img, actual = wms.getmap(L["name"], tile, W, H, t=t, style=L.get("style", ""))
+    img, actual = wms.getmap(L["name"], tile, W, H, t=t, style=L.get("style", ""), quiet=True)
     if img is None:
         return None
     arr = np.asarray(img)
