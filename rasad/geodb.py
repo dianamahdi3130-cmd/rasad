@@ -85,8 +85,22 @@ def facility_category(tags):
     return "منشأة صناعية", "industrial"
 
 
+GEO_VERSION = 2  # 2: facilities also keep their operator, so unnamed ones can still be told apart
+
+
 def osm_name(tags):
-    return (tags.get("name:ar") or tags.get("name") or tags.get("name:en") or "").strip()
+    for k in ("name:ar", "name", "name:en", "official_name", "short_name", "alt_name"):
+        if (tags.get(k) or "").strip():
+            return tags[k].strip()
+    return ""
+
+
+def osm_owner(tags):
+    """Who runs it (ADNOC, Aramco, ...): useful when the facility itself has no name."""
+    for k in ("operator", "owner", "brand"):
+        if (tags.get(k) or "").strip():
+            return tags[k].strip()
+    return ""
 
 
 TYPE_WORDS = ("مصفا", "حقل", "ميناء", "مرفأ", "محطة", "منصة", "مصنع", "شركة", "مجمع", "منشأة")
@@ -124,12 +138,15 @@ def _center(el):
 def _write_db(out_dir, fac, places, built):
     """Write the lookup files (one entry per category per ~1 km, so tank farms count once)."""
     thinned, seen = [], set()
-    for lat, lon, name, cat, code in sorted(fac.values(), key=lambda f: (f[2] == "", f[4])):
+    for f in sorted(fac.values(), key=lambda f: (f[2] == "", f[4])):
+        lat, lon, name, cat, code = f[:5]
+        owner = f[5] if len(f) > 5 else ""
         k = (code, round(lat, 2), round(lon, 2))
         if k not in seen:
             seen.add(k)
-            thinned.append([lat, lon, name, cat, code])
-    save_json(out_dir / "facilities.json", {"built": built, "items": thinned}, compact=True)
+            thinned.append([lat, lon, name, cat, code, owner])
+    save_json(out_dir / "facilities.json", {"built": built, "version": GEO_VERSION, "items": thinned},
+              compact=True)
     save_json(out_dir / "places.json", {"built": built, "items": list(places.values())}, compact=True)
     return len(thinned), len(places)
 
@@ -137,9 +154,12 @@ def _write_db(out_dir, fac, places, built):
 def geodata_status(cfg):
     """(age in days of the last complete build or None, build in progress?)"""
     d = Path(cfg["_geodata_dir"])
-    built = load_json(d / "facilities.json", {}).get("built")
+    db = load_json(d / "facilities.json", {})
+    built = db.get("built")
     prog = load_json(d / "progress.json", {})
     age = None if not built else (utcnow() - parse_time(built)).total_seconds() / 86400
+    if db.get("version", 1) < GEO_VERSION:
+        age = None  # an older kind of map: rebuild it (the old one is used meanwhile)
     return age, bool(prog.get("done"))
 
 
@@ -178,7 +198,8 @@ def build_geodata(cfg, session, budget_s=None):
                 if kind == "fac":
                     kind_of = facility_category(tags)
                     if kind_of:
-                        prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), *kind_of]
+                        prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), *kind_of,
+                                            osm_owner(tags)]
                 else:
                     prog["place"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), tags.get("place", "")]
             time.sleep(pause)
@@ -258,7 +279,7 @@ class Geo:
             if named:
                 it, d = named, dn
         b = bearing_deg(it[0], it[1], lat, lon)
-        label = facility_label(it[2], it[3])
+        label = facility_label(it[2], it[3]) if it[2] else self._unnamed_label(it)
         if d < 0.8:
             text = f"داخل {label} أو ملاصق لها"
         else:
@@ -266,6 +287,14 @@ class Geo:
         return {"name": it[2], "cat": it[3], "code": it[4], "label": label, "km": round(d, 1),
                 "nearest_km": round(d_any, 1),
                 "dir": direction_ar(b), "lat": it[0], "lon": it[1], "text": text}
+
+    def _unnamed_label(self, it):
+        """A facility without a name: say whose it is, or where it is ('منصة نفط بحرية قرب جزيرة زركوه')."""
+        owner = it[5] if len(it) > 5 and it[5] else ""
+        if owner:
+            return f"{it[3]} ({owner})"
+        p, _ = self.places.nearest(it[0], it[1], 30.0)
+        return f"{it[3]} قرب {p[2]}" if p and p[2] else it[3]
 
     # -- place names ---------------------------------------------------------------
     def reverse(self, lat, lon):
