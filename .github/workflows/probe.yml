@@ -52,7 +52,12 @@ jobs:
           mkdir -p probe-out
           if [ "${IN_MODE:-probe}" = "seascan" ]; then
             python -m rasad --state _state --site /tmp/probe-site seascan --start "$IN_START" --end "$IN_END" \
-              2>&1 | tee probe-out/seascan.log
+              ${IN_BOXES:+--boxes "$IN_BOXES"} 2>&1 | tee probe-out/seascan.log
+          elif [ "${IN_MODE}" = "restest" ]; then
+            python -m rasad --state _state --site /tmp/probe-site restest --lat "$IN_LAT" --lon "$IN_LON" \
+              --time "$IN_TIME" 2>&1 | tee probe-out/restest.log
+            python -m rasad --state _state --site /tmp/probe-site seascan --start "$IN_START" --end "$IN_END" \
+              ${IN_BOXES:+--boxes "$IN_BOXES"} 2>&1 | tee probe-out/seascan.log
           else
             python -m rasad --state /tmp/probe-state --site /tmp/probe-site probe \
               --lat "$IN_LAT" --lon "$IN_LON" --start "$IN_START" --end "$IN_END" --out probe-out

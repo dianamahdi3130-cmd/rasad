@@ -94,6 +94,10 @@ def main(argv=None):
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
     p.add_argument("--boxes", help="comma separated box ids (default: all)")
+    p = sub.add_parser("restest", help="how a small fire shows at different picture detail")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--time", required=True)
     sub.add_parser("test-telegram")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -120,6 +124,9 @@ def main(argv=None):
     elif args.cmd == "probe":
         from .probe import probe
         probe(cfg, args.lat, args.lon, parse_time(args.start), parse_time(args.end), args.radius, args.out)
+    elif args.cmd == "restest":
+        from .probe import resolution_test
+        resolution_test(cfg, args.lat, args.lon, parse_time(args.time))
     elif args.cmd == "seascan":
         from . import seawatch
         from .brain import Memory
