@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import sys
+import time
 from pathlib import Path
 
 import yaml
@@ -37,6 +38,7 @@ DEFAULTS = {
     "eumetview": {
         "wms_url": "https://view.eumetsat.int/geoserver/wms",
         "tile_deg": 8,
+        "tile_px": 1000,
         "lookback_slots": 2,
         "settle_minutes": 25,
         "fire_layers": [
@@ -198,7 +200,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         S.state["bootstrapped"] = iso(now)
 
     # 1) European weather satellites, every 10-15 minutes
-    dets = []
+    dets, n_images, t0 = [], 0, time.time()
     slots = S.state.setdefault("slots", {})
     for L in E["fire_layers"]:
         if not L.get("enabled", True):
@@ -219,10 +221,13 @@ def run_cycle(cfg, send=True, alert_now=False):
                 prev = slots.get(key)
                 if prev is not None and (prev >= E["settle_minutes"] or age < E["settle_minutes"]):
                     continue
-                res = detect_geo_layer(wms, L, tile, t)
+                res = detect_geo_layer(wms, dict(L, tile_px=L.get("tile_px", E["tile_px"])), tile, t)
+                n_images += 1
                 if res is not None:
                     dets += res
                     slots[key] = age
+
+    log.info("European satellites: %d images read, %d fire points, %.0f s", n_images, len(dets), time.time() - t0)
 
     # 2) NASA (VIIRS/MODIS), precise but a few hours late
     if cfg["firms"]["map_key"]:
@@ -278,6 +283,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             open_incs.append(inc)
         add_to_incident(inc, d)
         touched.add(inc["id"])
+    log.info("judged %d detections: %d incidents touched, %d heat cells remembered",
+             len(dets), len(touched), len(mem.cells))
     if learning:
         log.info("learning period: recording the usual heat only (no alerts until tomorrow)")
 

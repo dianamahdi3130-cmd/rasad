@@ -12,7 +12,7 @@ from .sources import region_tiles
 from .util import (bearing_deg, box_around, direction_ar, haversine_km, iso, km_text, load_json, log,
                    parse_time, save_json, utcnow)
 
-FACILITY_QUERY = """[out:json][timeout:150];
+FACILITY_QUERY = """[out:json][timeout:90];
 (
   nwr["man_made"="offshore_platform"]({b});
   nwr["industrial"~"^(refinery|oil_refinery|oil|gas|petroleum|petrochemical|liquefied_natural_gas|fuel)$"]({b});
@@ -26,7 +26,7 @@ FACILITY_QUERY = """[out:json][timeout:150];
 );
 out center tags;"""
 
-PLACE_QUERY = """[out:json][timeout:150];
+PLACE_QUERY = """[out:json][timeout:90];
 (
   node["place"~"^(city|town)$"]["name"]({b});
   nwr["place"="island"]["name"]({b});
@@ -86,18 +86,16 @@ def facility_label(name, cat):
     return name if any(w in name for w in TYPE_WORDS) else f"{cat} {name}"
 
 
-def overpass(session, urls, query, tries=2, retry_wait=20):
-    for attempt in range(tries):
-        for url in urls:
-            try:
-                r = session.post(url, data={"data": query}, timeout=180)
-                if r.status_code == 200:
-                    return r.json().get("elements", [])
-                log.warning("Overpass %s: HTTP %s", url, r.status_code)
-            except (requests.RequestException, ValueError) as e:
-                log.warning("Overpass %s: %s", url, e)
-        if attempt + 1 < tries:
-            time.sleep(retry_wait)
+def overpass(session, urls, query, timeout=100):
+    """One attempt per server; a failed tile is simply retried in a later run."""
+    for url in urls:
+        try:
+            r = session.post(url, data={"data": query}, timeout=timeout)
+            if r.status_code == 200:
+                return r.json().get("elements", [])
+            log.warning("Overpass %s: HTTP %s", url, r.status_code)
+        except (requests.RequestException, ValueError) as e:
+            log.warning("Overpass %s: %s", url, type(e).__name__)
     return None
 
 
@@ -149,8 +147,10 @@ def build_geodata(cfg, session, budget_s=None):
         b = f"{s:.4f},{w:.4f},{n:.4f},{e:.4f}"
         ok = True
         for kind, query in (("fac", FACILITY_QUERY), ("place", PLACE_QUERY)):
-            els = overpass(session, G["overpass_urls"], query.format(b=b),
-                           retry_wait=float(G.get("overpass_retry_s", 20)))
+            if kind == "place" and tried > 1 and budget_s is not None and time.time() - t0 > budget_s * 1.5:
+                ok = False
+                break
+            els = overpass(session, G["overpass_urls"], query.format(b=b))
             if els is None:
                 ok = False
                 break
