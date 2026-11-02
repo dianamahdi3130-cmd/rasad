@@ -115,7 +115,7 @@ def facility_label(name, cat):
     return name if any(w in name for w in TYPE_WORDS) else f"{cat} {name}"
 
 
-def overpass(session, urls, query, timeout=100):
+def overpass(session, urls, query, timeout=70):
     """One attempt per server; a failed tile is simply retried in a later run."""
     for url in urls:
         try:
@@ -207,6 +207,8 @@ def build_geodata(cfg, session, budget_s=None):
             prog["done"][key] = True
         log.info("facility map: tile %d/%d %s", i, len(tiles), "done" if ok else "failed, retry next run")
         save_json(out_dir / "progress.json", prog, compact=True)
+        if not ok:
+            break  # the map servers are busy: do not spend this run's time on more tiles
     complete = all(prog["done"].get(k) for k in keys)
     first_build = not (out_dir / "facilities.json").exists() or not load_json(
         out_dir / "facilities.json", {}).get("built")
