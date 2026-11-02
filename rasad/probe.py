@@ -109,7 +109,9 @@ def probe(cfg, lat, lon, start, end, radius_km=15.0, out_dir="probe-out"):
                         timeout=180)
         names = sorted(set(re.findall(r"<Name>((?:mtg_fd:)?[^<:]+)</Name>", r.text)))
         log.info("Meteosat-12 layers on the server: %s", ", ".join(names))
-        ir38 = [n for n in names if re.search(r"ir_?38|3\.?8", n, re.I)]
+        # no single 3.8 micron picture: the Fire Temperature RGB carries it in its red colour
+        ir38 = [n for n in names if re.search(r"ir_?38|3\.?8", n, re.I)] or \
+            [n for n in names if "firetemperature" in n]
         if ir38:
             pick = sorted(ir38, key=lambda n: ("hrfi" not in n, len(n)))[0]
             pick = pick if pick.startswith("mtg_fd:") else f"mtg_fd:{pick}"
