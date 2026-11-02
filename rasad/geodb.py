@@ -293,8 +293,11 @@ class Geo:
         owner = it[5] if len(it) > 5 and it[5] else ""
         if owner:
             return f"{it[3]} ({owner})"
-        p, _ = self.places.nearest(it[0], it[1], 30.0)
-        return f"{it[3]} قرب {p[2]}" if p and p[2] else it[3]
+        p, _ = self.places.nearest(it[0], it[1], 60.0)
+        if not (p and p[2]):
+            return it[3]
+        # 'منصة نفط بحرية قرب جزيرة زركوه' / 'منشأة نفطية في منطقة حرض'
+        return f"{it[3]} قرب {p[2]}" if it[4] == "platform" else f"{it[3]} في منطقة {p[2]}"
 
     # -- place names ---------------------------------------------------------------
     def reverse(self, lat, lon):

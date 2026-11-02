@@ -23,7 +23,7 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, latest_time
 
 STALE_HOURS = 3
-RULES = 5  # bump when the importance rules change, so stored incidents are judged again
+RULES = 6  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 10  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
