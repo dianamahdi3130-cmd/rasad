@@ -515,7 +515,10 @@ def run_cycle(cfg, send=True, alert_now=False):
                 continue
             first_alerts.append(inc)
         elif inc.get("alerted_verdict") and rank > VERDICT_RANK[inc["alerted_verdict"]]:
-            updates.append(inc)
+            if inc.get("status") == "alerted" and now - parse_time(inc["last"]) <= max_age:
+                updates.append(inc)  # only for news that was really sent, and only while it is fresh
+            else:
+                inc["alerted_verdict"] = inc["verdict"]  # remember it quietly: the app shows it
 
     # safety valve: many "new" fires at once usually means the memory is not ready, not a war
     max_new = int(cfg["alerts"].get("max_new_per_run", 6))
