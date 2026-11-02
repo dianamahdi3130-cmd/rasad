@@ -4,3 +4,6 @@ data/
 _state/
 _site/
 /fonts/
+.state_pushed
+.site_pushed
+.state_urgent

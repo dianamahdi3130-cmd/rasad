@@ -312,10 +312,23 @@ function zoomLabels(){
 }
 
 /* ---------- data ---------- */
+// The newest data is on the repository's "live" branch (replaced after every check, every few
+// minutes); the site's own copy is updated less often. Read the live one, fall back to the site.
+const LIVE = (() => {
+  const owner = location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "";
+  const repo = location.pathname.split("/").filter(Boolean)[0] || "";
+  return owner && repo ? `https://raw.githubusercontent.com/${owner}/${repo}/live/data/` : "";
+})();
+async function getJSON(name, bust){
+  if (LIVE){
+    try { const r = await fetch(LIVE + name + bust, {cache:"no-store"}); if (r.ok) return await r.json(); } catch {}
+  }
+  return (await fetch("data/" + name + bust, {cache:"no-store"})).json();
+}
 async function load(){
   try{
     const bust = "?t=" + Date.now();
-    const [m, d] = await Promise.all([fetch("data/meta.json"+bust).then(r=>r.json()), fetch("data/incidents.json"+bust).then(r=>r.json())]);
+    const [m, d] = await Promise.all([getJSON("meta.json", bust), getJSON("incidents.json", bust)]);
     S.meta = m; S.items = d.items || [];
     renderChips(); render(); renderStatus();
     if (!S.loaded) route();
@@ -328,8 +341,8 @@ async function load(){
 function renderStatus(){
   const g = S.meta?.generated; if (!g) return;
   const m = (Date.now() - Date.parse(g)) / 60000;
-  const cls = m < 25 ? "ok" : m < 60 ? "warn" : "bad";
-  const word = m < 25 ? "يراقب" : m < 60 ? "متأخر قليلاً" : "متوقف";
+  const cls = m < 8 ? "ok" : m < 20 ? "warn" : "bad";
+  const word = m < 8 ? "يراقب" : m < 20 ? "متأخر قليلاً" : "متوقف";
   $("#status").innerHTML = `<span class="dot ${cls}"></span><span>${word} · آخر فحص ${ago(g)}</span>`;
   $("#learning").hidden = !S.meta.learning;
 }
@@ -746,7 +759,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 initMap(); load();
-setInterval(load, 120000);
+setInterval(load, 60000);
 setInterval(renderStatus, 30000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 </script>

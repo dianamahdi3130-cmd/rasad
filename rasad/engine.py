@@ -69,7 +69,7 @@ DEFAULTS = {
                                   "https://overpass.kumi.systems/api/interpreter"],
                 "nominatim_url": "https://nominatim.openstreetmap.org/reverse"},
     "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 20, "px_km": 0.25,
-             "smooth_km": 0.6, "out_px": 1080, "fps": 2, "hold_last": 4, "format": "mp4", "per_run": 4,
+             "smooth_km": 0.6, "out_px": 1080, "fps": 2, "hold_last": 4, "format": "mp4", "per_run": 1,
              "layout": "two", "context_layer": "mtg_fd:rgb_geocolour", "out_fps": 24,
              "reveal_s": 1.6, "hud_title": "ALFAQAAR FIRMS",
              # the faint slanted logo pattern over the pictures (as in the first intelligence clips)
@@ -85,7 +85,7 @@ DEFAULTS = {
         "enabled": True, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
-        "cadence_min": 10, "delay_min": 20, "slots_per_run": 6, "km_per_px": 0.5,
+        "cadence_min": 10, "delay_min": 15, "slots_per_run": 6, "km_per_px": 0.5,
         "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
         "min_coast_km": 3.0, "platform_km": 10.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
         "sun_max_elev": -6.0,
@@ -154,6 +154,7 @@ class State:
 
     def __init__(self, cfg):
         self.dir = Path(cfg["_state_dir"])
+        self.sent = False  # something went out to the channel in this check
         self.state = load_json(self.dir / "state.json", {})
         self.memory = load_json(self.dir / "memory.json", {})
         self.incidents = load_json(self.dir / "incidents.json", [])
@@ -162,6 +163,8 @@ class State:
         save_json(self.dir / "state.json", self.state, compact=True)
         save_json(self.dir / "memory.json", self.memory, compact=True)
         save_json(self.dir / "incidents.json", self.incidents, compact=True)
+        if self.sent:  # tells the watch loop to store the memory on GitHub straight away
+            (self.dir.parent / ".state_urgent").write_text("1")
 
 
 def bootstrap(cfg, session, S, box):
@@ -589,6 +592,7 @@ def run_cycle(cfg, send=True, alert_now=False):
             media = Path(cfg["_site_dir"]) / inc["clip"]
         sent = deliver(cfg, session, alert_message(inc, cfg), media, send)
         if sent:
+            S.sent = True
             inc["alerted_verdict"], inc["status"], inc["alerted_at"] = inc["verdict"], "alerted", iso(now)
             if sent is not True:
                 inc["tg_msg"] = sent  # updates answer this post
@@ -597,6 +601,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         first_post = inc.get("tg_msg")
         if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post)), None, send,
                    reply_to=first_post):
+            S.sent = True
             inc["alerted_verdict"] = inc["verdict"]
             log.info("UPDATE %s -> %s", inc["id"], inc["verdict"])
 

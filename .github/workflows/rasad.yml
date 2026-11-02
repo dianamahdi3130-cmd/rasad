@@ -1,12 +1,15 @@
-name: رصد - المراقبة كل 10 دقائق
+name: رصد - مراقبة متواصلة
 
+# One job checks every ~2.5 minutes for almost six hours, then the next run (already queued by the
+# timer at cron-job.org or by this schedule) takes over. New code on main ends the loop early so
+# the queued run starts with it.
 on:
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch: {}
   push:
     branches: [main]
-    paths: ["web/**", "rasad/**", "config.yaml", "requirements.txt", ".github/workflows/rasad.yml"]
+    paths: ["web/**", "rasad/**", "scripts/**", "config.yaml", "requirements.txt", ".github/workflows/rasad.yml"]
 
 permissions:
   contents: write
@@ -18,7 +21,7 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -45,13 +48,16 @@ jobs:
       - name: Bring back the memory and the app
         run: bash scripts/branches.sh restore
 
-      - name: Watch the satellites
+      - name: Watch the satellites (a check every ~2.5 minutes)
         env:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RASAD_APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-        run: python -m rasad --state _state --site _site cycle --auto-geo --geo-budget 240
+          RASAD_EVERY_SECONDS: "150"
+          RASAD_LOOP_MINUTES: "335"
+          RASAD_GEO_BUDGET: "45"
+        run: bash scripts/loop.sh
 
       - name: Save the memory and publish the app
         if: always()
