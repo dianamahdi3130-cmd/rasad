@@ -238,6 +238,9 @@ class Geo:
     def has_data(self):
         return bool(self.fac.items or self.places.items)
 
+    def platform_within(self, lat, lon, km):
+        return self.fac.nearest(lat, lon, km, accept=lambda it: it[4] == "platform")[0] is not None
+
     def facility_within(self, lat, lon, km):
         """Is there an oil/gas/power/port facility within km? (no network, used while judging)"""
         return self.fac.nearest(lat, lon, km, accept=relevant_item)[0] is not None

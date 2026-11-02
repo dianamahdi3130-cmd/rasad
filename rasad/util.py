@@ -49,6 +49,21 @@ def local_text(t, cfg, with_date=True):
 
 
 # ----------------------------------------------------------------- geometry
+def sun_elevation(lat, lon, t):
+    """Height of the sun above the horizon in degrees (NOAA approximation, good to ~0.5 deg)."""
+    doy = t.timetuple().tm_yday
+    hour = t.hour + t.minute / 60 + t.second / 3600
+    g = 2 * math.pi / 365 * (doy - 1 + (hour - 12) / 24)
+    decl = (0.006918 - 0.399912 * math.cos(g) + 0.070257 * math.sin(g) - 0.006758 * math.cos(2 * g)
+            + 0.000907 * math.sin(2 * g) - 0.002697 * math.cos(3 * g) + 0.00148 * math.sin(3 * g))
+    eqt = 229.18 * (0.000075 + 0.001868 * math.cos(g) - 0.032077 * math.sin(g)
+                    - 0.014615 * math.cos(2 * g) - 0.040849 * math.sin(2 * g))
+    ha = math.radians((hour * 60 + eqt + 4 * lon) / 4 - 180)
+    la = math.radians(lat)
+    cosz = math.sin(la) * math.sin(decl) + math.cos(la) * math.cos(decl) * math.cos(ha)
+    return 90 - math.degrees(math.acos(max(-1.0, min(1.0, cosz))))
+
+
 def haversine_km(lat1, lon1, lat2, lon2):
     p1, p2 = math.radians(lat1), math.radians(lat2)
     a = (math.sin((p2 - p1) / 2) ** 2

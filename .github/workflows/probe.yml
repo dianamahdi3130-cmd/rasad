@@ -23,7 +23,7 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +34,9 @@ jobs:
 
       - name: Install
         run: pip install -r requirements.txt
+
+      - name: Bring back the memory (to replay the sea finder like the live app)
+        run: bash scripts/branches.sh restore
 
       - name: Look back
         env:
@@ -46,8 +49,14 @@ jobs:
           if [ -z "$IN_LAT" ]; then
             eval "$(python3 -c 'import json,shlex;r=json.load(open("tools/probe-request.json"));print("\n".join(f"IN_{k.upper()}={shlex.quote(str(v))}" for k,v in r.items()))')"
           fi
-          python -m rasad --state /tmp/probe-state --site /tmp/probe-site probe \
-            --lat "$IN_LAT" --lon "$IN_LON" --start "$IN_START" --end "$IN_END" --out probe-out
+          mkdir -p probe-out
+          if [ "${IN_MODE:-probe}" = "seascan" ]; then
+            python -m rasad --state _state --site /tmp/probe-site seascan --start "$IN_START" --end "$IN_END" \
+              2>&1 | tee probe-out/seascan.log
+          else
+            python -m rasad --state /tmp/probe-state --site /tmp/probe-site probe \
+              --lat "$IN_LAT" --lon "$IN_LON" --start "$IN_START" --end "$IN_END" --out probe-out
+          fi
 
       - name: Keep the results on the probe branch
         if: always()

@@ -90,6 +90,10 @@ def main(argv=None):
     p.add_argument("--end", required=True, help="UTC, e.g. 2026-11-01T23:00Z")
     p.add_argument("--radius", type=float, default=15.0, help="km around the point")
     p.add_argument("--out", default="probe-out")
+    p = sub.add_parser("seascan", help="replay Rasad's sea finder over a past period")
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--boxes", help="comma separated box ids (default: all)")
     sub.add_parser("test-telegram")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -116,6 +120,23 @@ def main(argv=None):
     elif args.cmd == "probe":
         from .probe import probe
         probe(cfg, args.lat, args.lon, parse_time(args.start), parse_time(args.end), args.radius, args.out)
+    elif args.cmd == "seascan":
+        from . import seawatch
+        from .brain import Memory
+        from .geodb import Geo
+        session = make_session()
+        wms = WMS(cfg["eumetview"]["wms_url"], session)
+        S = State(cfg)
+        geo = Geo(cfg, session, wms, S.state)
+        geo.self_test()
+        rows = seawatch.scan(cfg, wms, parse_time(args.start), parse_time(args.end), Memory(S.memory), geo,
+                             args.boxes.split(",") if args.boxes else None)
+        groups = seawatch.group(rows)
+        print(f"\n{len(rows)} spot(s), {len(groups)} place(s):")
+        for g in groups:
+            verdict = "likely (2+ pictures)" if len(g["slots"]) >= 2 else "single picture"
+            print(f"  {g['first']} .. {g['last']}  {g['lat']:.4f},{g['lon']:.4f}  [{g['box']}]  "
+                  f"{len(g['slots'])} picture(s), rise {g['max_rise']}  -> {verdict}")
     elif args.cmd == "build-geo":
         build_geodata(cfg, make_session())
     elif args.cmd == "clip":

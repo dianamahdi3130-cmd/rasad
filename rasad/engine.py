@@ -14,6 +14,7 @@ from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finali
                     new_incident)
 from .clip import make_clip
 from .geodb import Geo
+from . import seawatch
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse_time, save_json,
@@ -65,6 +66,23 @@ DEFAULTS = {
                 "nominatim_url": "https://nominatim.openstreetmap.org/reverse"},
     "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 40, "native_px": 320,
              "out_px": 1280, "fps": 3, "hold_last": 4, "format": "mp4"},
+    # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
+    "seawatch": {
+        "enabled": True, "alerts": False,
+        "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
+        "label": "Meteosat-12 Fire Temperature",
+        "cadence_min": 10, "delay_min": 20, "slots_per_run": 2, "km_per_px": 1.25,
+        "ref_minutes": [30, 60], "min_rise": 5.0, "min_z": 5.0, "max_area_px": 20, "max_was_hot": 4.0,
+        "min_coast_km": 3.0, "platform_km": 4.0, "max_z_ir105": 4.0, "sun_max_elev": -6.0,
+        "boxes": [
+            {"id": "hormuz_oman", "bbox": [55.0, 22.4, 60.2, 27.2]},
+            {"id": "gulf", "bbox": [47.8, 23.8, 55.2, 30.5]},
+            {"id": "arabian_sea", "bbox": [52.0, 16.4, 60.2, 22.5]},
+            {"id": "red_sea_north", "bbox": [32.2, 26.5, 36.0, 30.0]},
+            {"id": "red_sea_middle", "bbox": [34.0, 20.0, 40.5, 27.5]},
+            {"id": "red_sea_south", "bbox": [38.0, 12.0, 44.5, 20.5]},
+        ],
+    },
 }
 
 
@@ -177,6 +195,10 @@ def enrich(inc, cfg, geo):
 
 def clip_for(cfg, wms, S, inc):
     L = cfg["eumetview"]["clip_layer"]
+    if seawatch.SRC in (inc.get("srcs") or []):  # the speck was found on Meteosat-12: show that picture
+        W = cfg["seawatch"]
+        L = dict(L, name=W["layer"], cadence_min=W["cadence_min"], label=W["label"], hot_is_bright=True)
+        cfg = dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L))
     cad = int(L["cadence_min"])
     pbox = [inc["lon"] - 0.2, inc["lat"] - 0.2, inc["lon"] + 0.2, inc["lat"] + 0.2]
     latest = latest_time(wms, S.state, L["name"], cad, pbox)
@@ -262,6 +284,21 @@ def run_cycle(cfg, send=True, alert_now=False):
                 log.info("%s %s: %d of %d images not available yet, will retry", L["id"], iso(t), failed, len(tiles))
 
     log.info("European satellites: %d images read, %d fire points, %.0f s", n_images, len(dets), time.time() - t0)
+
+    # 1b) Rasad's own finder: new warm specks at sea at night on Meteosat-12 (small ship fires)
+    SW = cfg["seawatch"]
+    if SW.get("enabled"):
+        t1 = time.time()
+        try:
+            spots = seawatch.watch(cfg, wms, S.state, now, Memory(S.memory), geo)
+            ok = True
+        except Exception as e:  # noqa: BLE001
+            log.warning("sea watch failed: %s", e)
+            spots, ok = [], False
+        dets += spots
+        status["seawatch"] = {"name": "كاشف رصد للبحر ليلاً (Meteosat-12)", "ok": ok,
+                              "latest": max((d["t"] for d in spots), default=None)}
+        log.info("sea watch: %d spot(s), %.0f s", len(spots), time.time() - t1)
 
     # 2) NASA (VIIRS/MODIS), precise but a few hours late.
     #    Ask for today AND yesterday (UTC): the night passes over the Gulf (about 21:30-23:30 UTC)
@@ -377,6 +414,9 @@ def run_cycle(cfg, send=True, alert_now=False):
         if inc["priority"] != "high" or inc.get("status") == "held":
             continue
         rank = VERDICT_RANK[inc["verdict"]]
+        if inc.get("alerted_verdict") is None and rank >= min_rank and not SW.get("alerts") \
+                and set(inc.get("srcs") or []) <= {seawatch.SRC}:
+            continue  # the sea finder is still on trial: shown in the app, not sent, until others confirm
         if inc.get("alerted_verdict") is None and rank >= min_rank:
             if now - parse_time(inc["last"]) > max_age:
                 # e.g. the first run after installing: shown in the app, not pushed as news

@@ -74,6 +74,9 @@ def add_to_incident(inc, det):
     inc["first"] = min(inc["first"], det["t"])
     inc["last"] = max(inc["last"], det["t"])
     inc["n"] += 1
+    srcs = inc.setdefault("srcs", [])
+    if det["src"] not in srcs:
+        srcs.append(det["src"])
     if det["family"] not in inc["families"]:
         inc["families"].append(det["family"])
     if det["kind"] == "geo" and det["t"] not in inc["geo_slots"]:
@@ -116,7 +119,8 @@ def verdict_of(inc):
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
         return "مؤكد", f"ظهر في {slots} صور متتالية خلال {span:.0f} دقيقة"
     if slots == 2:
-        return "مرجّح", "ظهر في صورتين متتاليتين"
+        span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
+        return "مرجّح", ("ظهر في صورتين متتاليتين" if span <= 15 else f"ظهر في صورتين خلال {span:.0f} دقيقة")
     strong = any(p.get("conf") in ("h", "high") or (p.get("frp") or 0) >= 10 for p in inc["polar"])
     if strong:
         return "مرجّح", "رصده قمر أمريكي بوضوح"
