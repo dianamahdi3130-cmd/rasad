@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
-                    new_incident)
+                    nearby_confirmed, new_incident)
 from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
@@ -23,8 +23,8 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, latest_time
 
 STALE_HOURS = 3
-RULES = 7  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 12  # bump when clips change look, so the app's clips are made again
+RULES = 8  # bump when the importance rules change, so stored incidents are judged again
+CLIP_STYLE = 13  # bump when clips change look, so the app's clips are made again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -71,8 +71,15 @@ DEFAULTS = {
     "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 20, "px_km": 0.25,
              "smooth_km": 0.6, "out_px": 1080, "fps": 2, "hold_last": 4, "format": "mp4", "per_run": 4,
              "layout": "two", "context_layer": "mtg_fd:rgb_geocolour", "out_fps": 24,
-             "marks": 4, "mark_width": 150, "mark_opacity": 0.22, "reveal_s": 1.6,
-             "hud_title": "Alfaqaar313"},
+             "reveal_s": 1.6, "hud_title": "ALFAQAAR FIRMS",
+             # the faint slanted logo pattern over the pictures (as in the first intelligence clips)
+             "logo_tile_width": 150, "logo_tile_opacity": 0.05, "logo_tile_gap": [130, 120],
+             "logo_tile_angle": 22, "logo_tile_speed": 2.0,
+             # the circle moves only onto a small new hot speck this close to the reported position
+             "snap_km": 6, "snap_km_day": 4, "speck_max_km2": 40, "static_min": 25,
+             # wait for the first NASA measurement after the start (up to this long) so the clip
+             # can show the fire's strength
+             "measure_wait_min": 90},
     # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
     "seawatch": {
         "enabled": True, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
@@ -210,8 +217,11 @@ def clip_layers(cfg):
     pixels) shows small fires that the older IODC picture smears out (the Hormuz ship fire of
     1 Nov 2026 shows only on Meteosat-12)."""
     E, W = cfg["eumetview"], cfg["seawatch"]
+    # the heat panel uses the red part of the Fire Temperature RGB only: that is the 3.8 micron
+    # temperature (0..60 C, gamma 0.4); green and blue are daylight reflections that make clouds
+    # look like heat
     mtg = dict(E["clip_layer"], name=W["layer"], cadence_min=W["cadence_min"], label=W["label"],
-               hot_is_bright=True)
+               hot_is_bright=True, channel=0, bt=[273.15, 333.15, 0.4])
     return [mtg, E["clip_layer"]]
 
 
@@ -224,17 +234,31 @@ def clip_for(cfg, wms, S, inc):
         if latest is None or utcnow() - latest > dt.timedelta(hours=STALE_HOURS):
             err = f"{L['name']}: no recent pictures"
             continue
-        after = int(cfg["clip"].get("frames_after", 2))
-        t_end = min(latest, floor_time(parse_time(inc["first"]), cad) + dt.timedelta(minutes=cad * after))
+        C = cfg["clip"]
+        after = int(C.get("frames_after", 2))
+        start = floor_time(parse_time(inc["first"]), cad)
+        t_end = start + dt.timedelta(minutes=cad * after)
+        # run on to the first strength measurement if it comes soon after the start
+        wait = dt.timedelta(minutes=float(C.get("measure_wait_min", 90)))
+        meas = [parse_time(r[0]) for r in inc.get("frp_series") or []] + \
+               [parse_time(p["t"]) for p in inc.get("polar") or [] if p.get("frp") is not None]
+        meas = [t for t in meas if start <= t <= start + wait]
+        if meas:
+            t_end = max(t_end, floor_time(min(meas), cad) + dt.timedelta(minutes=cad))
+        t_end = min(latest, t_end)
+        n_before = max(2, int(C.get("frames", 8)) - after - 1)
+        frames = min(16, n_before + 1 + max(0, int((t_end - start).total_seconds() // (cad * 60))))
         base = Path(cfg["_site_dir"]) / "clips" / inc["id"]
         fac = inc.get("facility")
         info = {"where": inc.get("where"), "region": inc.get("region_name"), "verdict": inc.get("verdict"),
                 "country": inc.get("country"),
                 "size": inc.get("size"), "first": inc.get("first"),
+                "frp": [[r[0], r[1]] for r in inc.get("frp_series") or []] or
+                       [[p["t"], p["frp"]] for p in inc.get("polar") or [] if p.get("frp") is not None],
                 "facility": fac["text"] if fac and fac.get("km", 99) <= 15 else None}
         try:
             return make_clip(dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L)), wms,
-                             inc["lat"], inc["lon"], t_end, base, info=info)
+                             inc["lat"], inc["lon"], t_end, base, frames=frames, info=info)
         except NotVisible as e:
             err = e  # try the other satellite; if neither shows it, say so instead of a misleading clip
         except Exception as e:  # noqa: BLE001
@@ -500,6 +524,8 @@ def run_cycle(cfg, send=True, alert_now=False):
         if inc["id"] not in touched and not (recent and inc.get("status") == "pending") \
                 and not stale_map and not rejudge:
             continue
+        if inc.get("place") == "sea":  # another fire confirmed close by shortly before this one
+            inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
         enrich(inc, cfg, geo)
         if look_budget > 0 and look_back(inc):
             look_budget -= 1
@@ -542,11 +568,16 @@ def run_cycle(cfg, send=True, alert_now=False):
         add_clip(cfg, wms, S, inc, now)
         if inc.get("clip"):
             media = Path(cfg["_site_dir"]) / inc["clip"]
-        if deliver(cfg, session, alert_message(inc, cfg), media, send):
+        sent = deliver(cfg, session, alert_message(inc, cfg), media, send)
+        if sent:
             inc["alerted_verdict"], inc["status"], inc["alerted_at"] = inc["verdict"], "alerted", iso(now)
+            if sent is not True:
+                inc["tg_msg"] = sent  # updates answer this post
             log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
     for inc in updates:
-        if deliver(cfg, session, alert_message(inc, cfg, update=True), None, send):
+        first_post = inc.get("tg_msg")
+        if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post)), None, send,
+                   reply_to=first_post):
             inc["alerted_verdict"] = inc["verdict"]
             log.info("UPDATE %s -> %s", inc["id"], inc["verdict"])
 
@@ -597,7 +628,7 @@ def run_cycle(cfg, send=True, alert_now=False):
 
 PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "start_text", "last_text",
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
-          "sources_text", "regions", "clip", "snap", "clip_note"]
+          "sources_text", "regions", "clip", "snap", "clip_note", "frp_series"]
 
 
 def publish(cfg, S, status, now, learning, n_dets):

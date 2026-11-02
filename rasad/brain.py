@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 import statistics
 
 from .util import esc, haversine_km, local_text, parse_time, size_word
@@ -90,6 +91,11 @@ def add_to_incident(inc, det):
             inc["lat"], inc["lon"], inc["best"] = det["lat"], det["lon"], "polar"
     if det.get("frp") is not None:
         inc["max_frp"] = max(inc["max_frp"] or 0.0, det["frp"])
+        series = inc.setdefault("frp_series", [])
+        row = [det["t"], round(float(det["frp"]), 1), det["family"]]
+        if row not in series:
+            series.append(row)
+            inc["frp_series"] = sorted(series)[-40:]
 
 
 def find_incident(incidents, det, merge_km, merge_hours):
@@ -121,24 +127,64 @@ def verdict_of(inc):
     if slots == 2:
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
         return "مرجّح", ("ظهر في صورتين متتاليتين" if span <= 15 else f"ظهر في صورتين خلال {span:.0f} دقيقة")
+    nc = inc.get("near_confirmed")
+    ctx = (f"، وقبل {hours_ar(nc['hours'])} رُصد حريق مؤكد آخر في البحر على بعد {nc['km']:.0f} كم"
+           if nc else "")
     strong = any(p.get("conf") in ("h", "high") or (p.get("frp") or 0) >= 10 for p in inc["polar"])
     if strong:
-        return "مرجّح", "رصده قمر أمريكي بوضوح"
-    if open_sea_night_fire(inc):
-        return "مرجّح", ("رصده قمر أمريكي ليلاً في عرض البحر، بعيداً عن أي منصة نفطية معروفة، "
-                         "ولم تُسجَّل حرارة في هذا المكان من قبل")
+        return "مرجّح", "رصده قمر أمريكي بوضوح" + ctx
+    if open_sea_fire(inc):
+        night = any(p.get("night") for p in inc["polar"])
+        return "مرجّح", ("رصده قمر أمريكي " + ("ليلاً " if night else "") + "في عرض البحر، بعيداً عن أي "
+                         "منصة نفطية معروفة، ولم تُسجَّل حرارة في هذا المكان من قبل" + ctx)
+    if nc and inc.get("place") == "sea" and any(_clear(p) for p in inc["polar"]):
+        return "مرجّح", "رصده قمر أمريكي في البحر" + ctx
     return "يحتاج تأكيداً", "رصدة واحدة حتى الآن، وننتظر الصورة التالية"
 
 
-def open_sea_night_fire(inc):
-    """At night, out at sea, away from platforms and with no earlier heat there, a NASA hotspot
-    has few innocent explanations (no sun glint, no fields, no flare stacks): treat it as likely."""
+def _clear(p):
+    """A NASA detection that is not marked low confidence (VIIRS: l/n/h; MODIS: 0-100)."""
+    c = str(p.get("conf") or "").strip().lower()
+    if c in ("l", "low"):
+        return False
+    return int(c) >= 40 if c.isdigit() else True
+
+
+def open_sea_fire(inc):
+    """Out at sea, away from platforms and with no earlier heat there, a NASA hotspot has few
+    innocent explanations: at night none (no sun glint, no fields, no flare stacks); by day it has
+    to be a clear detection of some strength (ships hit in the Strait of Hormuz burn by day too)."""
     if inc.get("place") != "sea" or inc.get("kind") != "new" or (inc.get("known_days") or 0) > 0:
         return False
     f = inc.get("facility")
     if f and f.get("nearest_km", f["km"]) <= 3:
         return False
-    return any(p.get("night") and p.get("conf") not in ("l", "low") for p in inc["polar"])
+    return any(_clear(p) and (p.get("night") or (p.get("frp") or 0) >= 5) for p in inc["polar"])
+
+
+def nearby_confirmed(inc, incidents, km=25.0, hours=24.0):
+    """A confirmed fire at sea close by in the hours before this one (another ship hit nearby)."""
+    if inc.get("place") != "sea":
+        return None
+    t0 = parse_time(inc["first"])
+    best = None
+    for o in incidents:
+        if o is inc or o.get("verdict") != "مؤكد" or o.get("place") != "sea":
+            continue
+        gap = (t0 - parse_time(o["last"])).total_seconds() / 3600
+        if not 0 < gap <= hours:
+            continue
+        d = haversine_km(inc["lat"], inc["lon"], o["lat"], o["lon"])
+        if d <= km and (best is None or d < best["km"]):
+            best = {"km": round(d, 1), "hours": round(gap, 1), "id": o["id"]}
+    return best
+
+
+def hours_ar(h):
+    n = int(round(h))
+    if n < 1:
+        return "أقل من ساعة"
+    return "ساعة" if n == 1 else "ساعتين" if n == 2 else f"{n} ساعات" if n <= 10 else f"{n} ساعة"
 
 
 def headline(inc, cfg):
@@ -220,22 +266,82 @@ def links(lat, lon, sea):
     return out
 
 
-def alert_message(inc, cfg, update=False):
+_LATIN = re.compile(r"[A-Za-z][A-Za-z0-9.'&/\- ]*[A-Za-z0-9.]|[A-Za-z]")
+
+
+def bidi_safe(text):
+    """Keep Latin names (OpenStreetMap names) whole inside Arabic lines: each Latin run is set
+    apart (FSI ... PDI) and followed by a right-to-left mark, so brackets and numbers around it
+    stay in place in every Telegram app."""
+    return _LATIN.sub(lambda m: "\u2068" + m.group(0) + "\u2069\u200f", str(text or ""))
+
+
+SOURCE_TG = {"viirs": "ناسا", "modis": "ناسا", "landsat": "لاندسات", "mtg": "ميتيوسات الأوروبي",
+             "msg_iodc": "ميتيوسات الأوروبي"}
+
+
+def app_link(cfg, inc):
+    """Opens the app straight on this incident (the query survives every Telegram app)."""
+    base = cfg["app_url"].split("#")[0].split("?")[0]
+    return f"{base}?e={inc['id']}#{inc['id']}"
+
+
+def mw_ar(v):
+    return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " ميغاواط"
+
+
+def alert_message(inc, cfg, update=False, threaded=False):
+    """The channel post: a bold headline, one fact per line with a label, the coordinates to copy
+    and the links on their own lines. Only a confirmed fire is called "مؤكد"; other grades are not
+    named. An update that is sent as a reply to the first post only says what changed."""
+    sure = inc["verdict"] == "مؤكد"
+    lt = cfg["local_time"]
+    off = dt.timedelta(hours=float(lt["offset_hours"]))
+    start = parse_time(inc["first"]) + off
+    now_local = parse_time(inc["last"]) + off
+    when = f"{start:%H:%M} بتوقيت {lt['name']}" + ("" if start.date() == now_local.date() else f" · {start:%Y/%m/%d}")
     lines = []
     if update:
-        lines.append(f"{VERDICT_ICON[inc['verdict']]} <b>تحديث: الحكم الآن «{inc['verdict']}»</b>")
-    lines.append(f"{VERDICT_ICON[inc['verdict']]} <b>{esc(inc['headline'])}</b>")
-    lines.append(f"📍 {esc(inc['where'])}")
+        lines.append("🔄 <b>تحديث: الحريق مؤكد الآن</b>" if sure else "🔄 <b>تحديث</b>")
+        if not threaded:
+            lines.append(f"<b>{esc(bidi_safe(inc['headline']))}</b>")
+        if sure:
+            lines.append(f"✅ {esc(bidi_safe(inc['reason']))}")
+        if inc.get("max_frp"):
+            lines.append(f"🔥 <b>الشدة:</b> {mw_ar(inc['max_frp'])}")
+        lines.append(f"🕒 <b>آخر رصد:</b> {local_text(parse_time(inc['last']), cfg, with_date=False)}")
+        if not threaded:
+            lines.append(f"<code>{inc['lat']:.4f}, {inc['lon']:.4f}</code>")
+        if cfg.get("app_url"):
+            lines.append(f'<a href="{app_link(cfg, inc)}">فتح الحدث في التطبيق</a>')
+        return "\n".join(lines)
+    lines.append(f"{'🔴' if sure else '🟠'} <b>{esc(bidi_safe(inc['headline']))}</b>")
+    if sure:
+        lines.append(f"✅ <b>مؤكد</b> · {esc(bidi_safe(inc['reason']))}")
+    lines.append("")
+    lines.append(f"📍 <b>المكان:</b> {esc(bidi_safe(inc['where']))}")
+    lines.append(f"🕒 <b>البداية:</b> {when}")
+    if inc.get("max_frp"):
+        lines.append(f"🔥 <b>الشدة:</b> {mw_ar(inc['max_frp'])}" + (f" · {inc['size']}" if inc.get("size") else ""))
     f = inc.get("facility")
-    lines.append("🏭 أقرب منشأة طاقة: " + (esc(f["text"]) if f else
-                                           f"لا توجد ضمن {cfg['geodata']['facility_max_km']} كم"))
-    lines.append(f"🕒 بدأ: {inc['start_text']}")
-    if inc.get("size"):
-        lines.append(f"📏 الحجم: {inc['size']}")
-    lines.append(f"⚖️ الحكم: <b>{inc['verdict']}</b>، {esc(inc['reason'])}")
+    if f:
+        lines.append(f"🏭 <b>أقرب منشأة:</b> {esc(bidi_safe(f.get('label') or f['cat']))} · على بعد {f['km']:.0f} كم")
+    else:
+        lines.append(f"🏭 <b>أقرب منشأة:</b> لا منشأة طاقة ضمن {cfg['geodata']['facility_max_km']} كم")
+    names = []
+    for fam in inc["families"]:
+        n = SOURCE_TG.get(fam, FAMILY_AR.get(fam, fam))
+        if n not in names:
+            names.append(n)
+    if names:
+        lines.append(f"🛰 <b>رصدته:</b> {' و'.join(names)}")
+    nc = inc.get("near_confirmed")
+    if nc and not sure:
+        lines.append(f"📌 قبل {hours_ar(nc['hours'])} رُصد حريق مؤكد آخر في البحر على بعد {nc['km']:.0f} كم")
+    lines.append("")
+    lines.append(f"<code>{inc['lat']:.4f}, {inc['lon']:.4f}</code>")
     lk = links(inc["lat"], inc["lon"], inc["place"] in ("sea", "coast"))
-    lines.append(f"🗺 <code>{inc['lat']:.4f},{inc['lon']:.4f}</code> · "
-                 + " · ".join(f'<a href="{u}">{k}</a>' for k, u in lk.items()))
+    lines.append(" | ".join(f'<a href="{u}">{k}</a>' for k, u in lk.items()))
     if cfg.get("app_url"):
-        lines.append(f'<a href="{cfg["app_url"]}#{inc["id"]}">افتح في التطبيق</a>')
+        lines.append(f'📲 <a href="{app_link(cfg, inc)}">فتح الحدث في التطبيق</a>')
     return "\n".join(lines)
