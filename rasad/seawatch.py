@@ -73,13 +73,15 @@ class Pictures:
         """Ask for several pictures at once (the server is slow per picture, not per request)."""
         from concurrent.futures import ThreadPoolExecutor
         todo = [r for r in requests_ if (r[0], tuple(r[1]), r[2], r[3], iso(r[4])) not in self.cache]
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(lambda r: self.get(*r), todo))
 
     def get(self, layer, bbox, W, H, t):
         key = (layer, tuple(bbox), W, H, iso(t))
         if key not in self.cache:
             img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
+            if img is None:  # big pictures sometimes fail once: ask again
+                img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
             if actual is not None and abs((actual - t).total_seconds()) > 120:
                 img = None  # the server gave another time: this slot is not published yet
             self.cache[key] = _gray(img)
@@ -193,10 +195,13 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None):
         if geo is not None and geo.platform_within(lat, lon, float(C["platform_km"])):
             reject("oil platform")
             continue
-        if mem is not None and mem.profile(lat, lon, t.date().isoformat(), 30, 3)[0] > 0:
+        # offshore oil fields flare on and off: no speck within ~10 km of heat NASA has seen before
+        reach = max(1, int(round(float(C["known_heat_km"]) / 2.2)))
+        if mem is not None and mem.profile(lat, lon, t.date().isoformat(), 30, reach)[0] > 0:
             reject("heat seen here before")
             continue
         z10 = _ir105_change(pics, cfg, lat, lon, t, refs)
+        notes.setdefault("z10", []).append(z10)
         if z10 is not None and z10 >= float(C["max_z_ir105"]):
             reject("cloud change (10.5 micron)")
             continue
