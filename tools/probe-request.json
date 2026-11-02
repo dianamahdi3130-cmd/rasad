@@ -1,1 +1,1 @@
-{"mode": "seascan", "lat": 0, "lon": 0, "start": "2026-11-01T15:00Z", "end": "2026-11-01T22:40Z", "boxes": "gulf,hormuz_oman", "try": 2}
+{"mode": "seascan", "lat": 0, "lon": 0, "start": "2026-11-01T16:00Z", "end": "2026-11-01T22:40Z", "boxes": "red_sea_south,red_sea_middle,arabian_sea", "try": 3}

@@ -231,13 +231,15 @@ def watch(cfg, wms, state, now, mem=None, geo=None):
     pics = Pictures(wms)
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []
+    live = [b for b in C["boxes"] if b.get("enabled", True)]
+    sparkle = state.setdefault("sea_sparkle", {})  # ~5 km cell -> days a speck was seen there
     for k in range(int(C["slots_per_run"]) - 1, -1, -1):
         t = latest - dt.timedelta(minutes=cad * k)
-        boxes = [b for b in C["boxes"] if f"{b['id']}|{iso(t)}" not in done and any(
+        boxes = [b for b in live if f"{b['id']}|{iso(t)}" not in done and any(
             _night(b["bbox"], t, float(C["sun_max_elev"])))]
         pics.prefetch([(C["layer"], b["bbox"], *box_size(b, km), tt) for b in boxes
                        for tt in [t] + [t - dt.timedelta(minutes=int(m)) for m in C["ref_minutes"]]])
-        for box in C["boxes"]:
+        for box in live:
             key = f"{box['id']}|{iso(t)}"
             if key in done:
                 continue
@@ -245,10 +247,20 @@ def watch(cfg, wms, state, now, mem=None, geo=None):
             if spots is None:
                 continue  # not published yet: try again next run
             done[key] = iso(t)
+            day = t.date().isoformat()
             for sp in spots:
                 pair = confirm(cands, sp)
                 cands.append({k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")})
-                if pair:
+                ci, cj = math.floor(sp["lat"] / 0.05), math.floor(sp["lon"] / 0.05)
+                before = {d for di in (-1, 0, 1) for dj in (-1, 0, 1)
+                          for d in sparkle.get(f"{ci + di},{cj + dj}", []) if d < day}
+                sparkle.setdefault(f"{ci},{cj}", [])
+                if day not in sparkle[f"{ci},{cj}"]:
+                    sparkle[f"{ci},{cj}"].append(day)
+                if pair and before:
+                    log.info("sea watch: specks at %.3f,%.3f again (also on %s): a flare, not news",
+                             sp["lat"], sp["lon"], ", ".join(sorted(before)))
+                elif pair:
                     found += [dict(sp, src=SRC, family="mtg", kind="geo", frp=None) for sp in pair + [sp]]
             if spots or (isinstance(notes, dict) and notes.get("candidates")):
                 log.info("sea watch %s %s: %s", box["id"], iso(t),
@@ -257,6 +269,9 @@ def watch(cfg, wms, state, now, mem=None, geo=None):
     for key in [k for k, v in done.items() if now - parse_time(v) > dt.timedelta(hours=6)]:
         del done[key]
     state["sea_candidates"] = [c for c in cands if now - parse_time(c["t"]) <= dt.timedelta(hours=2)]
+    oldest = (now - dt.timedelta(days=14)).date().isoformat()
+    state["sea_sparkle"] = {k: [d for d in v if d >= oldest] for k, v in sparkle.items()
+                            if any(d >= oldest for d in v)}
     uniq = {}
     for d in found:
         uniq[(d["t"], d["lat"], d["lon"])] = d
@@ -296,7 +311,7 @@ def scan(cfg, wms, start, end, mem=None, geo=None, boxes=None):
                        if (not boxes or b["id"] in boxes) and any(_night(b["bbox"], t, float(C["sun_max_elev"])))
                        for tt in [t] + [t - dt.timedelta(minutes=int(m)) for m in C["ref_minutes"]]])
         for box in C["boxes"]:
-            if boxes and box["id"] not in boxes:
+            if (boxes and box["id"] not in boxes) or (not boxes and not box.get("enabled", True)):
                 continue
             spots, notes = find_spots(cfg, pics, box, t, mem, geo)
             if spots:

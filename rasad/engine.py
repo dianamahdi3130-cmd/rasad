@@ -70,20 +70,24 @@ DEFAULTS = {
              "smooth_km": 0.6, "out_px": 1080, "fps": 3, "hold_last": 4, "format": "mp4", "per_run": 4},
     # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
     "seawatch": {
-        "enabled": False, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
+        "enabled": True, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         "cadence_min": 10, "delay_min": 20, "slots_per_run": 2, "km_per_px": 0.5,
         "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
         "min_coast_km": 3.0, "platform_km": 10.0, "known_heat_km": 10.0, "max_z_ir105": 99.0,
         "sun_max_elev": -6.0,
+        # areas switched on only after a replay of a real night showed no false fires there
+        # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and
+        # 01:10; the northern Gulf oil fields sparkle all night, so they stay off)
         "boxes": [
             {"id": "hormuz_oman", "bbox": [55.0, 22.4, 60.2, 27.2]},
-            {"id": "gulf", "bbox": [47.8, 23.8, 55.2, 30.5]},
-            {"id": "arabian_sea", "bbox": [52.0, 16.4, 60.2, 22.5]},
-            {"id": "red_sea_north", "bbox": [32.2, 26.5, 36.0, 30.0]},
-            {"id": "red_sea_middle", "bbox": [34.0, 20.0, 40.5, 27.5]},
-            {"id": "red_sea_south", "bbox": [38.0, 12.0, 44.5, 20.5]},
+            {"id": "gulf_south", "bbox": [50.5, 23.8, 55.2, 27.8]},
+            {"id": "gulf_north", "bbox": [47.8, 27.8, 51.5, 30.5], "enabled": False},
+            {"id": "arabian_sea", "bbox": [52.0, 16.4, 60.2, 22.5], "enabled": False},
+            {"id": "red_sea_north", "bbox": [32.2, 26.5, 36.0, 30.0], "enabled": False},
+            {"id": "red_sea_middle", "bbox": [34.0, 20.0, 40.5, 27.5], "enabled": False},
+            {"id": "red_sea_south", "bbox": [38.0, 12.0, 44.5, 20.5], "enabled": False},
         ],
     },
 }
