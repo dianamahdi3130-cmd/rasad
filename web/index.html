@@ -289,7 +289,7 @@ function setBase(){
 }
 function mwText(v){
   if (v == null || isNaN(v)) return "";
-  return (v < 10 ? (Math.round(v * 10) / 10) : Math.round(v)) + " ميغاواط";
+  return (v < 10 ? (Math.round(v * 10) / 10) : Math.round(v)) + " MW";
 }
 function latestMeasure(it){   // the newest strength measurement [time, MW], if the data has them
   const s = it.frp_series || [];
@@ -539,9 +539,10 @@ function spaced(g, text, x, y, track){       // Latin capitals with letter spaci
   return x - track;
 }
 async function renderPicture(it){
-  const W = 1920, H = 1080, TOP = 128, FOOT = 140, M = 12;
-  const MX = M, MY = TOP + M, MW = W - 2 * M, MH = H - TOP - FOOT - 2 * M;
-  const CYAN = "#40d6ec", BGC = "#06090e", WHITE = "#f0f4fa", DIMC = "#808ea0";
+  // a portrait picture (4:5) for posting: brand, place, a wide satellite view with the fire marked,
+  // then the strongest measurement, the first sighting and the coordinates
+  const W = 1080, H = 1350, TOP = 104, TITLE = 128, MY = TOP + TITLE, MH = 800, FY = MY + MH;
+  const CYAN = "#40d6ec", BGC = "#06090e", WHITE = "#f0f4fa", DIMC = "#8a97aa", LINE = "rgba(64,214,236,.28)";
   const SURE = "#e83e3e", HOTC = "#ff9632";
   const accent = sure(it) ? SURE : HOTC;
   const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
@@ -552,146 +553,136 @@ async function renderPicture(it){
   await Promise.all(['700 34px "Chakra Petch"', '500 34px "Chakra Petch"', '800 44px "Noto Kufi Arabic"',
                      '600 30px "Noto Kufi Arabic"', '500 26px "IBM Plex Sans Arabic"'].map(f => document.fonts?.load(f).catch(() => null)));
   const AR = '"IBM Plex Sans Arabic","Noto Kufi Arabic",Tahoma,sans-serif', KUFI = '"Noto Kufi Arabic",' + AR;
-  const MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,monospace';
+  const LAT = '"Chakra Petch",ui-monospace,Menlo,sans-serif', MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,monospace';
   g.fillStyle = BGC; g.fillRect(0, 0, W, H);
 
-  // satellite picture around the incident (Web Mercator tiles), north up
-  const z = Math.max(9, Math.min(16, Math.round((S.map ? S.map.getZoom() : 11) + 2)));
+  // a wide satellite view (nearby coasts and towns show), north up
+  const z = Math.max(8, Math.min(13, Math.round(S.map ? S.map.getZoom() : 11)));
   const n = 256 * 2 ** z;
   const wx = (it.lon + 180) / 360 * n;
   const sl = Math.sin(it.lat * Math.PI / 180);
   const wy = (0.5 - Math.log((1 + sl) / (1 - sl)) / (4 * Math.PI)) * n;
-  const ox = wx - MW / 2, oy = wy - MH / 2;
+  const ox = wx - W / 2, oy = wy - MH / 2;
   const jobs = [];
-  for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + MW) / 256); tx++)
-    for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + MH) / 256); ty++)
-      jobs.push({tx, ty});
+  for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++)
+    for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + MH) / 256); ty++) jobs.push({tx, ty});
   const layer = async (path, alpha) => {
     const ims = await Promise.all(jobs.map(j => loadImg(`${ESRI}${path}/MapServer/tile/${z}/${j.ty}/${j.tx}`, true)));
-    g.save(); g.beginPath(); g.rect(MX, MY, MW, MH); g.clip(); g.globalAlpha = alpha;
-    ims.forEach((im, k) => { if (im) g.drawImage(im, MX + jobs[k].tx * 256 - ox, MY + jobs[k].ty * 256 - oy); });
+    g.save(); g.beginPath(); g.rect(0, MY, W, MH); g.clip(); g.globalAlpha = alpha;
+    ims.forEach((im, k) => { if (im) g.drawImage(im, jobs[k].tx * 256 - ox, MY + jobs[k].ty * 256 - oy); });
     g.restore();
     return ims.filter(Boolean).length;
   };
-  g.fillStyle = "#0c1420"; g.fillRect(MX, MY, MW, MH);
+  g.fillStyle = "#0c1420"; g.fillRect(0, MY, W, MH);
   const got = await layer("World_Imagery", 1);
-  await layer("Reference/World_Boundaries_and_Places", .85);
-  g.save(); g.beginPath(); g.rect(MX, MY, MW, MH); g.clip();
-  g.fillStyle = "rgba(4,9,16,.22)"; g.fillRect(MX, MY, MW, MH);           // a little darker: the marks read better
-  if (!got){                                                                // no imagery: a plain coordinate grid
+  await layer("Reference/World_Boundaries_and_Places", .9);
+  g.save(); g.beginPath(); g.rect(0, MY, W, MH); g.clip();
+  g.fillStyle = "rgba(4,9,16,.16)"; g.fillRect(0, MY, W, MH);
+  if (!got){
     g.strokeStyle = "rgba(64,214,236,.12)"; g.lineWidth = 1;
-    for (let x = MX; x < MX + MW; x += 96){ g.beginPath(); g.moveTo(x, MY); g.lineTo(x, MY + MH); g.stroke(); }
-    for (let y = MY; y < MY + MH; y += 96){ g.beginPath(); g.moveTo(MX, y); g.lineTo(MX + MW, y); g.stroke(); }
+    for (let x = 0; x < W; x += 90){ g.beginPath(); g.moveTo(x, MY); g.lineTo(x, MY + MH); g.stroke(); }
+    for (let y = MY; y < MY + MH; y += 90){ g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
   }
-  // the faint slanted pattern of the channel logo (as on the clips)
-  const logo = await loadImg("brand-logo.png", false);
-  if (logo){
-    const lw = 150, lh = logo.height * lw / logo.width, sx = lw + 130, sy = lh + 120;
-    g.globalAlpha = .07;
-    g.translate(MX + MW / 2, MY + MH / 2); g.rotate(22 * Math.PI / 180);
-    for (let j = -8, row = 0; j <= 8; j++, row++)
-      for (let i = -9; i <= 9; i++) g.drawImage(logo, i * sx + (row % 2) * sx / 2, j * sy, lw, lh);
-    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
-  }
-  const vg = g.createRadialGradient(MX + MW / 2, MY + MH / 2, MH * .45, MX + MW / 2, MY + MH / 2, MW * .62);
-  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.55)");
-  g.fillStyle = vg; g.fillRect(MX, MY, MW, MH);
-  g.fillStyle = "rgba(0,0,0,.07)";
-  for (let y = MY; y < MY + MH; y += 4) g.fillRect(MX, y, MW, 1);           // scan lines
-  // the target: hot centre, ring with ticks, dashed outer ring
-  const cx = MX + MW / 2, cy = MY + MH / 2, r = 54;
-  const hot = g.createRadialGradient(cx, cy, 0, cx, cy, 34);
-  hot.addColorStop(0, "rgba(255,240,190,1)"); hot.addColorStop(.35, "rgba(255,120,30,.95)"); hot.addColorStop(1, "rgba(220,40,20,0)");
-  g.fillStyle = hot; g.beginPath(); g.arc(cx, cy, 34, 0, 2 * Math.PI); g.fill();
+  const vg = g.createRadialGradient(W / 2, MY + MH / 2, MH * .42, W / 2, MY + MH / 2, MH * .78);
+  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.5)");
+  g.fillStyle = vg; g.fillRect(0, MY, W, MH);
+  // the fire: a hot point, the target ring with ticks, a dashed ring
+  const cx = W / 2, cy = MY + MH / 2, r = 46;
+  const hot = g.createRadialGradient(cx, cy, 0, cx, cy, 26);
+  hot.addColorStop(0, "rgba(255,244,200,1)"); hot.addColorStop(.35, "rgba(255,120,30,.95)"); hot.addColorStop(1, "rgba(220,40,20,0)");
+  g.fillStyle = hot; g.beginPath(); g.arc(cx, cy, 26, 0, 2 * Math.PI); g.fill();
   g.lineWidth = 7; g.strokeStyle = "rgba(0,0,0,.55)"; g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.stroke();
   g.lineWidth = 3.5; g.strokeStyle = CYAN; g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.stroke();
   for (let a = 0; a < 4; a++){
     const c = Math.cos(a * Math.PI / 2), s2 = Math.sin(a * Math.PI / 2);
-    g.beginPath(); g.moveTo(cx + c * (r + 7), cy + s2 * (r + 7)); g.lineTo(cx + c * (r + 21), cy + s2 * (r + 21)); g.stroke();
+    g.beginPath(); g.moveTo(cx + c * (r + 6), cy + s2 * (r + 6)); g.lineTo(cx + c * (r + 19), cy + s2 * (r + 19)); g.stroke();
   }
-  g.setLineDash([9, 7]); g.lineWidth = 2; g.strokeStyle = "rgba(64,214,236,.65)";
-  g.beginPath(); g.arc(cx, cy, r + 30, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]);
-  g.lineWidth = 3; g.strokeStyle = accent; g.globalAlpha = .7;
-  g.beginPath(); g.arc(cx, cy, r + 64, 0, 2 * Math.PI); g.stroke(); g.globalAlpha = 1;
-  // the strength on a short line from the ring
-  const m = latestMeasure(it), mw = m ? m[1] : it.max_frp;
+  g.setLineDash([8, 6]); g.lineWidth = 2; g.strokeStyle = "rgba(64,214,236,.7)";
+  g.beginPath(); g.arc(cx, cy, r + 27, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]);
+  // the strongest measurement on a line from the ring
+  const mw = it.max_frp;
   if (mw != null){
-    const p0 = [cx + (r + 12) * .7071, cy - (r + 12) * .7071], p1 = [p0[0] + 52, p0[1] - 52];
-    g.font = `700 34px ${KUFI}`; rtl(true);
-    const label = mwText(mw), tw = g.measureText(label).width, p2 = [p1[0] + tw + 36, p1[1]];
+    const p0 = [cx + (r + 10) * .7071, cy - (r + 10) * .7071], p1 = [p0[0] + 48, p0[1] - 48];
+    rtl(false); g.font = `700 36px ${LAT}`;
+    const label = mwText(mw), tw = g.measureText(label).width, p2 = [p1[0] + tw + 34, p1[1]];
     g.lineWidth = 7; g.strokeStyle = "rgba(0,0,0,.55)";
     g.beginPath(); g.moveTo(...p0); g.lineTo(...p1); g.lineTo(...p2); g.stroke();
     g.lineWidth = 3; g.strokeStyle = CYAN; g.beginPath(); g.moveTo(...p0); g.lineTo(...p1); g.lineTo(...p2); g.stroke();
     g.fillStyle = CYAN; g.beginPath(); g.arc(p2[0], p2[1], 6, 0, 2 * Math.PI); g.fill();
     g.textAlign = "center"; g.textBaseline = "alphabetic";
-    g.fillStyle = "rgba(0,0,0,.75)"; g.fillText(label, (p1[0] + p2[0]) / 2 + 2, p1[1] - 14 + 2);
+    g.fillStyle = "rgba(0,0,0,.8)"; g.fillText(label, (p1[0] + p2[0]) / 2 + 2, p1[1] - 14 + 2);
     g.fillStyle = WHITE; g.fillText(label, (p1[0] + p2[0]) / 2, p1[1] - 14);
   }
   g.restore();
-  // corner brackets, north and scale
-  g.strokeStyle = CYAN; g.lineWidth = 3;
-  for (const [x, y, dx, dy] of [[MX + 8, MY + 8, 1, 1], [MX + MW - 8, MY + 8, -1, 1], [MX + 8, MY + MH - 8, 1, -1], [MX + MW - 8, MY + MH - 8, -1, -1]]){
-    g.beginPath(); g.moveTo(x + dx * 46, y); g.lineTo(x, y); g.lineTo(x, y + dy * 46); g.stroke();
-  }
-  rtl(false); g.textAlign = "center"; g.fillStyle = WHITE; g.font = `700 22px ${MONO}`;
-  g.beginPath(); g.moveTo(MX + MW - 52, MY + 34); g.lineTo(MX + MW - 62, MY + 62); g.lineTo(MX + MW - 52, MY + 56); g.lineTo(MX + MW - 42, MY + 62); g.closePath(); g.fill();
-  g.fillText("N", MX + MW - 52, MY + 86);
+  // north and scale
+  rtl(false); g.textAlign = "center"; g.fillStyle = WHITE;
+  g.beginPath(); g.moveTo(W - 50, MY + 30); g.lineTo(W - 60, MY + 58); g.lineTo(W - 50, MY + 52); g.lineTo(W - 40, MY + 58); g.closePath(); g.fill();
+  g.font = `700 21px ${MONO}`; g.fillText("N", W - 50, MY + 82);
   const mpp = 156543.03392 * Math.cos(it.lat * Math.PI / 180) / 2 ** z;
-  const km = [1, 2, 5, 10, 20].find(k => k * 1000 / mpp >= 160) || 20, bar = km * 1000 / mpp;
-  const bx = MX + 40, by = MY + MH - 40;
-  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(bx - 12, by - 40, bar + 24, 56);
+  const km = [1, 2, 5, 10, 20, 50, 100].find(k => k * 1000 / mpp >= 150) || 100, bar = km * 1000 / mpp;
+  const bx = 34, by = MY + MH - 34;
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(bx - 12, by - 40, bar + 24, 54);
   g.strokeStyle = WHITE; g.lineWidth = 3;
   g.beginPath(); g.moveTo(bx, by - 8); g.lineTo(bx, by); g.lineTo(bx + bar, by); g.lineTo(bx + bar, by - 8); g.stroke();
   g.font = `600 20px ${MONO}`; g.fillStyle = WHITE; g.fillText(`${km} km`, bx + bar / 2, by - 14);
+  g.fillStyle = LINE; g.fillRect(0, MY - 2, W, 2); g.fillRect(0, FY, W, 2);
 
-  // header: brand, place, time
-  g.fillStyle = BGC; g.fillRect(0, 0, W, TOP); g.fillRect(0, H - FOOT, W, FOOT);
-  g.fillStyle = "rgba(64,214,236,.28)"; g.fillRect(0, TOP - 2, W, 2); g.fillRect(0, H - FOOT, W, 2);
+  // brand row: emblem and name, and "مؤكد" when confirmed
   const em = await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(EMBLEM), false);
   if (em){
-    const glow = g.createRadialGradient(66, TOP / 2, 4, 66, TOP / 2, 44);
-    glow.addColorStop(0, "rgba(255,110,30,.45)"); glow.addColorStop(1, "rgba(255,110,30,0)");
-    g.fillStyle = glow; g.fillRect(16, 16, 100, 96);
-    g.drawImage(em, 34, (TOP - 64) / 2, 64, 64);
+    const glow = g.createRadialGradient(64, TOP / 2, 4, 64, TOP / 2, 40);
+    glow.addColorStop(0, "rgba(255,110,30,.4)"); glow.addColorStop(1, "rgba(255,110,30,0)");
+    g.fillStyle = glow; g.fillRect(20, 10, 90, 86);
+    g.drawImage(em, 36, (TOP - 56) / 2, 56, 56);
   }
   rtl(false); g.textAlign = "left"; g.textBaseline = "alphabetic";
-  g.font = '700 34px "Chakra Petch",' + AR; g.fillStyle = WHITE;
-  let bx2 = spaced(g, "ALFAQAAR", 118, TOP / 2 + 12, 3);
-  g.fillStyle = "rgba(64,214,236,.7)"; g.fillRect(bx2 + 13, TOP / 2 - 15, 2, 30);
-  g.font = '500 34px "Chakra Petch",' + AR; g.fillStyle = CYAN;
-  bx2 = spaced(g, "FIRMS", bx2 + 28, TOP / 2 + 12, 3);
-  const off = (S.meta?.local_offset_hours ?? 3) * 3600e3, last = new Date(Date.parse(it.last) + off);
-  const hhmm = d => String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
-  g.textAlign = "right"; g.font = `700 56px ${MONO}`; g.fillStyle = WHITE;
-  g.fillText(hhmm(last), W - 40, TOP / 2 + 20);
-  const cw = g.measureText("00:00").width;
-  rtl(true); g.font = `500 26px ${AR}`; g.fillStyle = DIMC;
-  g.fillText(S.meta?.local_name || "بغداد", W - 40 - cw - 16, TOP / 2 + 14);
-  const maxW = 2 * Math.min(W / 2 - bx2 - 40, W - 40 - cw - 120 - W / 2);
-  let title = it.where || it.headline, size = 44;
-  g.textAlign = "center";
-  for (; size >= 28; size -= 4){ g.font = `800 ${size}px ${KUFI}`; if (g.measureText(title).width <= maxW) break; }
-  if (g.measureText(title).width > maxW && title.includes("(")) title = title.slice(0, title.lastIndexOf("(")).trim();
-  g.fillStyle = WHITE; g.fillText(title, W / 2, 58);
-  const sub = [it.region_name, it.country].filter((x, i, a) => x && !title.includes(x) && a.indexOf(x) === i).join(" • ");
-  if (sub){ g.font = `500 26px ${AR}`; g.fillStyle = DIMC; g.fillText(sub, W / 2, 104); }
-
-  // footer: coordinates, first sighting, confirmed
-  rtl(false); g.textAlign = "left"; g.font = `700 30px ${MONO}`; g.fillStyle = WHITE;
-  g.fillText(`${it.lat.toFixed(4)}°N  ${it.lon.toFixed(4)}°E`, 40, H - FOOT + 66);
-  g.font = `500 17px ${MONO}`; g.fillStyle = "#5c6878";
-  g.fillText(got ? "Imagery © Esri, Maxar, Earthstar Geographics" : "", 40, H - FOOT + 108);
-  const first = new Date(Date.parse(it.first) + off);
-  rtl(true); g.textAlign = "center"; g.font = `700 34px ${KUFI}`; g.fillStyle = accent;
-  g.fillText(`أول رصد ${hhmm(first)}`, W / 2, H - FOOT + 66);
-  g.font = `500 22px ${AR}`; g.fillStyle = DIMC;
-  g.fillText(`${first.getUTCFullYear()}/${String(first.getUTCMonth() + 1).padStart(2, "0")}/${String(first.getUTCDate()).padStart(2, "0")}`, W / 2, H - FOOT + 106);
+  g.font = `700 30px ${LAT}`; g.fillStyle = WHITE;
+  let x = spaced(g, "ALFAQAAR", 108, TOP / 2 + 11, 3);
+  g.fillStyle = "rgba(64,214,236,.7)"; g.fillRect(x + 12, TOP / 2 - 13, 2, 26);
+  g.font = `500 30px ${LAT}`; g.fillStyle = CYAN;
+  spaced(g, "FIRMS", x + 26, TOP / 2 + 11, 3);
   if (sure(it)){
-    g.font = `800 34px ${KUFI}`;
-    const vw = g.measureText("مؤكد").width + 60;
-    g.fillStyle = SURE; g.beginPath(); g.roundRect ? g.roundRect(W - 40 - vw, H - FOOT + 38, vw, 62, 12) : g.rect(W - 40 - vw, H - FOOT + 38, vw, 62); g.fill();
-    g.fillStyle = "#0c0c0e"; g.fillText("مؤكد", W - 40 - vw / 2, H - FOOT + 81);
+    rtl(true); g.font = `800 30px ${KUFI}`;
+    const vw = g.measureText("مؤكد").width + 52;
+    g.fillStyle = SURE; g.beginPath(); g.roundRect ? g.roundRect(W - 36 - vw, TOP / 2 - 27, vw, 54, 12) : g.rect(W - 36 - vw, TOP / 2 - 27, vw, 54); g.fill();
+    g.textAlign = "center"; g.fillStyle = "#0c0c0e"; g.fillText("مؤكد", W - 36 - vw / 2, TOP / 2 + 11);
   }
+  g.fillStyle = LINE; g.fillRect(36, TOP - 1, W - 72, 1);
+  // the place
+  rtl(true); g.textAlign = "center";
+  let title = it.where || it.headline, size = 40;
+  for (; size >= 26; size -= 2){ g.font = `800 ${size}px ${KUFI}`; if (g.measureText(title).width <= W - 72) break; }
+  if (g.measureText(title).width > W - 72 && title.includes("(")){
+    title = title.slice(0, title.lastIndexOf("(")).trim();
+    for (size = 40; size >= 26; size -= 2){ g.font = `800 ${size}px ${KUFI}`; if (g.measureText(title).width <= W - 72) break; }
+  }
+  g.fillStyle = WHITE; g.fillText(title, W / 2, TOP + 58);
+  const sub = [it.region_name, it.country].filter((v, i, a) => v && !title.includes(v) && a.indexOf(v) === i).join(" • ");
+  if (sub){ g.font = `500 26px ${AR}`; g.fillStyle = DIMC; g.fillText(sub, W / 2, TOP + 102); }
+
+  // facts: strongest measurement, first sighting, coordinates
+  const off = (S.meta?.local_offset_hours ?? 3) * 3600e3, first = new Date(Date.parse(it.first) + off);
+  const hhmm = d => String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+  const day = `${first.getUTCFullYear()}/${String(first.getUTCMonth() + 1).padStart(2, "0")}/${String(first.getUTCDate()).padStart(2, "0")}`;
+  const colW = W / 3, labelY = FY + 62, valY = FY + 132, noteY = FY + 180;
+  const cols = [   // right to left
+    {label:"أعلى شدة", value: mw != null ? mwText(mw) : "—", note: it.size || "", color: WHITE},
+    {label:"أول رصد", value: hhmm(first), note: `${day} · ${S.meta?.local_name || "بغداد"}`, color: accent},
+    {label:"الإحداثيات", value: `${it.lat.toFixed(4)}°N`, note: `${it.lon.toFixed(4)}°E`, color: WHITE, mono:true}
+  ];
+  cols.forEach((c, i) => {
+    const cxl = W - colW * i - colW / 2;
+    if (i) { g.fillStyle = LINE; g.fillRect(W - colW * i, FY + 40, 1, 170); }
+    rtl(true); g.textAlign = "center"; g.font = `500 24px ${AR}`; g.fillStyle = DIMC; g.fillText(c.label, cxl, labelY);
+    rtl(false); g.font = c.mono ? `700 40px ${MONO}` : `700 54px ${LAT}`; g.fillStyle = c.color; g.fillText(c.value, cxl, valY);
+    if (c.note){
+      const latin = /^[0-9.°NE\-]+$/.test(c.note);
+      rtl(!latin); g.font = latin ? `700 40px ${MONO}` : `500 23px ${AR}`; g.fillStyle = latin ? WHITE : DIMC;
+      g.fillText(c.note, cxl, latin ? valY + 52 : noteY);
+    }
+  });
+  rtl(false); g.textAlign = "center"; g.font = `500 16px ${MONO}`; g.fillStyle = "#56627a";
+  if (got) g.fillText("Imagery © Esri, Maxar, Earthstar Geographics", W / 2, H - 26);
   const blob = await new Promise(res => { try { cv.toBlob(res, "image/png"); } catch { res(null); } });
   cv.remove();
   return blob;

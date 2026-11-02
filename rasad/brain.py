@@ -287,7 +287,7 @@ def app_link(cfg, inc):
 
 
 def mw_ar(v):
-    return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " ميغاواط"
+    return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " MW"
 
 
 def alert_message(inc, cfg, update=False, threaded=False):
