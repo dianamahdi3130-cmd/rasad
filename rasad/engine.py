@@ -193,22 +193,51 @@ def enrich(inc, cfg, geo):
     return finalize(inc, cfg)
 
 
+def clip_layers(cfg):
+    """Pictures to try for a clip, best first. Meteosat-12's fire picture (every 10 minutes, finer
+    pixels) shows small fires that the older IODC picture smears out (the Hormuz ship fire of
+    1 Nov 2026 shows only on Meteosat-12)."""
+    E, W = cfg["eumetview"], cfg["seawatch"]
+    mtg = dict(E["clip_layer"], name=W["layer"], cadence_min=W["cadence_min"], label=W["label"],
+               hot_is_bright=True)
+    return [mtg, E["clip_layer"]]
+
+
 def clip_for(cfg, wms, S, inc):
-    L = cfg["eumetview"]["clip_layer"]
-    if seawatch.SRC in (inc.get("srcs") or []):  # the speck was found on Meteosat-12: show that picture
-        W = cfg["seawatch"]
-        L = dict(L, name=W["layer"], cadence_min=W["cadence_min"], label=W["label"], hot_is_bright=True)
-        cfg = dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L))
-    cad = int(L["cadence_min"])
-    pbox = [inc["lon"] - 0.2, inc["lat"] - 0.2, inc["lon"] + 0.2, inc["lat"] + 0.2]
-    latest = latest_time(wms, S.state, L["name"], cad, pbox)
-    if latest is None or utcnow() - latest > dt.timedelta(hours=STALE_HOURS):
-        raise RuntimeError("no recent thermal images")
-    after = int(cfg["clip"].get("frames_after", 2))
-    t_end = min(latest, floor_time(parse_time(inc["first"]), cad) + dt.timedelta(minutes=cad * after))
-    base = Path(cfg["_site_dir"]) / "clips" / inc["id"]
-    video, snap = make_clip(cfg, wms, inc["lat"], inc["lon"], t_end, base)
-    return video, snap
+    err = "no pictures"
+    for L in clip_layers(cfg):
+        cad = int(L["cadence_min"])
+        pbox = [inc["lon"] - 0.2, inc["lat"] - 0.2, inc["lon"] + 0.2, inc["lat"] + 0.2]
+        latest = latest_time(wms, S.state, L["name"], cad, pbox)
+        if latest is None or utcnow() - latest > dt.timedelta(hours=STALE_HOURS):
+            err = f"{L['name']}: no recent pictures"
+            continue
+        after = int(cfg["clip"].get("frames_after", 2))
+        t_end = min(latest, floor_time(parse_time(inc["first"]), cad) + dt.timedelta(minutes=cad * after))
+        base = Path(cfg["_site_dir"]) / "clips" / inc["id"]
+        try:
+            return make_clip(dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L)), wms,
+                             inc["lat"], inc["lon"], t_end, base)
+        except Exception as e:  # noqa: BLE001
+            err = f"{L['name']}: {e}"
+    raise RuntimeError(err)
+
+
+def add_clip(cfg, wms, S, inc, now):
+    """Make the satellite clip of an incident once (retried later if the pictures were not ready)."""
+    if not cfg["clip"].get("enabled", True) or inc.get("clip"):
+        return
+    tried = inc.get("clip_tried")
+    if tried and now - parse_time(tried) < dt.timedelta(minutes=60):
+        return
+    inc["clip_tried"] = iso(now)
+    try:
+        video, snap = clip_for(cfg, wms, S, inc)
+        site = Path(cfg["_site_dir"])
+        inc["clip"] = video.relative_to(site).as_posix()
+        inc["snap"] = snap.relative_to(site).as_posix()
+    except Exception as e:  # noqa: BLE001
+        log.warning("clip for %s failed: %s", inc["id"], e)
 
 
 def run_cycle(cfg, send=True, alert_now=False):
@@ -444,14 +473,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     for inc in first_alerts:
         inc["status"] = "pending"
         media = None
-        if cfg["clip"].get("enabled", True) and not inc.get("clip"):
-            try:
-                video, snap = clip_for(cfg, wms, S, inc)
-                site = Path(cfg["_site_dir"])
-                inc["clip"] = video.relative_to(site).as_posix()
-                inc["snap"] = snap.relative_to(site).as_posix()
-            except Exception as e:  # noqa: BLE001
-                log.warning("clip for %s failed: %s", inc["id"], e)
+        add_clip(cfg, wms, S, inc, now)
         if inc.get("clip"):
             media = Path(cfg["_site_dir"]) / inc["clip"]
         if deliver(cfg, session, alert_message(inc, cfg), media, send):
@@ -461,6 +483,17 @@ def run_cycle(cfg, send=True, alert_now=False):
         if deliver(cfg, session, alert_message(inc, cfg, update=True), None, send):
             inc["alerted_verdict"] = inc["verdict"]
             log.info("UPDATE %s -> %s", inc["id"], inc["verdict"])
+
+    # every important incident gets its clip in the app, even when it was not sent (a few per run)
+    budget = int(cfg["clip"].get("per_run", 4))
+    for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
+        if budget <= 0:
+            break
+        if inc.get("priority") == "high" and not inc.get("clip") and \
+                now - parse_time(inc["last"]) <= dt.timedelta(days=2):
+            if not inc.get("clip_tried") or now - parse_time(inc["clip_tried"]) >= dt.timedelta(minutes=60):
+                add_clip(cfg, wms, S, inc, now)
+                budget -= 1
 
     # 5) tidy up and publish
     keep = dt.timedelta(days=int(I["keep_days"]))

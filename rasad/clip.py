@@ -142,7 +142,11 @@ def make_clip(cfg, wms, lat, lon, t_end, base, frames=None, half_km=None):
     base_img = vals[0][1]
     lo = float(np.percentile(base_img, 1))
     hi = max(float(np.percentile(base_img, 99.5)), lo + 4)
-    top = max(255.0, hi + 1)
+    # the warmest value near the centre over the whole loop sets the top of the colour scale, but
+    # never less than min_span above the usual warmth, so plain noise is not painted as fire
+    c0, c1 = N // 2 - N // 16, N // 2 + N // 16 + 1
+    peak = max(float(np.nanmax(v[c0:c1, c0:c1])) for _, v in vals)
+    top = max(hi + float(C.get("min_span", 6)), peak)
     lut = _lut()
     edges, m = None, None
     from .geodb import land_mask_points
