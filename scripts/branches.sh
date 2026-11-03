@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Keeps the engine's memory on the "state" branch and the published app on "gh-pages".
-# Each branch is restarted once a day so old clips do not pile up in the history.
+# Keeps the engine's memory on the "state" branch and (until the private app is live) the published
+# app on "gh-pages". Each branch is restarted once a day so old clips do not pile up in the history.
+#
+# Private app (RASAD_STATE_KEY set, see .github/workflows/rasad.yml): nothing readable is left on
+# GitHub. The memory is stored sealed (AES-256) as state.enc, gh-pages only says the address is no
+# longer used, and the data and clips go to the private app on Cloudflare instead.
 set -euo pipefail
 
 export GIT_AUTHOR_NAME="rasad-bot" GIT_AUTHOR_EMAIL="rasad-bot@users.noreply.github.com"
 export GIT_COMMITTER_NAME="rasad-bot" GIT_COMMITTER_EMAIL="rasad-bot@users.noreply.github.com"
+LOCKED=${RASAD_STATE_KEY:+1}
 
 restore() {
   local branch="$1" dir="$2"
@@ -29,7 +34,7 @@ save() {
         echo "$branch: nothing new"
         exit 0
       fi
-      if [ "$(git log -1 --format=%cs HEAD)" = "$(date -u +%F)" ]; then
+      if [ -z "${FRESH:-}" ] && [ "$(git log -1 --format=%cs HEAD)" = "$(date -u +%F)" ]; then
         parent="-p HEAD"
       fi
     fi
@@ -46,6 +51,59 @@ save() {
   )
 }
 
+# ---------------------------------------------------------------- the memory
+restore_state() {
+  if [ -z "$LOCKED" ]; then
+    restore state _state
+    return
+  fi
+  restore state _state_git
+  rm -rf _state && mkdir -p _state
+  if [ -f _state_git/state.enc ]; then
+    if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:RASAD_STATE_KEY -in _state_git/state.enc \
+        | tar xzf - -C _state; then
+      echo "::warning::the sealed memory could not be opened: starting with a fresh one"
+      rm -rf _state && mkdir -p _state
+    fi
+  else
+    (cd _state_git && tar cf - --exclude=.git .) | tar xf - -C _state   # the old open files, this once
+  fi
+}
+
+save_state() {
+  if [ -z "$LOCKED" ]; then
+    save state _state "memory $(date -u +%FT%TZ)"
+    return
+  fi
+  local fresh=""
+  # the first sealed save starts a new history, so the old open files are no longer kept
+  if git -C _state_git rev-parse -q --verify HEAD >/dev/null \
+      && git -C _state_git ls-tree --name-only HEAD | grep -qv '^state.enc$'; then
+    fresh=1
+  fi
+  (
+    cd _state_git
+    git ls-files | grep -v '^state.enc$' | xargs -r git rm -q --cached -- 2>/dev/null || true
+    find . -mindepth 1 -maxdepth 1 ! -name .git ! -name state.enc -exec rm -rf {} +
+  )
+  tar czf - -C _state . | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:RASAD_STATE_KEY \
+    -out _state_git/state.enc
+  FRESH=$fresh save state _state_git "memory $(date -u +%FT%TZ)"
+}
+
+# The memory goes to GitHub at once after anything was sent to the channel (so a restart never
+# sends it twice), otherwise every ~10 minutes: the files are large to push after every check.
+save_state_if_due() {
+  local stamp=.state_pushed last=0
+  [ -f "$stamp" ] && last=$(cat "$stamp")
+  if [ -f .state_urgent ] || [ $(( $(date +%s) - last )) -ge 540 ]; then
+    save_state && date +%s > "$stamp" && rm -f .state_urgent
+  else
+    echo "state: kept on the runner for now"
+  fi
+}
+
+# ---------------------------------------------------------------- the public site (until locked)
 # The app's two data files on their own small branch, replaced on every check (no history):
 # the app reads them from there at once, while GitHub Pages rebuilds the site only now and then.
 save_live() {
@@ -83,31 +141,58 @@ save_site_if_due() {
   fi
 }
 
-# The memory goes to GitHub at once after anything was sent to the channel (so a restart never
-# sends it twice), otherwise every ~10 minutes: the files are large to push after every check.
-save_state_if_due() {
-  local stamp=.state_pushed last=0
-  [ -f "$stamp" ] && last=$(cat "$stamp")
-  if [ -f .state_urgent ] || [ $(( $(date +%s) - last )) -ge 540 ]; then
-    save state _state "memory $(date -u +%FT%TZ)" && date +%s > "$stamp" && rm -f .state_urgent
-  else
-    echo "state: kept on the runner for now"
+# ---------------------------------------------------------------- private app: close the public copies
+# gh-pages keeps one page that says the address is no longer used (no data, no clips, no link to
+# the new address); the live data branch and the probe results are removed.
+lock_public() {
+  local page tree commit want have
+  page=$(cat <<'HTML' | git hash-object -w --stdin
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow"><title>ALFAQAAR FIRMS</title></head>
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#06090e;color:#93a0b8;font:16px/1.8 system-ui,sans-serif;text-align:center;padding:24px">
+<div><div style="font:700 22px/1.4 system-ui;color:#e8edf6;letter-spacing:3px;direction:ltr">ALFAQAAR <span style="color:#40d6ec">FIRMS</span></div>
+<p>هذا العنوان لم يعد مستخدماً.<br>اطلب الرابط الجديد من المدير.</p></div></body></html>
+HTML
+)
+  local nj
+  nj=$(printf '' | git hash-object -w --stdin)
+  tree=$(printf '100644 blob %s\t.nojekyll\n100644 blob %s\tindex.html\n' "$nj" "$page" | git mktree)
+  have=$(git ls-remote origin refs/heads/gh-pages | cut -f1)
+  want=""
+  if [ -n "$have" ]; then
+    git fetch -q --depth=1 origin "+refs/heads/gh-pages:refs/remotes/origin/gh-pages" 2>/dev/null || true
+    want=$(git rev-parse -q --verify "origin/gh-pages^{tree}" 2>/dev/null || true)
   fi
+  if [ "$want" != "$tree" ]; then
+    commit=$(git commit-tree "$tree" -m "address no longer used")
+    git push -q -f origin "$commit:refs/heads/gh-pages" && echo "gh-pages: closed (no data left there)"
+  fi
+  for b in live probe; do
+    if [ -n "$(git ls-remote origin "refs/heads/$b")" ]; then
+      git push -q origin --delete "$b" && echo "$b: removed"
+    fi
+  done
 }
 
 case "${1:-}" in
   restore)
-    restore state _state
+    restore_state
     restore gh-pages _site
     ;;
   save)
-    site_files
-    save state _state "memory $(date -u +%FT%TZ)"
-    save gh-pages _site "app $(date -u +%FT%TZ)"
-    save_live || true
+    if [ -n "$LOCKED" ]; then
+      save_state
+      lock_public
+    else
+      site_files
+      save_state
+      save gh-pages _site "app $(date -u +%FT%TZ)"
+      save_live || true
+    fi
     ;;
   save-state)
-    save state _state "memory $(date -u +%FT%TZ)"
+    save_state
     ;;
   save-state-if-due)
     save_state_if_due
@@ -118,8 +203,11 @@ case "${1:-}" in
   save-site-if-due)
     save_site_if_due
     ;;
+  lock-public)
+    lock_public
+    ;;
   *)
-    echo "usage: $0 restore|save|save-state|save-state-if-due|save-live|save-site-if-due" >&2
+    echo "usage: $0 restore|save|save-state|save-state-if-due|save-live|save-site-if-due|lock-public" >&2
     exit 1
     ;;
 esac

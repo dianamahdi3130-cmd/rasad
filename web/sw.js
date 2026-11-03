@@ -1,5 +1,5 @@
 // Rasad service worker: the app opens offline; incidents are always fetched fresh first.
-const CACHE = "rasad-v8";
+const CACHE = "firms-v9";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => {
@@ -24,6 +24,7 @@ function networkFirst(request) {
 self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
+  if (url.pathname.includes("/api/") || url.pathname.includes("/clips/")) return;   // private: always from the network
   if (e.request.mode === "navigate" || url.pathname.includes("/data/")) {
     e.respondWith(networkFirst(e.request));
     return;

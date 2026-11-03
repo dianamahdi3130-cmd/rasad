@@ -3,13 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>رصد</title>
-<meta name="description" content="رصد الحرائق في الخليج والمنطقة من صور الأقمار الصناعية">
+<title>ALFAQAAR FIRMS</title>
+<meta name="description" content="ALFAQAAR FIRMS · منصة رصد الحرائق من الأقمار الصناعية · للكادر فقط">
+<meta property="og:title" content="ALFAQAAR FIRMS">
+<meta property="og:description" content="منصة رصد الحرائق من الأقمار الصناعية · دخول الكادر فقط">
+<meta property="og:image" content="brand-card.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0a101c">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="رصد">
+<meta name="apple-mobile-web-app-title" content="FIRMS">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/icon-192.png">
@@ -178,6 +184,45 @@ body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
 .shot .actions{justify-content:center}
 .spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:var(--accent);animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* sign-in: staff only */
+body.locked header,body.locked main,body.locked #focusBar,body.locked #focusCard{display:none!important}
+.gate{position:fixed;inset:0;z-index:4000;display:grid;place-items:center;background:
+  radial-gradient(1200px 600px at 50% -10%,color-mix(in srgb,#40d6ec 10%,transparent),transparent 60%),var(--bg);
+  padding:calc(24px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.gate form{width:min(380px,100%);display:flex;flex-direction:column;gap:14px}
+.gate .mark{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px;direction:ltr}
+.gate .mark img{width:52px;height:52px}
+.gate .mark b{font:700 25px/1 "Chakra Petch",ui-monospace,sans-serif;letter-spacing:3px;color:var(--fg)}
+.gate .mark span{font:500 25px/1 "Chakra Petch",ui-monospace,sans-serif;letter-spacing:3px;color:#40d6ec;border-inline-start:2px solid color-mix(in srgb,#40d6ec 60%,transparent);padding-inline-start:12px}
+.gate h1{margin:0;text-align:center;font:700 19px/1.5 var(--font-display)}
+.gate p{margin:0;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.7}
+.gate label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}
+.gate input{font:inherit;font-size:17px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;outline:none}
+.gate input:focus{border-color:#40d6ec;box-shadow:0 0 0 3px color-mix(in srgb,#40d6ec 25%,transparent)}
+.gate button{font:700 16px/1 var(--font-display);padding:15px;border-radius:12px;border:0;background:var(--accent);color:#fff}
+.gate button[disabled]{opacity:.6}
+.gate .err{color:var(--sure);font-size:14px;text-align:center;min-height:1.4em}
+.gate .fine{font-size:12px;color:color-mix(in srgb,var(--muted) 80%,transparent)}
+#adminBtn{margin-inline-start:4px}
+.adm section{margin:16px 0}
+.adm h3{font:700 16px/1.5 var(--font-display);margin:0 0 8px}
+.adm .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.adm .row .who{flex:1;min-width:160px}
+.adm .row .who b{display:block;font-size:15px}
+.adm .row .who small{color:var(--muted);font-size:12.5px}
+.adm .btn{padding:6px 10px;font-size:13px}
+.adm .btn.warn{border-color:color-mix(in srgb,var(--sure) 55%,var(--line));color:var(--sure)}
+.adm form{display:flex;gap:8px}
+.adm input{flex:1;min-width:0;font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.adm .secret{background:color-mix(in srgb,#40d6ec 10%,var(--surface));border:1px solid color-mix(in srgb,#40d6ec 40%,var(--line));border-radius:12px;padding:12px;margin-top:10px;font-size:14px;line-height:1.8}
+.adm .secret code{font:700 17px/1 ui-monospace,Menlo,monospace;direction:ltr;unicode-bidi:isolate;letter-spacing:1px}
+.adm .live{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+.adm .live::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.adm .log{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.adm .log b{color:var(--fg);font-weight:600}
+.tagx{border-radius:6px;padding:1px 7px;font-size:12px;background:var(--surface-2);color:var(--muted)}
+.tagx.ok{color:var(--ok)} .tagx.off{color:var(--sure)} .tagx.wait{color:var(--likely)}
 </style>
 </head>
 <body>
@@ -188,6 +233,7 @@ body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
       رصد
     </div>
     <div class="pill" id="status"><span class="dot"></span><span>جارٍ التحميل…</span></div>
+    <button class="btn" id="adminBtn" type="button" hidden>الإدارة</button>
   </div>
   <div class="wrap chips" id="chips" role="toolbar" aria-label="المناطق"></div>
 </header>
@@ -210,6 +256,26 @@ body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
   <span class="ttl" id="fTitle"></span>
 </div>
 <section class="wrap" id="focusCard" aria-label="الحدث"></section>
+
+<section class="gate" id="gate" hidden aria-label="تسجيل الدخول">
+  <form id="loginForm" autocomplete="on">
+    <div class="mark"><img src="brand-mark.svg" alt=""><b>ALFAQAAR</b><span>FIRMS</span></div>
+    <h1>منصة رصد الحرائق · دخول الكادر</h1>
+    <label>اسم المستخدم<input id="lUser" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label>كلمة السر<input id="lPass" name="password" type="password" autocomplete="current-password" required></label>
+    <div class="err" id="lErr" role="alert"></div>
+    <button type="submit" id="lBtn">دخول</button>
+    <p class="fine">يرتبط الحساب بهذا المتصفح عند أول دخول، ولا يعمل بعدها على أي جهاز أو متصفح آخر. ادخل من المتصفح الذي ستستخدمه دائماً. يُسجَّل كل دخول مع المدينة التقريبية.</p>
+  </form>
+</section>
+
+<section class="sheet adm" id="adminSheet" hidden aria-modal="true" role="dialog" aria-label="إدارة الوصول">
+  <div class="sheet-top wrap">
+    <button class="btn" id="adminClose" type="button">رجوع</button>
+    <span style="font:700 16px var(--font-display)">إدارة الوصول</span>
+  </div>
+  <div class="wrap" id="adminBody"></div>
+</section>
 
 <section class="sheet" id="sheet" hidden aria-modal="true" role="dialog" aria-labelledby="dTitle">
   <div class="sheet-top wrap">
@@ -328,8 +394,15 @@ async function getJSON(name, bust){
 async function load(){
   try{
     const bust = "?t=" + Date.now();
-    const [m, d] = await Promise.all([getJSON("meta.json", bust), getJSON("incidents.json", bust)]);
-    S.meta = m; S.items = d.items || [];
+    if (S.mode === "private"){
+      const r = await fetch("api/data" + bust, {cache:"no-store", credentials:"same-origin"});
+      if (r.status === 401) { showGate(); return; }
+      const d = await r.json();
+      S.meta = d.meta || {}; S.items = d.items || [];
+    } else {
+      const [m, d] = await Promise.all([getJSON("meta.json", bust), getJSON("incidents.json", bust)]);
+      S.meta = m; S.items = d.items || [];
+    }
     renderChips(); render(); renderStatus();
     if (!S.loaded) route();
     else if (S.sel) showFocus(S.sel, false);   // keep the open incident fresh
@@ -758,10 +831,138 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
   try { if (!localStorage.getItem("rasad-install-seen")) { $("#install").hidden = false; localStorage.setItem("rasad-install-seen", "1"); } } catch {}
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-initMap(); load();
-setInterval(load, 60000);
-setInterval(renderStatus, 30000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+
+/* ---------- private access: staff accounts, each tied to one browser ---------- */
+const hexOf = a => [...a].map(b => b.toString(16).padStart(2, "0")).join("");
+function deviceKey(){       // a random key kept by this browser: the account works only where it was first used
+  let k = null;
+  try { k = localStorage.getItem("firms-device"); } catch {}
+  if (!k || !/^[0-9a-f]{64}$/.test(k)){
+    k = hexOf(crypto.getRandomValues(new Uint8Array(32)));
+    try { localStorage.setItem("firms-device", k); } catch {}
+  }
+  return k;
+}
+function showGate(){
+  document.body.classList.add("locked");
+  $("#gate").hidden = false;
+  setTimeout(() => $("#lUser").focus(), 50);
+}
+let started = false;
+function startApp(){
+  document.body.classList.remove("locked");
+  $("#gate").hidden = true;
+  $("#adminBtn").hidden = !(S.me && S.me.role === "admin");
+  if (started) { load(); return; }
+  started = true;
+  initMap(); load();
+  setInterval(load, 60000);
+  setInterval(renderStatus, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+}
+$("#loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("#lBtn"), err = $("#lErr");
+  err.textContent = ""; btn.disabled = true; btn.textContent = "جارٍ الدخول…";
+  try {
+    const r = await fetch("api/login", {method:"POST", credentials:"same-origin", headers:{"content-type":"application/json"},
+      body: JSON.stringify({username: $("#lUser").value.trim(), password: $("#lPass").value, device: deviceKey()})});
+    if (r.ok){
+      S.me = await (await fetch("api/me", {cache:"no-store", credentials:"same-origin"})).json();
+      $("#lPass").value = "";
+      startApp();
+    } else {
+      const code = (await r.json().catch(() => ({}))).error;
+      err.textContent = {wrong:"اسم المستخدم أو كلمة السر غير صحيحة.", device:"هذا الحساب مرتبط بجهاز أو متصفح آخر. اطلب من المدير كلمة سر جديدة.",
+        wait:"محاولات كثيرة. حاول بعد ربع ساعة.", missing:"أدخل اسم المستخدم وكلمة السر."}[code] || "تعذّر الدخول. حاول مرة أخرى.";
+    }
+  } catch { err.textContent = "لا اتصال بالإنترنت."; }
+  btn.disabled = false; btn.textContent = "دخول";
+});
+
+/* ---------- the manager's panel ---------- */
+const EVENT_AR = {open:"فتح التطبيق", login:"دخل", blocked:"محاولة من جهاز آخر (رُفضت)", failed:"كلمة سر خاطئة",
+  added:"أُضيف حسابه", reset:"كلمة سر جديدة", disabled:"أُوقف", enabled:"أُعيد تفعيله", deleted:"حُذف"};
+const COUNTRY = {IQ:"العراق", IR:"إيران", SA:"السعودية", AE:"الإمارات", KW:"الكويت", QA:"قطر", BH:"البحرين", OM:"عُمان",
+  YE:"اليمن", JO:"الأردن", SY:"سوريا", LB:"لبنان", TR:"تركيا", EG:"مصر"};
+const where = (c, k) => [c, COUNTRY[k] || k].filter(Boolean).join("، ") || "—";
+const when = t => t ? new Date(t).toLocaleString("ar-IQ-u-nu-latn", {timeZone:"Asia/Baghdad", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"}) : "—";
+async function adminCall(path, body){
+  const r = await fetch("api/admin/" + path, {method: body ? "POST" : "GET", credentials:"same-origin",
+    headers:{"content-type":"application/json"}, body: body ? JSON.stringify(body) : undefined});
+  return r.json().catch(() => ({}));
+}
+let shown = null;   // {name, password} to show once after making or resetting an account
+async function openAdmin(){
+  $("#adminSheet").hidden = false;
+  const box = $("#adminBody");
+  if (!box.innerHTML) box.innerHTML = `<p style="color:var(--muted)">جارٍ التحميل…</p>`;
+  const st = await adminCall("state");
+  const staff = (st.users || []).filter(u => u.role !== "admin").sort((a, b) => (b.last_open || 0) - (a.last_open || 0));
+  const online = st.online || [];
+  box.innerHTML = `
+    <section><h3><span class="live">مفتوح الآن: ${online.length}</span></h3>
+      ${online.length ? online.map(o => `<div class="row"><div class="who"><b>${esc(o.display)}</b><small>${esc(where(o.city, o.country))} · منذ ${esc(when(o.since))}</small></div></div>`).join("")
+                      : `<p style="color:var(--muted);margin:0">لا أحد يفتح التطبيق الآن.</p>`}
+    </section>
+    <section><h3>إشعاراتي على تلكرام</h3>
+      <div class="row"><div class="who"><b>${st.telegram ? "مفعّلة ✅" : "غير مفعّلة"}</b>
+        <small>رسالة لك كلما فتح أحد الكادر التطبيق، مع مدينته وعدد من يفتحه الآن، وأي محاولة دخول مرفوضة.</small></div>
+        <button class="btn primary" type="button" id="tgBtn">${st.telegram ? "إعادة الربط" : "تفعيل"}</button></div>
+    </section>
+    <section><h3>إضافة حساب</h3>
+      <form id="addForm"><input id="addName" placeholder="اسم الموظف (مثال: ali)" autocapitalize="none" required><button class="btn primary" type="submit">إضافة</button></form>
+      ${shown ? `<div class="secret">أعطِ <b>${esc(shown.name)}</b> هذه البيانات:<br>اسم المستخدم: <code>${esc(shown.name)}</code><br>كلمة السر: <code>${esc(shown.password)}</code>
+        <br><small>تعمل مرة واحدة: على أول متصفح يدخل منه فقط. لن تظهر كلمة السر مرة أخرى.</small>
+        <div style="margin-top:8px"><button class="btn" type="button" id="copySecret">نسخ</button></div></div>` : ""}
+    </section>
+    <section><h3>الحسابات (${staff.length})</h3>
+      ${staff.length ? staff.map(u => `<div class="row" data-u="${esc(u.username)}">
+        <div class="who"><b>${esc(u.display)}</b>
+          <small>${u.disabled ? `<span class="tagx off">موقوف</span>` : u.bound ? `<span class="tagx ok">مرتبط: ${esc(u.agent || "جهاز")}</span>` : `<span class="tagx wait">بانتظار أول دخول</span>`}
+          · آخر فتح: ${esc(when(u.last_open))}${u.city || u.country ? " · " + esc(where(u.city, u.country)) : ""}</small></div>
+        <button class="btn" type="button" data-act="reset">كلمة سر جديدة</button>
+        <button class="btn" type="button" data-act="${u.disabled ? "enable" : "disable"}">${u.disabled ? "تفعيل" : "إيقاف"}</button>
+        <button class="btn warn" type="button" data-act="delete">حذف</button></div>`).join("")
+        : `<p style="color:var(--muted);margin:0">لا حسابات بعد. أضف أول موظف أعلاه.</p>`}
+    </section>
+    <section><h3>سجل الدخول</h3><div class="log">
+      ${(st.log || []).slice(0, 60).map(e => `<div>${esc(when(e.t))} · <b>${esc(e.username === "admin" ? "المدير" : e.username)}</b> · ${esc(EVENT_AR[e.event] || e.event)}${e.city || e.country ? " · " + esc(where(e.city, e.country)) : ""}${e.agent ? " · " + esc(e.agent) : ""}</div>`).join("") || "لا شيء بعد."}
+    </div></section>`;
+  $("#tgBtn").onclick = async () => {
+    const r = await adminCall("telegram", {});
+    if (r.link) location.href = r.link; else toast("تعذّر الربط");
+  };
+  $("#addForm").onsubmit = async e => {
+    e.preventDefault();
+    const name = $("#addName").value.trim();
+    const r = await adminCall("add", {username: name, display: name});
+    if (r.password) { shown = {name: r.username, password: r.password}; openAdmin(); }
+    else toast(r.error === "exists" ? "الاسم مستخدم" : "اسم غير صالح (أحرف وأرقام فقط)");
+  };
+  const cp = $("#copySecret");
+  if (cp) cp.onclick = () => copy(`اسم المستخدم: ${shown.name}\nكلمة السر: ${shown.password}\nالرابط: ${location.origin}/`);
+  box.querySelectorAll("[data-act]").forEach(b => b.onclick = async () => {
+    if (!b.dataset.sure){ b.dataset.sure = "1"; b.textContent = "تأكيد؟"; return; }    // a second tap confirms
+    const u = b.closest("[data-u]").dataset.u, act = b.dataset.act;
+    const r = await adminCall(act === "enable" || act === "disable" ? "disable" : act, {username: u, disabled: act === "disable"});
+    if (act === "reset" && r.password) shown = {name: r.username, password: r.password};
+    openAdmin();
+  });
+}
+$("#adminBtn").onclick = () => { shown = null; openAdmin(); };
+$("#adminClose").onclick = () => { $("#adminSheet").hidden = true; shown = null; $("#adminBody").innerHTML = ""; };
+
+(async function boot(){
+  // on the private site the door answers; on the old public site there is no door
+  try {
+    const r = await fetch("api/me", {cache:"no-store", credentials:"same-origin"});
+    if (r.status === 200) { S.mode = "private"; S.me = await r.json(); startApp(); return; }
+    if (r.status === 401) { S.mode = "private"; showGate(); return; }
+  } catch {}
+  S.mode = "public";
+  startApp();
+})();
 </script>
 </body>
 </html>

@@ -1,0 +1,24 @@
+# ALFAQAAR FIRMS — the private Rasad app on Cloudflare (free plan).
+# Address: https://firms.<your workers.dev name>.workers.dev
+name = "firms"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+preview_urls = false
+
+# The app's own files (copied from ../web when deploying). They hold no data: the data and the
+# clips come from the Worker below, only for signed-in staff.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]
+
+[observability]
+enabled = false

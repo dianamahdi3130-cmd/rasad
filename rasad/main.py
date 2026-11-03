@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import re
+import os
 import datetime as dt
 import logging
 import sys
@@ -56,6 +58,16 @@ def cmd_status(cfg):
     print(f"  حوادث محفوظة: {len(S.incidents)}، خلايا ذاكرة: {len(S.memory)}")
 
 
+class _Mask(logging.Filter):
+    """Hide positions and incident ids in what is printed (the run log of a public repository)."""
+    PAT = re.compile(r"\d{8}-\d{4}_[\d.]+_[\d.]+|-?\d{1,3}\.\d{2,}")
+
+    def filter(self, record):
+        record.msg = self.PAT.sub("•", record.getMessage())
+        record.args = ()
+        return True
+
+
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -99,12 +111,24 @@ def main(argv=None):
     p.add_argument("--lon", type=float, required=True)
     p.add_argument("--time", required=True)
     sub.add_parser("test-telegram")
+    sub.add_parser("cloud-publish", help="send the app's data and clips to the private app (Cloudflare)")
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+    quiet = os.environ.get("RASAD_QUIET") == "1"   # the private app: the public run log shows no places or times
+    logging.basicConfig(level=logging.WARNING if quiet else (logging.DEBUG if args.verbose else logging.INFO),
                         format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    if quiet:
+        for h in logging.getLogger().handlers:
+            h.addFilter(_Mask())
     cfg = load_config(args.config, args.state, args.site)
 
+    if args.cmd == "cloud-publish":
+        from .cloud import publish
+        url, key = os.environ.get("RASAD_CLOUD_URL", ""), os.environ.get("RASAD_INGEST_KEY", "")
+        if not (url and key):
+            raise SystemExit("RASAD_CLOUD_URL / RASAD_INGEST_KEY are not set")
+        ok = publish(cfg["_site_dir"], url, key)
+        raise SystemExit(0 if ok else 1)
     if args.cmd == "status":
         cmd_status(cfg)
     elif args.cmd == "cycle":

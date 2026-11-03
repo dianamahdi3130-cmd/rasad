@@ -45,6 +45,41 @@ jobs:
           [ -s fonts/NotoSansArabic.ttf ] || curl -sSL --retry 3 -o fonts/NotoSansArabic.ttf \
             "https://github.com/google/fonts/raw/main/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf" || true
 
+      # The private app on Cloudflare (see worker/): once it answers, the data and clips go there
+      # only, the memory is stored sealed and nothing readable is left on GitHub.
+      - name: Private app ready?
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: |
+          if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
+            sub=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/subdomain" \
+              | python3 -c "import sys,json; print((json.load(sys.stdin).get('result') or {}).get('subdomain') or '')" || true)
+            if [ -n "$sub" ]; then
+              url="https://firms.$sub.workers.dev"
+              echo "::add-mask::$sub"
+              if [ "$(curl -sS --max-time 20 "$url/api/ping" || true)" = "ok" ]; then
+                key=$(printf '%s' "$CF_TOKEN:ingest" | sha256sum | cut -c1-64)
+                skey=$(printf '%s' "$CF_TOKEN:state" | sha256sum | cut -c1-64)
+                echo "::add-mask::$key"
+                echo "::add-mask::$skey"
+                {
+                  echo "RASAD_CLOUD_URL=$url"
+                  echo "RASAD_INGEST_KEY=$key"
+                  echo "RASAD_STATE_KEY=$skey"
+                  echo "RASAD_APP_URL=$url/"
+                  echo "RASAD_QUIET=1"
+                } >> "$GITHUB_ENV"
+                echo "private app: on"
+                exit 0
+              fi
+            fi
+          fi
+          echo "RASAD_APP_URL=$PAGES_URL" >> "$GITHUB_ENV"
+          echo "private app: not set up yet (public site as before)"
+
       - name: Bring back the memory and the app
         run: bash scripts/branches.sh restore
 
@@ -53,7 +88,6 @@ jobs:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          RASAD_APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
           RASAD_EVERY_SECONDS: "150"
           RASAD_LOOP_MINUTES: "335"
           RASAD_GEO_BUDGET: "45"

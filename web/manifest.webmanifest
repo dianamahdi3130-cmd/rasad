@@ -1,7 +1,7 @@
 {
-  "name": "رصد",
-  "short_name": "رصد",
-  "description": "رصد الحرائق في الخليج والمنطقة من صور الأقمار الصناعية",
+  "name": "ALFAQAAR FIRMS",
+  "short_name": "FIRMS",
+  "description": "ALFAQAAR FIRMS · منصة رصد الحرائق من الأقمار الصناعية · للكادر فقط",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "./",
@@ -10,8 +10,21 @@
   "background_color": "#0a101c",
   "theme_color": "#0a101c",
   "icons": [
-    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
-    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
-    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

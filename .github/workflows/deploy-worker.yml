@@ -1,0 +1,74 @@
+name: ALFAQAAR FIRMS - نشر التطبيق الخاص
+
+# Puts the private app on Cloudflare (worker/ + the app files in web/). Needs the repository
+# secrets CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and RASAD_ADMIN_CODE (the manager's
+# password); without them it does nothing.
+on:
+  push:
+    branches: [main]
+    paths: ["worker/**", "web/**", ".github/workflows/deploy-worker.yml"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Keys added?
+        id: ready
+        env:
+          T: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          A: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          C: ${{ secrets.RASAD_ADMIN_CODE }}
+        run: |
+          if [ -n "$T" ] && [ -n "$A" ] && [ -n "$C" ]; then
+            echo "ok=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Cloudflare keys or the manager's code are not added yet: nothing to deploy"
+          fi
+
+      - if: steps.ready.outputs.ok == '1'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Deploy
+        if: steps.ready.outputs.ok == '1'
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_CODE: ${{ secrets.RASAD_ADMIN_CODE }}
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          # the app's address stays out of this public log
+          sub=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | python3 -c "import sys,json; print((json.load(sys.stdin).get('result') or {}).get('subdomain') or '')" || true)
+          if [ -z "$sub" ]; then
+            echo "::error::Choose your workers.dev name first: Cloudflare dashboard > Workers & Pages (step 2 of the setup)"
+            exit 1
+          fi
+          echo "::add-mask::$sub"
+          rm -rf public && mkdir -p public && cp -r ../web/. public/
+          npx -y wrangler@4 deploy
+          INGEST_KEY=$(printf '%s' "$CLOUDFLARE_API_TOKEN:ingest" | sha256sum | cut -c1-64)
+          TG_SECRET=$(printf '%s' "$CLOUDFLARE_API_TOKEN:tg" | sha256sum | cut -c1-64)
+          echo "::add-mask::$INGEST_KEY"
+          echo "::add-mask::$TG_SECRET"
+          INGEST_KEY="$INGEST_KEY" TG_SECRET="$TG_SECRET" python3 -c '
+          import json, os
+          print(json.dumps({k: os.environ[k] for k in ("ADMIN_CODE", "INGEST_KEY", "TG_BOT_TOKEN", "TG_SECRET") if os.environ.get(k)}))
+          ' > secrets.json
+          npx -y wrangler@4 secret bulk secrets.json
+          rm -f secrets.json
+          echo "deployed"
