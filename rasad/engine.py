@@ -20,7 +20,7 @@ from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse_time, save_json,
                    utcnow)
-from .wms import WMS, latest_time
+from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
 RULES = 10  # bump when the importance rules change, so stored incidents are judged again
@@ -52,6 +52,9 @@ DEFAULTS = {
         "tile_px": 1000,
         "lookback_slots": 2,
         "settle_minutes": 25,
+        # after an outage at the source the pictures come out late: slots of the last hours that
+        # were never read are read then (a little per run)
+        "catchup_hours": 2, "catchup_budget_s": 75,
         "fire_layers": [
             {"id": "mtg_frp", "name": "mtg_fd:frp", "family": "mtg", "cadence_min": 10,
              "clock_layer": "mtg_fd:ir105_hrfi", "label_ar": "القمر الأوروبي Meteosat-12"},
@@ -86,6 +89,9 @@ DEFAULTS = {
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         "cadence_min": 10, "delay_min": 15, "slots_per_run": 6, "km_per_px": 0.5,
+        # slots missed in the last hours (the source late or down) are checked later, newest first,
+        # within this many seconds per run
+        "catchup_hours": 3, "budget_s": 240,
         "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
         "min_coast_km": 3.0, "platform_km": 10.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
         "sun_max_elev": -6.0,
@@ -343,6 +349,8 @@ def run_cycle(cfg, send=True, alert_now=False):
     # 1) European weather satellites, every 10-15 minutes
     dets, n_images, t0 = [], 0, time.time()
     slots = S.state.setdefault("slots", {})
+    avail = Availability(wms, S.state, now)
+    late_budget = float(E.get("catchup_budget_s", 75))   # seconds per run for slots missed earlier
     for L in E["fire_layers"]:
         if not L.get("enabled", True):
             continue
@@ -354,17 +362,32 @@ def run_cycle(cfg, send=True, alert_now=False):
         if not fresh:
             log.warning("%s: no recent data", L["name"])
             continue
-        for k in range(int(E["lookback_slots"])):
+        # the newest slots every run, then (within a small budget) any slot of the last hours that
+        # was never read: after an outage at the source the pictures can come out late
+        n_new = int(E["lookback_slots"])
+        span = max(n_new, int(round(float(E.get("catchup_hours", 2)) * 60 / cad)))
+        late_done = 0
+        for k in range(span):
             t = t_latest - dt.timedelta(minutes=cad * k)
             age = (now - t).total_seconds() / 60
+            late = k >= n_new
             failed = 0
             todo = []
             for tile in tiles:
                 key = f"{L['id']}|{','.join(map(str, tile))}|{iso(t)}"
                 prev = slots.get(key)
-                if prev is not None and (prev >= E["settle_minutes"] or age < E["settle_minutes"]):
+                if prev is not None and (late or prev >= E["settle_minutes"] or age < E["settle_minutes"]):
                     continue
                 todo.append((key, tile))
+            if not todo:
+                continue
+            if late and (late_done >= 2 or time.time() - t0 > late_budget):
+                continue
+            if k and not avail.has(L["name"], t):
+                continue   # a hole at the source: the server would only send another time's picture
+            if late:
+                late_done += 1
+                log.info("%s %s: reading a slot missed earlier", L["id"], iso(t))
             # the tiles are asked for in parallel: the server is slow per picture, not per request
             with ThreadPoolExecutor(max_workers=4) as pool:
                 results = list(pool.map(lambda kt: detect_geo_layer(
@@ -386,7 +409,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     if SW.get("enabled"):
         t1 = time.time()
         try:
-            spots = seawatch.watch(cfg, wms, S.state, now, Memory(S.memory), geo)
+            spots = seawatch.watch(cfg, wms, S.state, now, Memory(S.memory), geo, avail)
             ok = True
         except Exception as e:  # noqa: BLE001
             log.warning("sea watch failed: %s", e)

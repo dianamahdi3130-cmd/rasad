@@ -89,6 +89,13 @@ main{display:grid;grid-template-columns:1fr}
 .count{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:14px}
 .count b{font:800 17px/1 var(--font-display)}
 .toggle{margin-inline-start:auto;border:1px solid var(--line);background:transparent;border-radius:10px;padding:6px 10px;font-size:13px;color:var(--muted)}
+/* how far back the list and the map go */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;color:var(--muted);padding:6px 10px;font-size:13px;line-height:1.5}
+.seg button+button{border-inline-start:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg);font-weight:600}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.empty .more{margin-top:10px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 12px;font-size:14px;color:var(--fg)}
 .list{display:flex;flex-direction:column;gap:10px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 .card{display:grid;grid-template-columns:6px 1fr;gap:12px;text-align:start;width:100%;background:var(--surface);
   border:1px solid var(--line);border-radius:14px;padding:12px 12px 12px 14px}
@@ -130,6 +137,7 @@ video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display
 .fire.v-sure{background:var(--sure)} .fire.v-likely{background:var(--likely)} .fire.v-check{background:var(--check)}
 .fire.fresh::after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid currentColor;animation:pulse 1.8s infinite}
 .fire.v-sure{color:var(--sure)} .fire.v-likely{color:var(--likely)} .fire.v-check{color:var(--check)}
+.fire.old{opacity:.5;filter:saturate(.45)}   /* last seen more than a day ago (shown only when asked for) */
 .plant{width:14px;height:14px;background:#7dd3fc;border:2px solid #0b1220;transform:rotate(45deg)}
 /* fire strength next to the circle, shown once the map is zoomed in */
 .mw{display:none;position:absolute;left:26px;top:-3px;white-space:nowrap;direction:rtl;
@@ -290,7 +298,11 @@ body.locked header,body.locked main,body.locked #focusBar,body.locked #focusCard
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 "use strict";
-const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null};
+const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24};
+// how far back the list and the map go: the last day by default (older incidents stay one tap away)
+const PERIODS = [[24, "24 ساعة"], [72, "3 أيام"], [168, "أسبوع"]];
+try { const h = +localStorage.getItem("firms-period"); if (PERIODS.some(p => p[0] === h)) S.hours = h; } catch {}
+const recent = (it, hours) => Date.now() - Date.parse(it.last) < hours * 3600e3;
 const V = {"مؤكد":"v-sure","مرجّح":"v-likely","يحتاج تأكيداً":"v-check"};
 const PLACE = {sea:"في البحر", coast:"على الساحل", land:"على اليابسة"};
 const $ = s => document.querySelector(s);
@@ -363,6 +375,7 @@ function latestMeasure(it){   // the newest strength measurement [time, MW], if 
 }
 function fireIcon(it, focused){
   const fresh = Date.now() - Date.parse(it.last) < 3600e3;
+  const old = !focused && !recent(it, 24);
   const cls = V[it.verdict] || "v-check";
   let label = "";
   if (focused){
@@ -370,7 +383,7 @@ function fireIcon(it, focused){
     label = m ? `<b>${esc(mwText(m[1]))}</b><small>${esc(clock(m[0]))}</small>` : (it.max_frp != null ? `<b>${esc(mwText(it.max_frp))}</b>` : "");
   } else if (it.max_frp != null) label = `<b>${esc(mwText(it.max_frp))}</b>`;
   return L.divIcon({className:"", iconSize:[18,18], iconAnchor:[9,9],
-    html:`<div class="fire ${cls} ${fresh?"fresh":""}" style="position:relative"></div>`
+    html:`<div class="fire ${cls} ${fresh?"fresh":""} ${old?"old":""}" style="position:relative"></div>`
        + (label ? `<span class="lead ${cls}"></span><span class="mw ${cls}" style="left:30px;top:-26px">${label}</span>` : "")});
 }
 function zoomLabels(){
@@ -423,19 +436,25 @@ function renderChips(){
   const regions = [{id:"all", name:"الكل"}, ...(S.meta?.regions || [])];
   $("#chips").innerHTML = regions.map(r => `<button class="chip" type="button" data-id="${esc(r.id)}" aria-pressed="${r.id===S.region}">${esc(r.name)}</button>`).join("");
 }
-function visible(){
-  return S.items.filter(it => (S.region==="all" || (it.regions||[]).includes(S.region)) && (!S.important || it.priority==="high"));
+function visible(hours = S.hours){
+  return S.items.filter(it => (S.region==="all" || (it.regions||[]).includes(S.region)) && (!S.important || it.priority==="high")
+    && recent(it, hours));
 }
+const PERIOD_AR = {24:"آخر 24 ساعة", 72:"آخر 3 أيام", 168:"آخر أسبوع"};
 function render(){
   const items = visible();
-  const day = items.filter(it => Date.now() - Date.parse(it.last) < 864e5);
   $("#summary").innerHTML =
-    `<span class="count"><span class="badge v-sure">مؤكد</span><b>${day.filter(sure).length}</b></span>
-     <span class="count">آخر 24 ساعة <b>${day.length}</b></span>
+    `<span class="seg" role="group" aria-label="المدة">${PERIODS.map(([h, label]) =>
+        `<button type="button" data-hours="${h}" aria-pressed="${h === S.hours}">${label}</button>`).join("")}</span>
+     <span class="count"><span class="badge v-sure">مؤكد</span><b>${items.filter(sure).length}</b></span>
+     <span class="count">الكل <b>${items.length}</b></span>
      <button class="toggle" id="impBtn" type="button">${S.important ? "يعرض المهم فقط" : "يعرض كل الحرائق"}</button>`;
   const list = $("#list");
   if (!items.length){
-    list.innerHTML = `<div class="empty">لا حرائق جديدة هنا خلال آخر 7 أيام.<br>آخر فحص ${S.meta?.generated ? ago(S.meta.generated) : "—"}.</div>`;
+    const wider = PERIODS.find(([h]) => h > S.hours && visible(h).length);
+    list.innerHTML = `<div class="empty">لا حرائق جديدة هنا خلال ${PERIOD_AR[S.hours]}.<br>آخر فحص ${S.meta?.generated ? ago(S.meta.generated) : "—"}.`
+      + (wider ? `<br><button class="more" type="button" data-hours="${wider[0]}">عرض ${PERIOD_AR[wider[0]]} (${visible(wider[0]).length})</button>` : "")
+      + `</div>`;
   } else {
     list.innerHTML = items.map(it => `
       <button class="card" type="button" data-id="${esc(it.id)}">
@@ -815,6 +834,12 @@ document.addEventListener("click", e => {
   const card = e.target.closest(".card");
   if (card){ go(card.dataset.id); return; }
   if (e.target.closest("#impBtn")){ S.important = !S.important; render(); return; }
+  const period = e.target.closest("[data-hours]");
+  if (period){
+    S.hours = +period.dataset.hours;
+    try { localStorage.setItem("firms-period", String(S.hours)); } catch {}
+    render(); return;
+  }
 });
 $("#closeBtn").onclick = () => S.sel ? setRoute(S.sel) : setRoute("");   // details -> the incident on the map
 $("#allBtn").onclick = () => setRoute("");                               // the map -> all incidents

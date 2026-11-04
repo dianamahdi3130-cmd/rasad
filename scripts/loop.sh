@@ -12,6 +12,7 @@ EVERY=${RASAD_EVERY_SECONDS:-150}        # start a check this often (a long chec
 MINUTES=${RASAD_LOOP_MINUTES:-340}       # GitHub stops a job after 6 hours
 GEO=${RASAD_GEO_BUDGET:-45}              # seconds per check for growing the facility map
 LOCKED=${RASAD_CLOUD_URL:+1}
+WATCHED="web rasad scripts config.yaml requirements.txt .github/workflows/rasad.yml"
 start_sha=$(git rev-parse HEAD)
 end=$((SECONDS + MINUTES * 60))
 n=0
@@ -38,9 +39,17 @@ while [ "$SECONDS" -lt "$end" ]; do
   echo "::endgroup::"
   echo "check $n took $((SECONDS - t0)) s"
 
-  if git fetch -q origin main 2>/dev/null && [ "$(git rev-parse FETCH_HEAD)" != "$start_sha" ]; then
-    echo "new code on main: stopping so the next run uses it"
-    break
+  # stop only for a change the watching uses (the same paths that start a new run when pushed):
+  # anything else (notes, the diagnosis requests) must not leave a gap in the watching
+  if git fetch -q origin main 2>/dev/null; then
+    new_sha=$(git rev-parse FETCH_HEAD)
+    if [ "$new_sha" != "$start_sha" ]; then
+      if ! git diff --quiet "$start_sha" "$new_sha" -- $WATCHED 2>/dev/null; then
+        echo "new code on main: stopping so the next run uses it"
+        break
+      fi
+      start_sha=$new_sha
+    fi
   fi
   wait=$((EVERY - (SECONDS - t0)))
   [ "$wait" -gt 0 ] && sleep "$wait"

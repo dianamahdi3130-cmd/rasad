@@ -27,12 +27,12 @@ class WMS:
             p["TIME"] = t.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         return p
 
-    def getmap(self, layer, bbox, W, H, t=None, style="", quiet=False):
+    def getmap(self, layer, bbox, W, H, t=None, style="", quiet=False, timeout=None):
         """(RGBA image, time actually served) or (None, None)."""
         p = self._base(layer, bbox, W, H, t, style)
         p.update({"REQUEST": "GetMap", "FORMAT": "image/png", "TRANSPARENT": "TRUE"})
         try:
-            r = self.s.get(self.url, params=p, timeout=self.timeout)
+            r = self.s.get(self.url, params=p, timeout=timeout or self.timeout)
         except requests.RequestException as e:
             if not quiet:
                 log.warning("WMS %s: network error: %s", layer, e)
@@ -134,6 +134,53 @@ def components(mask, limit=60000):
                         stack.append((ny, nx))
         comps.append(np.array(pts))
     return comps
+
+
+def served(wms, layer, t, pbox=None, timeout=20):
+    """Is the picture of time t out at the source? One tiny picture tells: the server answers a
+    time it does not have with its nearest one (and says which). True / False / None (no answer)."""
+    pbox = pbox or [56.2, 26.2, 56.4, 26.4]
+    img, actual = wms.getmap(layer, pbox, 8, 8, t=t, quiet=True, timeout=timeout)
+    if img is None:
+        return None
+    return actual is None or abs((actual - t).total_seconds()) <= 120
+
+
+class Availability:
+    """Which picture times the source has, asked once per run. A time it did not have is asked
+    again only after a while (an outage at the source can leave holes that are never filled)."""
+
+    def __init__(self, wms, state, now, retry_min=10, fresh_min=40):
+        self.wms, self.now = wms, now
+        self.missing = state.setdefault("missing_pictures", {})
+        self.retry = dt.timedelta(minutes=retry_min)
+        self.fresh = dt.timedelta(minutes=fresh_min)
+        self.known, self.asked = {}, 0
+        for k in [k for k, v in self.missing.items() if now - parse_time(v) > dt.timedelta(hours=8)]:
+            del self.missing[k]
+
+    def has(self, layer, t, pbox=None):
+        key = f"{layer}|{iso(t)}"
+        if key in self.known:
+            return self.known[key]
+        last = self.missing.get(key)
+        # a recent picture may just be late: ask every run; an old hole only now and then
+        if last and self.now - t > self.fresh and self.now - parse_time(last) < self.retry:
+            self.known[key] = False
+            return False
+        self.asked += 1
+        ok = served(self.wms, layer, t, pbox)
+        if ok is False:
+            self.missing[key] = iso(self.now)
+        elif ok:
+            self.missing.pop(key, None)
+        self.known[key] = ok
+        return ok
+
+    def holes(self, layer, since):
+        """Times of `layer` after `since` that the source did not have when asked."""
+        return sorted(k.rsplit("|", 1)[1] for k in self.missing
+                      if k.startswith(layer + "|") and parse_time(k.rsplit("|", 1)[1]) >= since)
 
 
 def latest_time(wms, state, layer, cadence, pbox, max_steps=30):

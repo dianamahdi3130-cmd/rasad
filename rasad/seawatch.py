@@ -19,12 +19,13 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import time
 
 import numpy as np
 
 from .geodb import land_mask_points, ring_points
 from .util import box_around, floor_time, iso, log, parse_time, px_to_latlon, sun_elevation
-from .wms import components
+from .wms import Availability, components
 
 SRC = "mtg_spot"
 
@@ -135,14 +136,16 @@ def box_size(box, km):
     return max(50, int(round(wkm / km))), max(50, int(round((n - s) * 111.32 / km)))
 
 
-def find_spots(cfg, pics, box, t, mem=None, geo=None):
-    """Specks in one sea box at one slot. Returns (spots, notes) or (None, reason) if not ready."""
+def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
+    """Specks in one sea box at one slot. Returns (spots, notes) or (None, reason) if not ready.
+    `refs`: minutes back to compare with (default the configured ones; another gap is used when
+    the source lost the usual reference picture)."""
     C = cfg["seawatch"]
     km = float(C["km_per_px"])
     W, H = box_size(box, km)
     if not any(_night(box["bbox"], t, float(C["sun_max_elev"]))):
         return [], "daylight"
-    refs = [int(m) for m in C["ref_minutes"]]
+    refs = [int(m) for m in (refs or C["ref_minutes"])]
     cur = pics.get(C["layer"], box["bbox"], W, H, t)
     old = [pics.get(C["layer"], box["bbox"], W, H, t - dt.timedelta(minutes=m)) for m in refs]
     if cur is None or any(o is None for o in old):
@@ -165,6 +168,8 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None):
     cand = (spot >= max(rmin, zmin * sig)) & (rise >= rmin) & sea
     cand &= ~np.isnan(spot)
     out, notes = [], {"sigma": round(sig, 2), "candidates": 0, "rejected": {}}
+    if refs != [int(m) for m in C["ref_minutes"]]:
+        notes["compared_with_min_before"] = refs
 
     def reject(why):
         notes["rejected"][why] = notes["rejected"].get(why, 0) + 1
@@ -228,32 +233,60 @@ def confirm(cands, spot, km=3.0, minutes=40):
             and haversine_km(c["lat"], c["lon"], spot["lat"], spot["lon"]) <= km]
 
 
-def watch(cfg, wms, state, now, mem=None, geo=None):
-    """Run the finder on the newest Meteosat-12 slots not looked at yet. A speck is reported only
-    once a second picture shows one at the same place (single specks are mostly noise)."""
+def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
+    """Run the finder on the Meteosat-12 slots not looked at yet: the newest first, then any slot of
+    the last few hours that was missed (the source was late or down, or a run was slow). Only
+    pictures the source really has are downloaded. A speck is reported only once a second picture
+    shows one at the same place (single specks are mostly noise)."""
     C = cfg["seawatch"]
     cad = int(C["cadence_min"])
     km = float(C["km_per_px"])
+    sun = float(C["sun_max_elev"])
     done = state.setdefault("seawatch", {})
     cands = state.setdefault("sea_candidates", [])
     pics = Pictures(wms)
+    avail = avail or Availability(wms, state, now)
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []
     live = [b for b in C["boxes"] if b.get("enabled", True)]
     sparkle = state.setdefault("sea_sparkle", {})  # ~5 km cell -> days a speck was seen there
-    for k in range(int(C["slots_per_run"]) - 1, -1, -1):
+    span = max(int(C["slots_per_run"]), int(round(float(C.get("catchup_hours", 3)) * 60 / cad)))
+    per_run, budget, t_start = int(C["slots_per_run"]), float(C.get("budget_s", 240)), time.time()
+    probe = box_around(26.3, 56.6, 10)   # one tiny picture over the strait answers for the whole view
+    todo = []
+    for k in range(span):                # newest first
         t = latest - dt.timedelta(minutes=cad * k)
-        boxes = [b for b in live if f"{b['id']}|{iso(t)}" not in done and any(
-            _night(b["bbox"], t, float(C["sun_max_elev"])))]
+        if any(f"{b['id']}|{iso(t)}" not in done and any(_night(b["bbox"], t, sun)) for b in live):
+            todo.append(t)
+    checked, waiting, lost = [], 0, 0
+    for t in todo:
+        if len(checked) >= per_run or time.time() - t_start > budget:
+            waiting += 1
+            continue
+        if not avail.has(C["layer"], t, probe):
+            if now - t > dt.timedelta(minutes=40):
+                lost += 1    # a hole at the source (asked again now and then)
+            else:
+                waiting += 1  # not out yet
+            continue
+        # compare with the picture 30 minutes before, or the nearest one the source does have; just
+        # after an outage that is the last picture before it, so a fire that began during the
+        # outage still shows as new
+        refs = next(([m] for m in [int(x) for x in C["ref_minutes"]] + [40, 20, 50, 60, 70, 80, 90, 100, 110, 120]
+                     if avail.has(C["layer"], t - dt.timedelta(minutes=m), probe)), None)
+        if refs is None:
+            lost += 1
+            continue
+        boxes = [b for b in live if f"{b['id']}|{iso(t)}" not in done and any(_night(b["bbox"], t, sun))]
         pics.prefetch([(C["layer"], b["bbox"], *box_size(b, km), tt) for b in boxes
-                       for tt in [t] + [t - dt.timedelta(minutes=int(m)) for m in C["ref_minutes"]]])
-        for box in live:
+                       for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]])
+        checked.append(t)
+        for box in boxes:
             key = f"{box['id']}|{iso(t)}"
-            if key in done:
-                continue
-            spots, notes = find_spots(cfg, pics, box, t, mem, geo)
+            spots, notes = find_spots(cfg, pics, box, t, mem, geo, refs=refs)
             if spots is None:
-                continue  # not published yet: try again next run
+                log.info("sea watch %s %s: %s", box["id"], iso(t), notes)
+                continue  # the download failed: try again next run
             done[key] = iso(t)
             day = t.date().isoformat()
             for sp in spots:
@@ -274,9 +307,13 @@ def watch(cfg, wms, state, now, mem=None, geo=None):
                 log.info("sea watch %s %s: %s", box["id"], iso(t),
                          notes if not spots else f"{len(spots)} speck(s) {notes}")
         pics.cache = {}  # pictures are big: keep memory low between slots
+    if checked or lost:
+        log.info("sea watch: %d slot(s) checked%s, %d waiting, %d missing at the source", len(checked),
+                 f" ({', '.join(f'{t:%H:%M}' for t in sorted(checked))})" if checked else "", waiting, lost)
     for key in [k for k, v in done.items() if now - parse_time(v) > dt.timedelta(hours=6)]:
         del done[key]
-    state["sea_candidates"] = [c for c in cands if now - parse_time(c["t"]) <= dt.timedelta(hours=2)]
+    keep_h = float(C.get("catchup_hours", 3)) + 1   # a late slot still pairs with its neighbours
+    state["sea_candidates"] = [c for c in cands if now - parse_time(c["t"]) <= dt.timedelta(hours=keep_h)]
     oldest = (now - dt.timedelta(days=14)).date().isoformat()
     state["sea_sparkle"] = {k: [d for d in v if d >= oldest] for k, v in sparkle.items()
                             if any(d >= oldest for d in v)}
