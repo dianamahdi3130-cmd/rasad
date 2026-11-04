@@ -330,6 +330,20 @@ def hotspots(cfg, wms, start, end, bbox, top=8):
         rise = cur - ref
         spot = rise - local_mean(rise, max(2, round(5 / km)))
         sig = robust_sigma(np.where(sea, spot, np.nan)) if sea is not None else None
+        hot = cur - local_mean(cur, max(4, round(12 / km)))     # warmer than its surroundings now
+        near_sea = sea_grid(bbox, W, H, 1.0, km)
+        b = np.where(np.isnan(hot) | ~near_sea, -1e9, hot)
+        warm = []
+        for _ in range(top):
+            r, c = np.unravel_index(int(np.argmax(b)), b.shape)
+            if b[r, c] < 3:
+                break
+            lat, lon = px_to_latlon(bbox, W, H, c, r)
+            warm.append((round(lat, 4), round(lon, 4), round(float(hot[r, c]), 1), round(float(rise[r, c]), 1),
+                         round(float(cur[r, c]), 1)))
+            k = max(3, round(6 / km))
+            b[max(0, r - k):r + k + 1, max(0, c - k):c + k + 1] = -1e9
+        log.info("%s: hottest at sea now (lat, lon, above surroundings, rise in 30 min, value): %s", iso(t), warm)
         a = np.where(np.isnan(spot), -1e9, spot)
         picked = []
         for _ in range(top):

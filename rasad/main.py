@@ -128,9 +128,16 @@ def main(argv=None):
 
     if args.cmd == "hotspots":
         from .seawatch import hotspots
-        from .wms import WMS
-        hotspots(cfg, WMS(cfg["eumetview"]["wms_url"], make_session()), parse_time(args.start), parse_time(args.end),
-                 [float(x) for x in args.bbox.split(",")])
+        bb = [float(x) for x in args.bbox.split(",")]
+        session = make_session()
+        start, end = parse_time(args.start), parse_time(args.end)
+        day = start.date()
+        while day <= end.date():   # what NASA saw there
+            for d in firms_fetch(session, cfg, bb, 1, date=day.isoformat()):
+                log.info("NASA %s %s %.4f,%.4f %s MW conf=%s night=%s", d["t"], d["src"], d["lat"], d["lon"],
+                         d.get("frp"), d.get("conf"), d.get("night"))
+            day += dt.timedelta(days=1)
+        hotspots(cfg, WMS(cfg["eumetview"]["wms_url"], session), start, end, bb)
         return
     if args.cmd == "cloud-publish":
         from .cloud import publish
