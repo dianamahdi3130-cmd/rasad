@@ -1,1 +1,1 @@
-{"mode": "seascan", "lat": 0, "lon": 0, "start": "2026-11-01T16:00Z", "end": "2026-11-01T22:40Z", "boxes": "red_sea_south,red_sea_middle,arabian_sea", "try": 3}
+{"mode": "hotspots", "lat": 0, "lon": 0, "start": "2026-11-03T20:00Z", "end": "2026-11-03T23:30Z", "bbox": "55.0,25.0,57.6,27.3", "try": 4}

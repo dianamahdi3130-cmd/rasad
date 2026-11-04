@@ -307,6 +307,46 @@ def look_back(cfg, wms, inc, mem=None, geo=None, hours_before=3.0, minutes_after
     return found
 
 
+def hotspots(cfg, wms, start, end, bbox, top=8):
+    """Diagnosis: for each slot, the strongest warmings anywhere in bbox (no filters), with whether
+    the sea finder could have seen them (open sea at least min_coast_km from land, thresholds)."""
+    C = cfg["seawatch"]
+    cad, km = int(C["cadence_min"]), float(C["km_per_px"])
+    box = {"id": "diag", "bbox": bbox}
+    W, H = box_size(box, km)
+    pics = Pictures(wms)
+    sea = sea_grid(bbox, W, H, float(C["min_coast_km"]), km)
+    t = floor_time(start, cad)
+    while t <= end:
+        refs = [t - dt.timedelta(minutes=int(m)) for m in C["ref_minutes"]]
+        pics.prefetch([(C["layer"], bbox, W, H, tt) for tt in [t] + refs])
+        cur = pics.get(C["layer"], bbox, W, H, t)
+        old = [pics.get(C["layer"], bbox, W, H, r) for r in refs]
+        if cur is None or any(o is None for o in old):
+            log.info("%s: picture missing (%s)", iso(t), "now" if cur is None else "30 min before")
+            t += dt.timedelta(minutes=cad)
+            continue
+        ref = old[0]
+        rise = cur - ref
+        spot = rise - local_mean(rise, max(2, round(5 / km)))
+        sig = robust_sigma(np.where(sea, spot, np.nan)) if sea is not None else None
+        a = np.where(np.isnan(spot), -1e9, spot)
+        picked = []
+        for _ in range(top):
+            r, c = np.unravel_index(int(np.argmax(a)), a.shape)
+            if a[r, c] < 2:
+                break
+            lat, lon = px_to_latlon(bbox, W, H, c, r)
+            picked.append((round(lat, 4), round(lon, 4), round(float(spot[r, c]), 1), round(float(rise[r, c]), 1),
+                           round(float(cur[r, c]), 1), bool(sea[r, c]) if sea is not None else None))
+            k = max(3, round(6 / km))
+            a[max(0, r - k):r + k + 1, max(0, c - k):c + k + 1] = -1e9
+        log.info("%s: sigma %s; strongest warmings (lat, lon, spot, rise, value, open sea): %s", iso(t),
+                 None if sig is None else round(sig, 2), picked)
+        pics.cache = {k2: v for k2, v in pics.cache.items() if k2[4] >= iso(t - dt.timedelta(minutes=40))}
+        t += dt.timedelta(minutes=cad)
+
+
 def scan(cfg, wms, start, end, mem=None, geo=None, boxes=None):
     """Replay the finder over a past period (for checking it before trusting it)."""
     C = cfg["seawatch"]

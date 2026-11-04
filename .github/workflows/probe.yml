@@ -50,7 +50,12 @@ jobs:
             eval "$(python3 -c 'import json,shlex;r=json.load(open("tools/probe-request.json"));print("\n".join(f"IN_{k.upper()}={shlex.quote(str(v))}" for k,v in r.items()))')"
           fi
           mkdir -p probe-out
-          if [ "${IN_MODE:-probe}" = "seascan" ]; then
+          if [ "${IN_MODE:-probe}" = "hotspots" ]; then
+            python -m rasad --state _state --site /tmp/probe-site hotspots --start "$IN_START" --end "$IN_END" \
+              ${IN_BBOX:+--bbox "$IN_BBOX"} 2>&1 | tee probe-out/hotspots.log
+            python -m rasad --state _state --site /tmp/probe-site seascan --start "$IN_START" --end "$IN_END" \
+              --boxes hormuz_oman 2>&1 | tee probe-out/seascan.log
+          elif [ "${IN_MODE:-probe}" = "seascan" ]; then
             python -m rasad --state _state --site /tmp/probe-site seascan --start "$IN_START" --end "$IN_END" \
               ${IN_BOXES:+--boxes "$IN_BOXES"} 2>&1 | tee probe-out/seascan.log
           elif [ "${IN_MODE}" = "restest" ]; then

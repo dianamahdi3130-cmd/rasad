@@ -110,6 +110,10 @@ def main(argv=None):
     p.add_argument("--lat", type=float, required=True)
     p.add_argument("--lon", type=float, required=True)
     p.add_argument("--time", required=True)
+    p = sub.add_parser("hotspots", help="diagnosis: strongest warmings per slot in an area (no filters)")
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--bbox", default="55.0,25.0,57.6,27.3", help="west,south,east,north")
     sub.add_parser("test-telegram")
     sub.add_parser("cloud-publish", help="send the app's data and clips to the private app (Cloudflare)")
     args = ap.parse_args(argv)
@@ -122,6 +126,12 @@ def main(argv=None):
             h.addFilter(_Mask())
     cfg = load_config(args.config, args.state, args.site)
 
+    if args.cmd == "hotspots":
+        from .seawatch import hotspots
+        from .wms import WMS
+        hotspots(cfg, WMS(cfg["eumetview"]["wms_url"], make_session()), parse_time(args.start), parse_time(args.end),
+                 [float(x) for x in args.bbox.split(",")])
+        return
     if args.cmd == "cloud-publish":
         from .cloud import publish
         url, key = os.environ.get("RASAD_CLOUD_URL", ""), os.environ.get("RASAD_INGEST_KEY", "")
