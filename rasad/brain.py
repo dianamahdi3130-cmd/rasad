@@ -123,6 +123,12 @@ def verdict_of(inc):
         return "مؤكد", f"رصده {count_ar(len(fams), 'قمر', 'قمران مختلفان', 'أقمار مختلفة')} ({names})"
     if sea_finder_doubt(inc):
         return "يحتاج تأكيداً", "وجده الباحث الحراري في صورتين، لكنه لم يظهر بوضوح عند التدقيق"
+    srcs = set(inc.get("srcs") or [])
+    if slots >= 2 and srcs and srcs <= {"mtg_spot"}:
+        # Rasad's own sea finder alone, on one satellite's pictures: those pictures sometimes carry
+        # small blocks and streaks that look like new heat, so it is never "confirmed" by itself
+        return "مرجّح", (f"وجده الباحث الحراري في {count_ar(slots, 'صورة', 'صورتين متتاليتين', 'صور متتالية')} "
+                         "للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
     if slots >= 3:
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
         return "مؤكد", f"ظهر في {slots} صور متتالية خلال {span:.0f} دقيقة"

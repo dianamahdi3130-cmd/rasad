@@ -222,16 +222,25 @@ def pictures(cfg, lat, lon, start, end, out_dir="probe-out", half_km=25.0, zoom=
         cc = k
         near = cs[cc - 6:cc + 7, cc - 6:cc + 7]
         flat = float(np.mean(np.diff(crop(g), axis=1) == 0))      # share of equal neighbours (blockiness)
-        log.info("%s: at the point value %.1f, rise %.1f (red %.0f), spot %.1f; strongest spot within 3 km %.1f; "
-                 "equal neighbours %.0f%%", iso(t), float(crop(g)[cc, cc]), float(cr[cc, cc]), float(cred[cc, cc]),
-                 float(cs[cc, cc]), float(np.nanmax(near)), 100 * flat)
-        # the finder itself, on the same pictures
-        pics.cache = {}
+        # the strongest spot within 3 km, and how it fares in the cloud tests
+        rr, ccol = np.unravel_index(int(np.nanargmax(near)), near.shape)
+        pr, pc = row - 6 + int(rr), col - 6 + int(ccol)
+        sea = SW.sea_grid(box["bbox"], W, H, float(C["min_coast_km"]), km)
+        above = SW.above_clear_sea(g, sea, pr, pc, km) if sea is not None else None
+        ext = SW.warm_extent_km(rise, pr, pc, km)
+        log.info("%s: at the point value %.1f, rise %.1f (red %.0f), spot %.1f; strongest spot within 3 km %.1f "
+                 "(above the clear sea %s, warming %.1f km long); equal neighbours %.0f%%", iso(t),
+                 float(crop(g)[cc, cc]), float(cr[cc, cc]), float(cred[cc, cc]), float(cs[cc, cc]),
+                 float(np.nanmax(near)), None if above is None else round(above, 1), ext, 100 * flat)
+        # the finder itself, on the same pictures (already downloaded)
+        pics.cache = {(C["layer"], tuple(box["bbox"]), W, H, iso(t)): g,
+                      (C["layer"], tuple(box["bbox"]), W, H, iso(t - dt.timedelta(minutes=30))): go}
         spots, notes = SW.find_spots(cfg, pics, box, t)
         for sp in spots or []:
             if haversine_km(sp["lat"], sp["lon"], lat, lon) <= 15:
-                log.info("   finder speck %.4f,%.4f (%.1f km): rise %.1f z %.1f z10 %s area %d px", sp["lat"], sp["lon"],
-                         haversine_km(sp["lat"], sp["lon"], lat, lon), sp["rise"], sp["z"], sp["z10"], sp["area_px"])
+                log.info("   finder speck %.4f,%.4f (%.1f km): rise %.1f z %.1f z10 %s area %d px, above the clear "
+                         "sea %s, warming %s km long", sp["lat"], sp["lon"], haversine_km(sp["lat"], sp["lon"], lat, lon),
+                         sp["rise"], sp["z"], sp["z10"], sp["area_px"], sp.get("above_sea"), sp.get("extent_km"))
         log.info("   finder notes for the whole box: %s", notes)
         row_imgs = [crop(cur)[..., :3].astype(np.uint8), diverging(cr), diverging(cred, 30.0)]
         if c10 is not None and o10 is not None:

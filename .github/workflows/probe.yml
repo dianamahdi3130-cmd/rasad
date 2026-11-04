@@ -10,7 +10,7 @@ on:
       start: {description: "start, UTC (2026-11-01T19:00Z)", required: true}
       end: {description: "end, UTC (2026-11-01T23:00Z)", required: true}
   push:
-    branches: [main]
+    branches: [main, diag]
     paths: ["tools/probe-request.json"]
 
 permissions:
