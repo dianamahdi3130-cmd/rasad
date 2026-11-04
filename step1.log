@@ -1,0 +1,17 @@
+20:04:32 INFO 2026-11-01T21:30:00Z: at the point value 8.7, rise 0.0 (red 0), spot 0.2; strongest spot within 3 km 0.4 (above the clear sea 0.0, warming 0.5 km long); equal neighbours 91%
+20:04:33 INFO    finder notes for the whole box: {'sigma': 0.02, 'candidates': 0, 'rejected': {}}
+20:04:59 INFO 2026-11-01T21:40:00Z: at the point value 8.7, rise 0.0 (red 0), spot -0.2; strongest spot within 3 km 0.2 (above the clear sea 0.7, warming 0.5 km long); equal neighbours 90%
+20:04:59 INFO    finder notes for the whole box: {'sigma': 0.01, 'candidates': 0, 'rejected': {}}
+20:05:29 INFO 2026-11-01T21:50:00Z: at the point value 13.0, rise 4.3 (red 7), spot 3.8; strongest spot within 3 km 6.8 (above the clear sea 7.0, warming 6.0 km long); equal neighbours 88%
+20:05:30 INFO    finder speck 26.0168,56.5560 (0.8 km): rise 6.8 z 319.9 z10 4.0 area 4 px, above the clear sea 7.0, warming 6.0 km long
+20:05:30 INFO    finder notes for the whole box: {'sigma': 0.02, 'candidates': 1, 'rejected': {}, 'z10': [4.0]}
+20:05:45 INFO 2026-11-01T22:00:00Z: at the point value 9.7, rise 1.0 (red 1), spot 0.7; strongest spot within 3 km 2.1 (above the clear sea 2.3, warming 4.0 km long); equal neighbours 90%
+20:05:45 INFO    finder notes for the whole box: {'sigma': 0.02, 'candidates': 0, 'rejected': {}}
+20:05:58 INFO 2026-11-01T22:10:00Z: at the point value 15.0, rise 6.3 (red 9), spot 5.8; strongest spot within 3 km 9.6 (above the clear sea 9.7, warming 5.5 km long); equal neighbours 89%
+20:05:58 INFO    finder speck 26.0123,56.5511 (0.7 km): rise 9.6 z 449.0 z10 4.0 area 14 px, above the clear sea 9.7, warming 5.5 km long
+20:05:58 INFO    finder notes for the whole box: {'sigma': 0.02, 'candidates': 1, 'rejected': {}, 'z10': [4.0]}
+20:06:12 INFO 2026-11-01T22:20:00Z: at the point value 9.7, rise -3.3 (red -6), spot -2.6; strongest spot within 3 km 1.3 (above the clear sea 0.0, warming 0.5 km long); equal neighbours 91%
+20:06:12 INFO    finder notes for the whole box: {'sigma': 0.02, 'candidates': 0, 'rejected': {}}
+20:06:22 INFO 2026-11-01T22:30:00Z: at the point value 9.7, rise 0.0 (red 0), spot 0.1; strongest spot within 3 km 2.1 (above the clear sea 1.0, warming 1.5 km long); equal neighbours 91%
+20:06:22 INFO    finder notes for the whole box: {'sigma': 0.01, 'candidates': 0, 'rejected': {}}
+20:06:23 INFO saved probe-out/pictures_26.018_56.548.png

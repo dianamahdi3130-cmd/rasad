@@ -1,0 +1,7 @@
+20:07:22 INFO    spot 26.0168,56.5560 rise 6.8 z10 4.0 area 4 px
+20:07:22 INFO 2026-11-01T21:50:00Z hormuz_oman: 1 spot(s) {'sigma': 0.02, 'candidates': 1, 'rejected': {}, 'z10': [4.0]}
+20:07:44 INFO    spot 26.0123,56.5511 rise 9.6 z10 4.0 area 14 px
+20:07:44 INFO 2026-11-01T22:10:00Z hormuz_oman: 1 spot(s) {'sigma': 0.02, 'candidates': 1, 'rejected': {}, 'z10': [4.0]}
+
+2 spot(s), 1 place(s):
+  2026-11-01T21:50:00Z .. 2026-11-01T22:10:00Z  26.0168,56.5560  [hormuz_oman]  2 picture(s), rise 9.6  -> likely (2+ pictures)

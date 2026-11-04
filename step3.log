@@ -1,0 +1,17 @@
+20:08:36 INFO 2026-11-04T15:00:00Z hormuz_oman: - {'sigma': 0.07, 'candidates': 1, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 1}}
+20:09:23 INFO 2026-11-04T15:30:00Z hormuz_oman: - {'sigma': 0.07, 'candidates': 2, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 2}}
+20:09:34 INFO 2026-11-04T15:40:00Z hormuz_oman: - {'sigma': 0.09, 'candidates': 6, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 6}}
+20:09:48 INFO 2026-11-04T15:50:00Z hormuz_oman: - {'sigma': 0.07, 'candidates': 2, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 2}}
+20:10:02 INFO 2026-11-04T16:00:00Z hormuz_oman: - {'sigma': 0.08, 'candidates': 2, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 2}}
+20:10:15 INFO 2026-11-04T16:10:00Z hormuz_oman: - {'sigma': 0.07, 'candidates': 4, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 4}}
+20:10:33 INFO 2026-11-04T16:20:00Z hormuz_oman: - {'sigma': 0.06, 'candidates': 11, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 11}}
+20:10:46 INFO 2026-11-04T16:30:00Z hormuz_oman: - {'sigma': 0.06, 'candidates': 1, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 1}}
+20:10:54 INFO 2026-11-04T16:40:00Z hormuz_oman: - {'sigma': 0.12, 'candidates': 2, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 2}}
+20:11:04 INFO 2026-11-04T16:50:00Z hormuz_oman: - {'sigma': 0.1, 'candidates': 3, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 3}}
+20:11:12 INFO 2026-11-04T17:00:00Z hormuz_oman: - {'sigma': 0.08, 'candidates': 2, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 2}}
+20:11:21 INFO 2026-11-04T17:10:00Z hormuz_oman: - {'sigma': 0.04, 'candidates': 3, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 3}}
+20:11:32 INFO 2026-11-04T17:20:00Z hormuz_oman: - {'sigma': 0.05, 'candidates': 2, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 2}}
+20:11:53 INFO 2026-11-04T17:40:00Z hormuz_oman: - {'sigma': 0.04, 'candidates': 1, 'rejected': {'part of a long warming band (cloud edge)': 1}}
+20:12:04 INFO 2026-11-04T17:50:00Z hormuz_oman: - {'sigma': 0.03, 'candidates': 2, 'rejected': {'no warmer than the clear sea (cloud or fog moving off)': 2}}
+
+0 spot(s), 0 place(s):
