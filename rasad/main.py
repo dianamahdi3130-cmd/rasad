@@ -116,6 +116,9 @@ def main(argv=None):
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
     p.add_argument("--out", default="probe-out")
+    p = sub.add_parser("reclip", help="diagnosis: make a stored incident's clip again with the current code")
+    p.add_argument("ids", nargs="+")
+    p.add_argument("--out", default="probe-out")
     p = sub.add_parser("hotspots", help="diagnosis: strongest warmings per slot in an area (no filters)")
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
@@ -148,6 +151,27 @@ def main(argv=None):
     if args.cmd == "pictures":
         from .probe import pictures
         pictures(cfg, args.lat, args.lon, parse_time(args.start), parse_time(args.end), args.out)
+        return
+    if args.cmd == "reclip":
+        from .clip import NotVisible
+        from .engine import clip_for
+        S = State(cfg)
+        out = Path(args.out)
+        (out / "clips").mkdir(parents=True, exist_ok=True)
+        c = dict(cfg, _site_dir=out)
+        wms = WMS(cfg["eumetview"]["wms_url"], make_session())
+        for inc_id in args.ids:
+            inc = next((i for i in S.incidents if i["id"] == inc_id), None)
+            if inc is None:
+                log.warning("%s: not in the memory", inc_id)
+                continue
+            try:
+                video, snap = clip_for(c, wms, S, inc)
+                log.warning("%s: clip made: %s", inc_id, video)
+            except NotVisible as e:
+                log.warning("%s: not visible (%s)", inc_id, e)
+            except Exception as e:  # noqa: BLE001
+                log.warning("%s: failed: %s", inc_id, e)
         return
     if args.cmd == "cloud-publish":
         from .cloud import publish

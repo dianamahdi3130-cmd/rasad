@@ -130,6 +130,49 @@ def _ir105_change(pics, cfg, lat, lon, t, refs):
     return round(float(np.nanmax(np.abs(c - med))) / max(sig, 0.5), 1)
 
 
+def above_clear_sea(cur, sea, r, c, km, inner_km=2.0, outer_km=15.0):
+    """How much warmer the spot is now than the clear sea around it: the warm end (90th
+    percentile) of the open-sea pixels 2-15 km away. None when there is too little sea to tell.
+    A fire stands above it; a gap opening in low cloud or fog only brings the spot back to it."""
+    k = int(round(outer_km / km))
+    r0, c0 = max(0, r - k), max(0, c - k)
+    win, wsea = cur[r0:r + k + 1, c0:c + k + 1], sea[r0:r + k + 1, c0:c + k + 1]
+    yy, xx = np.mgrid[r0:r0 + win.shape[0], c0:c0 + win.shape[1]]
+    d = np.hypot(yy - r, xx - c) * km
+    ring = wsea & (d >= inner_km) & (d <= outer_km) & ~np.isnan(win)
+    if ring.sum() < 30:
+        return None
+    peak = float(np.nanmax(cur[max(0, r - 1):r + 2, max(0, c - 1):c + 2]))
+    return peak - float(np.percentile(win[ring], 90))
+
+
+def warm_extent_km(rise, r, c, km, frac=0.3, floor=2.0, limit_km=20.0):
+    """How far the warming around the spot runs (touching pixels that clearly warmed too: at least
+    30% as much, and 2 levels): a few km for a fire, whose surroundings do not change, but tens of
+    km along the trailing edge of a drifting cloud band."""
+    level = max(frac * float(rise[r, c]), floor)
+    k = int(round(limit_km / km))
+    r0, c0 = max(0, r - k), max(0, c - k)
+    m = rise[r0:r + k + 1, c0:c + k + 1] >= level   # NaN compares False
+    H, W = m.shape
+    sr, sc = r - r0, c - c0
+    seen = np.zeros_like(m)
+    seen[sr, sc] = True
+    stack, lo_r, hi_r, lo_c, hi_c = [(sr, sc)], sr, sr, sc, sc
+    while stack:
+        y, x = stack.pop()
+        if y in (0, H - 1) or x in (0, W - 1):
+            return limit_km   # runs out of the window: a long band
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                ny, nx = y + dy, x + dx
+                if m[ny, nx] and not seen[ny, nx]:
+                    seen[ny, nx] = True
+                    stack.append((ny, nx))
+                    lo_r, hi_r, lo_c, hi_c = min(lo_r, ny), max(hi_r, ny), min(lo_c, nx), max(hi_c, nx)
+    return (max(hi_r - lo_r, hi_c - lo_c) + 1) * km
+
+
 def box_size(box, km):
     w, s, e, n = box["bbox"]
     wkm = (e - w) * 111.32 * math.cos(math.radians((s + n) / 2))
@@ -187,6 +230,17 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if was_hot[r, c] > float(C["max_was_hot"]):
             reject("hot before (flare)")
             continue
+        # the usual false speck at night: low cloud or fog drifting off makes the sea behind it
+        # look warmer at 3.8 micron. A fire is hotter than the clear sea around it, and its
+        # warming is a small speck, not a band tens of km long.
+        above = above_clear_sea(cur, sea, r, c, km)
+        if above is not None and above < float(C.get("min_above_sea", 3.0)):
+            reject("no warmer than the clear sea (cloud or fog moving off)")
+            continue
+        extent = warm_extent_km(rise, r, c, km)
+        if extent > float(C.get("max_warm_extent_km", 8.0)):
+            reject("part of a long warming band (cloud edge)")
+            continue
         if sun_elevation(lat, lon, t) > float(C["sun_max_elev"]):
             reject("daylight")
             continue
@@ -212,7 +266,8 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
             continue
         out.append({"src": SRC, "family": "mtg", "kind": "geo", "t": iso(t), "lat": round(lat, 4),
                     "lon": round(lon, 4), "frp": None, "rise": round(float(vals[k]), 1),
-                    "z": round(float(vals[k]) / sig, 1), "z10": z10, "area_px": int(len(pts))})
+                    "z": round(float(vals[k]) / sig, 1), "z10": z10, "area_px": int(len(pts)),
+                    "above_sea": None if above is None else round(above, 1), "extent_km": round(extent, 1)})
     # fires at sea do not come by the dozen: many specks in one picture is the weather (low cloud
     # or fog thinning at night makes the sea look warmer at 3.8 micron); keep only the strongest
     burst = int(C.get("burst_max", 4))

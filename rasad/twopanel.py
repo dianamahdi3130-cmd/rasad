@@ -353,16 +353,32 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     before = [i for i, (t, _, _) in enumerate(shots)
               if first_t and t < first_t - dt.timedelta(minutes=cad / 2)]
     after = [i for i in range(len(shots)) if i not in before]
+    max_ext = float(C.get("speck_max_extent_km", 8))
+
+    def extent_km(blob):
+        rows, cols = np.nonzero(blob)
+        return (max(int(np.ptp(rows)), int(np.ptp(cols))) + 1) * px_km
+
     speck = ref = None
     if before and after:  # it appeared during the loop: what rose where it is reported?
         ref = np.median(stack[before], axis=0)
-        rise = stack[after].max(axis=0) - ref
+        now = stack[after].max(axis=0)
+        rise = now - ref
         reach = float(C.get("snap_km", 6)) if night else float(C.get("snap_km_day", 4))
         cand = np.where(dist <= reach, rise, -1e9)
         r0, c0 = np.unravel_index(int(np.argmax(cand)), cand.shape)
         if cand[r0, c0] >= (vis if night else 2 * vis):
             blob = _blob(rise >= 0.5 * cand[r0, c0], r0, c0)
-            if blob.sum() <= max_px:  # a fire is a speck; cloud and warming land are wide
+            # a fire is a speck; cloud and warming land are wide, and the trailing edge of a
+            # drifting cloud band is a long streak
+            ok = blob.sum() <= max_px and extent_km(blob) <= max_ext
+            if ok and night and info.get("place") == "sea":
+                # at sea at night a fire is hotter than the clear sea around it; low cloud or fog
+                # moving off only brings the spot back to the sea's own warmth
+                ring = (dist >= 3) & (dist <= 15)
+                ok = float(now[blob].max()) - float(np.percentile(now[ring], 90)) >= \
+                    float(C.get("speck_above_sea", 8))
+            if ok:
                 speck = blob
     if speck is None:  # burning in every picture: a spot clearly hotter than its surroundings
         top_img = stack.max(axis=0)
@@ -371,7 +387,7 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         r0, c0 = np.unravel_index(int(np.argmax(cand)), cand.shape)
         if cand[r0, c0] - bg >= float(C.get("static_min", 25)) * (1 if night else 1.4):
             blob = _blob(top_img >= bg + 0.5 * (cand[r0, c0] - bg), r0, c0)
-            if blob.sum() <= max_px:
+            if blob.sum() <= max_px and extent_km(blob) <= max_ext:
                 speck, ref = blob, np.full_like(top_img, bg)
                 before = []
     if speck is None:

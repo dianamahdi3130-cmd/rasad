@@ -23,8 +23,9 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 10  # bump when the importance rules change, so stored incidents are judged again
+RULES = 11  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 15  # bump when clips change look, so the app's clips are made again
+SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -80,6 +81,9 @@ DEFAULTS = {
              "logo_tile_angle": 22, "logo_tile_speed": 2.0,
              # the circle moves only onto a small new hot speck this close to the reported position
              "snap_km": 6, "snap_km_day": 4, "speck_max_km2": 40, "static_min": 25,
+             # a speck longer than this is a streak (a cloud band's edge), not a fire; at sea at night
+             # the speck must also be this much hotter (red, 0-255) than the clear sea around it
+             "speck_max_extent_km": 8, "speck_above_sea": 8,
              # wait for the first NASA measurement after the start (up to this long) so the clip
              # can show the fire's strength
              "measure_wait_min": 90},
@@ -93,6 +97,9 @@ DEFAULTS = {
         # within this many seconds per run
         "catchup_hours": 3, "budget_s": 240,
         "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
+        # low cloud or fog drifting off is not a fire: the speck must be hotter than the clear sea
+        # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km)
+        "min_above_sea": 3.0, "max_warm_extent_km": 8.0,
         "min_coast_km": 3.0, "platform_km": 10.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
         "sun_max_elev": -6.0,
         # areas switched on only after a replay of a real night showed no false fires there
@@ -260,7 +267,7 @@ def clip_for(cfg, wms, S, inc):
         base = Path(cfg["_site_dir"]) / "clips" / inc["id"]
         fac = inc.get("facility")
         info = {"where": inc.get("where"), "region": inc.get("region_name"), "verdict": inc.get("verdict"),
-                "country": inc.get("country"),
+                "country": inc.get("country"), "place": inc.get("place"),
                 "size": inc.get("size"), "first": inc.get("first"),
                 "frp": [[r[0], r[1]] for r in inc.get("frp_series") or []] or
                        [[p["t"], p["frp"]] for p in inc.get("polar") or [] if p.get("frp") is not None],
@@ -536,6 +543,13 @@ def run_cycle(cfg, send=True, alert_now=False):
             for k in ("clip", "snap", "clip_tried"):
                 inc.pop(k, None)
         S.state["clip_style"] = CLIP_STYLE
+    if S.state.get("sea_check") != SEA_CHECK:
+        for inc in S.incidents:
+            if inc.get("srcs") and set(inc["srcs"]) <= {seawatch.SRC} and len(inc.get("families") or []) < 2 \
+                    and now - parse_time(inc["last"]) <= dt.timedelta(days=2):
+                for k in ("clip", "snap", "clip_tried", "clip_note"):
+                    inc.pop(k, None)
+        S.state["sea_check"] = SEA_CHECK
     rejudge = S.state.get("rules") != RULES
     if rejudge:
         keep, dropped = [], 0
