@@ -166,6 +166,102 @@ def probe(cfg, lat, lon, start, end, radius_km=15.0, out_dir="probe-out"):
     return report
 
 
+def pictures(cfg, lat, lon, start, end, out_dir="probe-out", half_km=25.0, zoom=3):
+    """Diagnosis: the sea finder's own pictures around a point, slot by slot, to see what it reacted
+    to. One sheet: per slot the Fire Temperature picture, its change in 30 minutes (red warmer, blue
+    cooler) and the 10.5 micron change (a cloud changes both, a fire almost only the first); plus a
+    log of the finder's specks near the point with their measures."""
+    from PIL import Image, ImageDraw
+    from . import seawatch as SW
+    from .util import latlon_to_px
+    C = cfg["seawatch"]
+    km, cad = float(C["km_per_px"]), int(C["cadence_min"])
+    box = next((b for b in C["boxes"] if b["bbox"][0] <= lon <= b["bbox"][2] and b["bbox"][1] <= lat <= b["bbox"][3]),
+               None) or {"id": "diag", "bbox": box_around(lat, lon, 100)}
+    W, H = SW.box_size(box, km)
+    col, row = latlon_to_px(box["bbox"], W, H, lat, lon)
+    col, row, k = int(col), int(row), int(round(half_km / km))
+    wms = WMS(cfg["eumetview"]["wms_url"], make_session())
+    raw = {}
+
+    def get(layer, t):
+        key = (layer, iso(t))
+        if key not in raw:
+            img, actual = wms.getmap(layer, box["bbox"], W, H, t=t, quiet=True)
+            if img is not None and actual is not None and abs((actual - t).total_seconds()) > 120:
+                img = None
+            raw[key] = None if img is None else np.asarray(img)
+        return raw[key]
+
+    def crop(a):
+        pad = np.pad(a, ((k, k), (k, k)) + ((0, 0),) * (a.ndim - 2), mode="constant")
+        return pad[row:row + 2 * k + 1, col:col + 2 * k + 1]
+
+    def diverging(d, span=12.0):
+        x = np.clip(np.nan_to_num(d) / span, -1, 1)
+        rgb = np.zeros(d.shape + (3,), np.uint8)
+        rgb[..., 0] = (255 * np.clip(x, 0, 1)).astype(np.uint8)
+        rgb[..., 2] = (255 * np.clip(-x, 0, 1)).astype(np.uint8)
+        rgb[..., 1] = (60 * (1 - np.abs(x))).astype(np.uint8)
+        return rgb
+
+    pics = SW.Pictures(wms)
+    tiles, t = [], floor_time(start, cad)
+    while t <= end:
+        cur, old = get(C["layer"], t), get(C["layer"], t - dt.timedelta(minutes=30))
+        c10, o10 = get(C["check_layer"], t), get(C["check_layer"], t - dt.timedelta(minutes=30))
+        if cur is None or old is None:
+            log.info("%s: picture missing", iso(t))
+            t += dt.timedelta(minutes=cad)
+            continue
+        g, go = SW._gray(Image.fromarray(cur)), SW._gray(Image.fromarray(old))
+        rise = g - go
+        spot = rise - SW.local_mean(rise, max(2, round(5 / km)))
+        red = cur[..., 0].astype(np.float32) - old[..., 0].astype(np.float32)
+        cr, cs, cred = crop(rise), crop(spot), crop(red)
+        cc = k
+        near = cs[cc - 6:cc + 7, cc - 6:cc + 7]
+        flat = float(np.mean(np.diff(crop(g), axis=1) == 0))      # share of equal neighbours (blockiness)
+        log.info("%s: at the point value %.1f, rise %.1f (red %.0f), spot %.1f; strongest spot within 3 km %.1f; "
+                 "equal neighbours %.0f%%", iso(t), float(crop(g)[cc, cc]), float(cr[cc, cc]), float(cred[cc, cc]),
+                 float(cs[cc, cc]), float(np.nanmax(near)), 100 * flat)
+        # the finder itself, on the same pictures
+        pics.cache = {}
+        spots, notes = SW.find_spots(cfg, pics, box, t)
+        for sp in spots or []:
+            if haversine_km(sp["lat"], sp["lon"], lat, lon) <= 15:
+                log.info("   finder speck %.4f,%.4f (%.1f km): rise %.1f z %.1f z10 %s area %d px", sp["lat"], sp["lon"],
+                         haversine_km(sp["lat"], sp["lon"], lat, lon), sp["rise"], sp["z"], sp["z10"], sp["area_px"])
+        log.info("   finder notes for the whole box: %s", notes)
+        row_imgs = [crop(cur)[..., :3].astype(np.uint8), diverging(cr), diverging(cred, 30.0)]
+        if c10 is not None and o10 is not None:
+            d10 = c10[..., :3].astype(np.float32).mean(axis=2) - o10[..., :3].astype(np.float32).mean(axis=2)
+            row_imgs.append(diverging(crop(d10)))
+        tiles.append((t, row_imgs))
+        t += dt.timedelta(minutes=cad)
+    if not tiles:
+        return
+    side = (2 * k + 1) * zoom
+    sheet = Image.new("RGB", (4 * (side + 6), len(tiles) * (side + 22)), (8, 10, 16))
+    d = ImageDraw.Draw(sheet)
+    for i, (t, ims) in enumerate(tiles):
+        y = i * (side + 22)
+        d.text((4, y + 4), f"{t:%H:%M} UTC   picture | change (mean) | change (red, 3.8um) | change 10.5um",
+               fill=(220, 220, 220))
+        for j, a in enumerate(ims):
+            im = Image.fromarray(a).resize((side, side), Image.NEAREST)
+            x0 = j * (side + 6)
+            sheet.paste(im, (x0, y + 20))
+            c = x0 + side // 2
+            d.ellipse([c - 4 * zoom, y + 20 + side // 2 - 4 * zoom, c + 4 * zoom, y + 20 + side // 2 + 4 * zoom],
+                      outline=(64, 214, 236))
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    name = out / f"pictures_{lat:.3f}_{lon:.3f}.png"
+    sheet.save(name)
+    log.info("saved %s", name)
+
+
 def resolution_test(cfg, lat, lon, t, ref_minutes=30, layer=None):
     """How strongly does a small fire show when the picture is asked for at coarser detail?
     (Big areas come back from the server averaged, which can hide a small fire.)"""

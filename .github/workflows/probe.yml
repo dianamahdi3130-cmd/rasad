@@ -58,6 +58,10 @@ jobs:
           elif [ "${IN_MODE:-probe}" = "seascan" ]; then
             python -m rasad --state _state --site /tmp/probe-site seascan --start "$IN_START" --end "$IN_END" \
               ${IN_BOXES:+--boxes "$IN_BOXES"} 2>&1 | tee probe-out/seascan.log
+          elif [ "${IN_MODE}" = "steps" ]; then
+            python3 tools/probe_steps.py > /tmp/steps.sh
+            cat /tmp/steps.sh
+            bash /tmp/steps.sh
           elif [ "${IN_MODE}" = "restest" ]; then
             python -m rasad --state _state --site /tmp/probe-site restest --lat "$IN_LAT" --lon "$IN_LON" \
               --time "$IN_TIME" 2>&1 | tee probe-out/restest.log

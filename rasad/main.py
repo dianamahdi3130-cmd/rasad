@@ -110,6 +110,12 @@ def main(argv=None):
     p.add_argument("--lat", type=float, required=True)
     p.add_argument("--lon", type=float, required=True)
     p.add_argument("--time", required=True)
+    p = sub.add_parser("pictures", help="diagnosis: the sea finder's own pictures around a point, slot by slot")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--out", default="probe-out")
     p = sub.add_parser("hotspots", help="diagnosis: strongest warmings per slot in an area (no filters)")
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
@@ -138,6 +144,10 @@ def main(argv=None):
                          d.get("frp"), d.get("conf"), d.get("night"))
             day += dt.timedelta(days=1)
         hotspots(cfg, WMS(cfg["eumetview"]["wms_url"], session), start, end, bb)
+        return
+    if args.cmd == "pictures":
+        from .probe import pictures
+        pictures(cfg, args.lat, args.lon, parse_time(args.start), parse_time(args.end), args.out)
         return
     if args.cmd == "cloud-publish":
         from .cloud import publish
