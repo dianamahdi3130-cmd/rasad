@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-07T02:06:24Z",
+ "generated": "2026-11-07T02:16:24Z",
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 3,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
