@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-07T06:34:26Z",
+ "generated": "2026-11-07T06:44:26Z",
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 9,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -111,7 +111,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-07T06:10:00Z"
+   "latest": "2026-11-07T06:20:00Z"
   },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
@@ -126,7 +126,7 @@
   "firms": {
    "name": "الأقمار الأمريكية (ناسا)",
    "ok": true,
-   "latest": "2026-11-07T02:13:00Z"
+   "latest": "2026-11-07T05:27:00Z"
   }
  },
  "telegram": true
