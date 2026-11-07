@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ALFAQAAR FIRMS</title>
+<meta name="description" content="ALFAQAAR FIRMS · منصة رصد الحرائق من الأقمار الصناعية · للكادر فقط">
+<meta property="og:title" content="ALFAQAAR FIRMS">
+<meta property="og:description" content="منصة رصد الحرائق من الأقمار الصناعية · دخول الكادر فقط">
+<meta property="og:image" content="brand-card.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0a101c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FIRMS">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Noto+Kufi+Arabic:wght@600;800&family=Chakra+Petch:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+/* Layout: operations-room screen. Map on top (phone) or left (desktop), incident feed beside it.
+   Dark-first; verdict colours carry meaning, the thermal orange is the single accent. */
+:root{
+  --bg:#0a101c; --surface:#111a2b; --surface-2:#18233a; --line:#24314c;
+  --fg:#e8edf6; --muted:#93a0b8; --accent:#ff7a1a;
+  --sure:#ff4d4f; --likely:#ff9f1c; --check:#f2c94c; --ok:#3ddc97;
+  --shadow:0 10px 30px rgba(0,0,0,.45);
+  --font-ui:"IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;
+  --font-display:"Noto Kufi Arabic","IBM Plex Sans Arabic",system-ui,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f3f5f9; --surface:#ffffff; --surface-2:#eef1f6; --line:#d9dfea;
+    --fg:#141b2b; --muted:#5b6780; --accent:#e5600a;
+    --sure:#d92d30; --likely:#d97a00; --check:#b58a00; --ok:#11975e;
+    --shadow:0 10px 30px rgba(20,27,43,.12); color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f3f5f9; --surface:#ffffff; --surface-2:#eef1f6; --line:#d9dfea;
+  --fg:#141b2b; --muted:#5b6780; --accent:#e5600a;
+  --sure:#d92d30; --likely:#d97a00; --check:#b58a00; --ok:#11975e;
+  --shadow:0 10px 30px rgba(20,27,43,.12); color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--font-ui);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:var(--accent)}
+[hidden]{display:none!important}
+.wrap{padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px))}
+
+/* header */
+header{position:sticky;top:0;z-index:1000;background:var(--bg);
+  padding-top:env(safe-area-inset-top,0px);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:10px;padding-block:10px}
+.brand{display:flex;align-items:center;gap:8px;font:800 22px/1 var(--font-display);letter-spacing:0}
+.brand svg{width:28px;height:28px}
+.pill{margin-inline-start:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);
+  background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.dot.warn{background:var(--likely)} .dot.bad{background:var(--sure)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-block:0 10px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+
+/* main layout */
+main{display:grid;grid-template-columns:1fr}
+#map{height:46vh;min-height:280px;background:var(--surface-2)}
+.panel{min-width:0}
+@media (min-width:900px){
+  main{grid-template-columns:minmax(360px,420px) 1fr;height:calc(100vh - 106px)}
+  #map{height:100%;order:2}
+  .panel{order:1;overflow-y:auto;border-inline-end:1px solid var(--line)}
+}
+.banner{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px;color:var(--muted)}
+.banner b{color:var(--fg)}
+.summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-block:12px}
+.count{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:14px}
+.count b{font:800 17px/1 var(--font-display)}
+.toggle{margin-inline-start:auto;border:1px solid var(--line);background:transparent;border-radius:10px;padding:6px 10px;font-size:13px;color:var(--muted)}
+/* how far back the list and the map go */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;color:var(--muted);padding:6px 10px;font-size:13px;line-height:1.5}
+.seg button+button{border-inline-start:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg);font-weight:600}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.empty .more{margin-top:10px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 12px;font-size:14px;color:var(--fg)}
+.list{display:flex;flex-direction:column;gap:10px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+.card{display:grid;grid-template-columns:6px 1fr;gap:12px;text-align:start;width:100%;background:var(--surface);
+  border:1px solid var(--line);border-radius:14px;padding:12px 12px 12px 14px}
+.card:focus-visible,.chip:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stripe{border-radius:6px;background:var(--check)}
+.card h3{margin:0 0 2px;font:600 16px/1.45 var(--font-display);text-wrap:balance}
+.card .where{color:var(--muted);font-size:14px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:13px}
+.tag{border-radius:6px;padding:1px 8px;background:var(--surface-2);color:var(--muted)}
+.badge{border-radius:6px;padding:1px 8px;font-weight:600;color:#111}
+.v-sure{background:var(--sure)} .v-likely{background:var(--likely)} .v-check{background:var(--check)}
+.stripe.v-sure{background:var(--sure)} .stripe.v-likely{background:var(--likely)}
+.empty{color:var(--muted);text-align:center;padding:28px 10px;border:1px dashed var(--line);border-radius:14px}
+
+/* detail sheet */
+.sheet{position:fixed;inset:0;z-index:2000;background:var(--bg);overflow-y:auto;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+@media (min-width:900px){.sheet{inset:auto 0 0 auto;top:0;width:460px;border-inline-start:1px solid var(--line);box-shadow:var(--shadow)}}
+.sheet-top{position:sticky;top:0;background:var(--bg);display:flex;align-items:center;gap:10px;padding-block:10px;border-bottom:1px solid var(--line)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;font-size:14px;text-decoration:none;color:var(--fg);display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.sheet h2{font:800 22px/1.4 var(--font-display);margin:14px 0 6px;text-wrap:balance}
+.verdict{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;margin:12px 0}
+.verdict .badge{font-size:15px;white-space:nowrap}
+.verdict p{margin:0;color:var(--muted)}
+video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display:block}
+.note{margin:0;padding:12px 14px;border-radius:14px;background:var(--surface-2);color:var(--muted);font-size:14px;line-height:1.7}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:14px 0;font-size:15px}
+.facts dt{color:var(--muted);white-space:nowrap}
+.facts dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.help{margin-top:18px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:12px}
+.help b{color:var(--fg)}
+.toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);z-index:3000;
+  background:var(--fg);color:var(--bg);border-radius:10px;padding:8px 14px;font-size:14px}
+
+/* map markers */
+.fire{width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.35)}
+.fire.v-sure{background:var(--sure)} .fire.v-likely{background:var(--likely)} .fire.v-check{background:var(--check)}
+.fire.fresh::after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid currentColor;animation:pulse 1.8s infinite}
+.fire.v-sure{color:var(--sure)} .fire.v-likely{color:var(--likely)} .fire.v-check{color:var(--check)}
+.fire.old{opacity:.5;filter:saturate(.45)}   /* last seen more than a day ago (shown only when asked for) */
+.plant{width:14px;height:14px;background:#7dd3fc;border:2px solid #0b1220;transform:rotate(45deg)}
+/* fire strength next to the circle, shown once the map is zoomed in */
+.mw{display:none;position:absolute;left:26px;top:-3px;white-space:nowrap;direction:rtl;
+  background:rgba(8,12,20,.86);color:#fff;border:1px solid currentColor;border-radius:8px;
+  padding:1px 7px;font-size:12px;font-weight:600;line-height:20px;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.mw.v-sure{color:var(--sure)} .mw.v-likely{color:var(--likely)} .mw.v-check{color:var(--check)}
+.mw b{color:#fff;font-weight:700}
+#map.zoomed .mw{display:block}
+@keyframes pulse{from{opacity:.9;transform:scale(.6)}to{opacity:0;transform:scale(1.6)}}
+@media (prefers-reduced-motion:reduce){.fire.fresh::after{animation:none}}
+.leaflet-container{font:inherit;background:var(--surface-2)}
+.leaflet-control-attribution{font-size:10px}
+.basemap{position:absolute;z-index:500;top:10px;left:10px}
+/* the strength label hangs from the circle on a short line */
+.lead{display:none;position:absolute;left:14px;top:1px;width:22px;height:2px;border-radius:2px;
+  background:currentColor;transform:rotate(-38deg);transform-origin:0 50%;color:var(--check)}
+.lead.v-sure{color:var(--sure)} .lead.v-likely{color:var(--likely)}
+#map.zoomed .lead,body.focus .lead,body.focus .mw{display:block}
+.mw small{color:#c9d3e3;font-weight:500;margin-inline-start:4px}
+.series{display:flex;flex-wrap:wrap;gap:6px}
+.series span{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:1px 8px;font-size:13px}
+
+/* one incident in focus: the map fills the screen and shows only it */
+#mapWrap{position:relative}
+#focusBar,#focusCard{display:none}
+body.focus header,body.focus .panel{display:none}
+body.focus main{display:block;height:auto}
+body.focus #mapWrap{position:fixed;inset:0;z-index:1500}
+body.focus #map{height:100%;min-height:0}
+body.focus #focusBar{display:flex;position:fixed;z-index:1600;top:0;left:0;right:0;align-items:center;gap:10px;
+  padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:14px;pointer-events:none;
+  background:linear-gradient(to bottom,color-mix(in srgb,var(--bg) 88%,transparent) 55%,transparent)}
+body.focus #focusBar>*{pointer-events:auto}
+#focusBar .ttl{font:600 16px/1.4 var(--font-display);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.focus #focusCard{display:block;position:fixed;z-index:1600;left:0;right:0;bottom:0;
+  padding-top:14px;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));
+  background:var(--bg);border-top:1px solid var(--line);border-radius:18px 18px 0 0;box-shadow:var(--shadow)}
+#focusCard h3{margin:0 0 2px;font:700 17px/1.45 var(--font-display);text-wrap:balance}
+#focusCard .where{color:var(--muted);font-size:14px}
+#focusCard .actions{margin-top:12px}
+@media (min-width:900px){body.focus #focusCard{left:auto;right:16px;bottom:16px;width:430px;border:1px solid var(--line);border-radius:16px}}
+body.focus .basemap{top:calc(66px + env(safe-area-inset-top,0px))}
+body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
+@media (min-width:900px){body.focus .leaflet-bottom{bottom:0}}
+
+/* the incident picture: preview, then save to the phone's photos */
+.shot{position:fixed;inset:0;z-index:3500;background:rgba(3,6,10,.92);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;
+  padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.shot img{max-width:100%;max-height:62vh;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);-webkit-touch-callout:default}
+.shot p{margin:0;color:#c9d3e3;font-size:14px;text-align:center;max-width:520px}
+.shot .actions{justify-content:center}
+.spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* sign-in: staff only */
+body.locked header,body.locked main,body.locked #focusBar,body.locked #focusCard{display:none!important}
+.gate{position:fixed;inset:0;z-index:4000;display:grid;place-items:center;background:
+  radial-gradient(1200px 600px at 50% -10%,color-mix(in srgb,#40d6ec 10%,transparent),transparent 60%),var(--bg);
+  padding:calc(24px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.gate form{width:min(380px,100%);display:flex;flex-direction:column;gap:14px}
+.gate .mark{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px;direction:ltr}
+.gate .mark img{width:52px;height:52px}
+.gate .mark b{font:700 25px/1 "Chakra Petch",ui-monospace,sans-serif;letter-spacing:3px;color:var(--fg)}
+.gate .mark span{font:500 25px/1 "Chakra Petch",ui-monospace,sans-serif;letter-spacing:3px;color:#40d6ec;border-inline-start:2px solid color-mix(in srgb,#40d6ec 60%,transparent);padding-inline-start:12px}
+.gate h1{margin:0;text-align:center;font:700 19px/1.5 var(--font-display)}
+.gate p{margin:0;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.7}
+.gate label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}
+.gate input{font:inherit;font-size:17px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;outline:none}
+.gate input:focus{border-color:#40d6ec;box-shadow:0 0 0 3px color-mix(in srgb,#40d6ec 25%,transparent)}
+.gate button{font:700 16px/1 var(--font-display);padding:15px;border-radius:12px;border:0;background:var(--accent);color:#fff}
+.gate button[disabled]{opacity:.6}
+.gate .err{color:var(--sure);font-size:14px;text-align:center;min-height:1.4em}
+.gate .fine{font-size:12px;color:color-mix(in srgb,var(--muted) 80%,transparent)}
+#adminBtn{margin-inline-start:4px}
+.adm section{margin:16px 0}
+.adm h3{font:700 16px/1.5 var(--font-display);margin:0 0 8px}
+.adm .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.adm .row .who{flex:1;min-width:160px}
+.adm .row .who b{display:block;font-size:15px}
+.adm .row .who small{color:var(--muted);font-size:12.5px}
+.adm .btn{padding:6px 10px;font-size:13px}
+.adm .btn.warn{border-color:color-mix(in srgb,var(--sure) 55%,var(--line));color:var(--sure)}
+.adm form{display:flex;gap:8px}
+.adm input{flex:1;min-width:0;font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.adm .secret{background:color-mix(in srgb,#40d6ec 10%,var(--surface));border:1px solid color-mix(in srgb,#40d6ec 40%,var(--line));border-radius:12px;padding:12px;margin-top:10px;font-size:14px;line-height:1.8}
+.adm .secret code{font:700 17px/1 ui-monospace,Menlo,monospace;direction:ltr;unicode-bidi:isolate;letter-spacing:1px}
+.adm .live{display:inline-flex;align-items:center;gap:6px;font-weight:700}
+.adm .live::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.adm .log{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.adm .log b{color:var(--fg);font-weight:600}
+.tagx{border-radius:6px;padding:1px 7px;font-size:12px;background:var(--surface-2);color:var(--muted)}
+.tagx.ok{color:var(--ok)} .tagx.off{color:var(--sure)} .tagx.wait{color:var(--likely)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <div class="brand" aria-label="رصد">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="2"/><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="2"/><circle cx="21" cy="11" r="3.6" fill="#ff7a1a"/></svg>
+      رصد
+    </div>
+    <div class="pill" id="status"><span class="dot"></span><span>جارٍ التحميل…</span></div>
+    <button class="btn" id="adminBtn" type="button" hidden>الإدارة</button>
+  </div>
+  <div class="wrap chips" id="chips" role="toolbar" aria-label="المناطق"></div>
+</header>
+
+<main>
+  <div id="mapWrap">
+    <div id="map" role="region" aria-label="الخريطة"></div>
+    <button class="btn basemap" id="basemapBtn" type="button">قمر صناعي</button>
+  </div>
+  <section class="panel wrap">
+    <div class="banner" id="learning" hidden><b>يتعلّم التطبيق المنطقة.</b> في اليوم الأول يسجّل الحرارة المعتادة (شعلات الغاز والمصانع) حتى لا ينبّهك عنها لاحقاً.</div>
+    <div class="banner" id="install" hidden><b>ثبّت رصد على هاتفك:</b> اضغط زر المشاركة في المتصفح، ثم «إضافة إلى الشاشة الرئيسية».</div>
+    <div class="summary" id="summary"></div>
+    <div class="list" id="list"></div>
+  </section>
+</main>
+
+<div class="wrap" id="focusBar">
+  <button class="btn" id="allBtn" type="button">رجوع</button>
+  <span class="ttl" id="fTitle"></span>
+</div>
+<section class="wrap" id="focusCard" aria-label="الحدث"></section>
+
+<section class="gate" id="gate" hidden aria-label="تسجيل الدخول">
+  <form id="loginForm" autocomplete="on">
+    <div class="mark"><img src="brand-mark.svg" alt=""><b>ALFAQAAR</b><span>FIRMS</span></div>
+    <h1>منصة رصد الحرائق · دخول الكادر</h1>
+    <label>اسم المستخدم<input id="lUser" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+    <label>كلمة السر<input id="lPass" name="password" type="password" autocomplete="current-password" required></label>
+    <div class="err" id="lErr" role="alert"></div>
+    <button type="submit" id="lBtn">دخول</button>
+    <p class="fine">يرتبط الحساب بهذا المتصفح عند أول دخول، ولا يعمل بعدها على أي جهاز أو متصفح آخر. ادخل من المتصفح الذي ستستخدمه دائماً. يُسجَّل كل دخول مع المدينة التقريبية.</p>
+  </form>
+</section>
+
+<section class="sheet adm" id="adminSheet" hidden aria-modal="true" role="dialog" aria-label="إدارة الوصول">
+  <div class="sheet-top wrap">
+    <button class="btn" id="adminClose" type="button">رجوع</button>
+    <span style="font:700 16px var(--font-display)">إدارة الوصول</span>
+  </div>
+  <div class="wrap" id="adminBody"></div>
+</section>
+
+<section class="sheet" id="sheet" hidden aria-modal="true" role="dialog" aria-labelledby="dTitle">
+  <div class="sheet-top wrap">
+    <button class="btn" id="closeBtn" type="button">رجوع</button>
+    <span id="dAgo" style="color:var(--muted);font-size:14px"></span>
+  </div>
+  <div class="wrap" id="detail"></div>
+</section>
+<section class="shot" id="shot" hidden aria-modal="true" role="dialog" aria-label="صورة الحدث"></section>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+"use strict";
+const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24};
+// how far back the list and the map go: the last day by default (older incidents stay one tap away)
+const PERIODS = [[24, "24 ساعة"], [72, "3 أيام"], [168, "أسبوع"]];
+try { const h = +localStorage.getItem("firms-period"); if (PERIODS.some(p => p[0] === h)) S.hours = h; } catch {}
+const recent = (it, hours) => Date.now() - Date.parse(it.last) < hours * 3600e3;
+const V = {"مؤكد":"v-sure","مرجّح":"v-likely","يحتاج تأكيداً":"v-check"};
+const PLACE = {sea:"في البحر", coast:"على الساحل", land:"على اليابسة"};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// Latin names (from OpenStreetMap) kept whole inside Arabic lines, so brackets stay in place
+const LATIN = /[A-Za-z][A-Za-z0-9.'\/\- ]*[A-Za-z0-9.]|[A-Za-z]/g;
+function bidi(s){
+  s = String(s ?? ""); let out = "", last = 0;
+  for (const m of s.matchAll(LATIN)) { out += esc(s.slice(last, m.index)) + `<bdi dir="ltr">${esc(m[0])}</bdi>`; last = m.index + m[0].length; }
+  return out + esc(s.slice(last));
+}
+const sure = it => it.verdict === "مؤكد";
+
+function plural(n, one, two, few, many){ return n===1?one : n===2?two : (n>=3&&n<=10)?`${n} ${few}` : `${n} ${many}`; }
+function ago(iso){
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (m < 1) return "الآن";
+  if (m < 60) return "قبل " + plural(m,"دقيقة","دقيقتين","دقائق","دقيقة");
+  const h = Math.round(m / 60);
+  if (h < 24) return "قبل " + plural(h,"ساعة","ساعتين","ساعات","ساعة");
+  const d = Math.round(h / 24);
+  return "قبل " + plural(d,"يوم","يومين","أيام","يوماً");
+}
+function clock(iso){   // HH:MM in the app's local time (Baghdad)
+  const off = (S.meta?.local_offset_hours ?? 3) * 3600e3;
+  const d = new Date(Date.parse(iso) + off);
+  return String(d.getUTCHours()).padStart(2,"0") + ":" + String(d.getUTCMinutes()).padStart(2,"0");
+}
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(t._h); t._h=setTimeout(()=>t.hidden=true,2200); }
+
+/* ---------- map ---------- */
+// Free map tiles that need no key: [background, labels, credit]
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+const TILES = {
+  dark: [ESRI + "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+         ESRI + "Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", "Esri, HERE, Garmin, © OpenStreetMap"],
+  light:[ESRI + "Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+         ESRI + "Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", "Esri, HERE, Garmin, © OpenStreetMap"],
+  sat:  [ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}",
+         ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", "Esri, Maxar, Earthstar"]
+};
+function initMap(){
+  if (!window.L) { $("#map").innerHTML = '<div class="empty" style="margin:16px">تعذّر تحميل الخريطة، والقائمة تعمل.</div>'; $("#basemapBtn").hidden = true; return; }
+  S.map = L.map("map", {zoomControl:false, attributionControl:true}).setView([26.5, 50], 5);
+  L.control.zoom({position:"bottomleft"}).addTo(S.map);
+  setBase();
+  S.layer = L.layerGroup().addTo(S.map);
+  S.focus = L.layerGroup().addTo(S.map);
+  S.map.on("zoomend", zoomLabels);
+  zoomLabels();
+  matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", setBase);
+}
+function setBase(){
+  if (S.base) S.map.removeLayer(S.base);
+  const light = matchMedia("(prefers-color-scheme: light)").matches;
+  const [base, labels, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
+  S.base = L.layerGroup([
+    L.tileLayer(base, {maxZoom:17, attribution:attr}),
+    L.tileLayer(labels, {maxZoom:17, opacity:.9})
+  ]).addTo(S.map);
+  $("#basemapBtn").textContent = S.sat ? "خريطة" : "قمر صناعي";
+}
+function mwText(v){
+  if (v == null || isNaN(v)) return "";
+  return (v < 10 ? (Math.round(v * 10) / 10) : Math.round(v)) + " MW";
+}
+function latestMeasure(it){   // the newest strength measurement [time, MW], if the data has them
+  const s = it.frp_series || [];
+  return s.length ? s[s.length - 1] : null;
+}
+function fireIcon(it, focused){
+  const fresh = Date.now() - Date.parse(it.last) < 3600e3;
+  const old = !focused && !recent(it, 24);
+  const cls = V[it.verdict] || "v-check";
+  let label = "";
+  if (focused){
+    const m = latestMeasure(it);
+    label = m ? `<b>${esc(mwText(m[1]))}</b><small>${esc(clock(m[0]))}</small>` : (it.max_frp != null ? `<b>${esc(mwText(it.max_frp))}</b>` : "");
+  } else if (it.max_frp != null) label = `<b>${esc(mwText(it.max_frp))}</b>`;
+  return L.divIcon({className:"", iconSize:[18,18], iconAnchor:[9,9],
+    html:`<div class="fire ${cls} ${fresh?"fresh":""} ${old?"old":""}" style="position:relative"></div>`
+       + (label ? `<span class="lead ${cls}"></span><span class="mw ${cls}" style="left:30px;top:-26px">${label}</span>` : "")});
+}
+function zoomLabels(){
+  if (S.map) S.map.getContainer().classList.toggle("zoomed", S.map.getZoom() >= 7);
+}
+
+/* ---------- data ---------- */
+// The newest data is on the repository's "live" branch (replaced after every check, every few
+// minutes); the site's own copy is updated less often. Read the live one, fall back to the site.
+const LIVE = (() => {
+  const owner = location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "";
+  const repo = location.pathname.split("/").filter(Boolean)[0] || "";
+  return owner && repo ? `https://raw.githubusercontent.com/${owner}/${repo}/live/data/` : "";
+})();
+async function getJSON(name, bust){
+  if (LIVE){
+    try { const r = await fetch(LIVE + name + bust, {cache:"no-store"}); if (r.ok) return await r.json(); } catch {}
+  }
+  return (await fetch("data/" + name + bust, {cache:"no-store"})).json();
+}
+async function load(){
+  try{
+    const bust = "?t=" + Date.now();
+    if (S.mode === "private"){
+      const r = await fetch("api/data" + bust, {cache:"no-store", credentials:"same-origin"});
+      if (r.status === 401) { showGate(); return; }
+      const d = await r.json();
+      S.meta = d.meta || {}; S.items = d.items || [];
+    } else {
+      const [m, d] = await Promise.all([getJSON("meta.json", bust), getJSON("incidents.json", bust)]);
+      S.meta = m; S.items = d.items || [];
+    }
+    renderChips(); render(); renderStatus();
+    if (!S.loaded) route();
+    else if (S.sel) showFocus(S.sel, false);   // keep the open incident fresh
+    S.loaded = true;
+  }catch(e){
+    $("#status").innerHTML = `<span class="dot bad"></span><span>تعذّر تحميل البيانات</span>`;
+  }
+}
+function renderStatus(){
+  const g = S.meta?.generated; if (!g) return;
+  const m = (Date.now() - Date.parse(g)) / 60000;
+  const cls = m < 8 ? "ok" : m < 20 ? "warn" : "bad";
+  const word = m < 8 ? "يراقب" : m < 20 ? "متأخر قليلاً" : "متوقف";
+  $("#status").innerHTML = `<span class="dot ${cls}"></span><span>${word} · آخر فحص ${ago(g)}</span>`;
+  $("#learning").hidden = !S.meta.learning;
+}
+function renderChips(){
+  const regions = [{id:"all", name:"الكل"}, ...(S.meta?.regions || [])];
+  $("#chips").innerHTML = regions.map(r => `<button class="chip" type="button" data-id="${esc(r.id)}" aria-pressed="${r.id===S.region}">${esc(r.name)}</button>`).join("");
+}
+function visible(hours = S.hours){
+  return S.items.filter(it => (S.region==="all" || (it.regions||[]).includes(S.region)) && (!S.important || it.priority==="high")
+    && recent(it, hours));
+}
+const PERIOD_AR = {24:"آخر 24 ساعة", 72:"آخر 3 أيام", 168:"آخر أسبوع"};
+function render(){
+  const items = visible();
+  $("#summary").innerHTML =
+    `<span class="seg" role="group" aria-label="المدة">${PERIODS.map(([h, label]) =>
+        `<button type="button" data-hours="${h}" aria-pressed="${h === S.hours}">${label}</button>`).join("")}</span>
+     <span class="count"><span class="badge v-sure">مؤكد</span><b>${items.filter(sure).length}</b></span>
+     <span class="count">الكل <b>${items.length}</b></span>
+     <button class="toggle" id="impBtn" type="button">${S.important ? "يعرض المهم فقط" : "يعرض كل الحرائق"}</button>`;
+  const list = $("#list");
+  if (!items.length){
+    const wider = PERIODS.find(([h]) => h > S.hours && visible(h).length);
+    list.innerHTML = `<div class="empty">لا حرائق جديدة هنا خلال ${PERIOD_AR[S.hours]}.<br>آخر فحص ${S.meta?.generated ? ago(S.meta.generated) : "—"}.`
+      + (wider ? `<br><button class="more" type="button" data-hours="${wider[0]}">عرض ${PERIOD_AR[wider[0]]} (${visible(wider[0]).length})</button>` : "")
+      + `</div>`;
+  } else {
+    list.innerHTML = items.map(it => `
+      <button class="card" type="button" data-id="${esc(it.id)}">
+        <span class="stripe ${V[it.verdict]||""}"></span>
+        <span>
+          <h3>${bidi(it.headline)}</h3>
+          <span class="where">${bidi(it.where||"")}</span>
+          <span class="meta">
+            ${sure(it) ? `<span class="badge v-sure">مؤكد</span>` : ""}
+            <span class="tag">${ago(it.first)}</span>
+            ${it.max_frp != null ? `<span class="tag">${esc(mwText(it.max_frp))}</span>` : it.size ? `<span class="tag">حجمه ${esc(it.size)}</span>` : ""}
+            ${it.facility ? `<span class="tag">${esc(Math.round(it.facility.km))} كم من ${esc(it.facility.cat)}</span>` : ""}
+          </span>
+        </span>
+      </button>`).join("");
+  }
+  drawMarkers();
+}
+function drawMarkers(){
+  if (!S.map) return;
+  S.layer.clearLayers();
+  const one = S.sel && S.items.find(x => x.id === S.sel);
+  const shown = one ? [one] : visible();
+  const pts = [];
+  shown.forEach(it => {
+    L.marker([it.lat, it.lon], {icon:fireIcon(it, !!one), title:it.headline, zIndexOffset: one ? 1000 : 0})
+      .on("click", () => { if (!one) go(it.id); }).addTo(S.layer);
+    pts.push([it.lat, it.lon]);
+  });
+  if (!one && S.fitFor !== S.region){    // move the map only when the region changes
+    S.fitFor = S.region;
+    const reg = (S.meta?.regions || []).find(r => r.id === S.region);
+    if (reg) S.map.fitBounds([[reg.bbox[1], reg.bbox[0]], [reg.bbox[3], reg.bbox[2]]]);
+    else if (pts.length) S.map.fitBounds(pts, {maxZoom:8, padding:[30,30]});
+  }
+}
+
+/* ---------- routes: #ID = the incident on the full map, #ID:i = its details ---------- */
+function setRoute(hash, push=true){
+  const url = location.pathname + (hash ? "#" + encodeURIComponent(hash) : "");
+  if (push) history.pushState(null, "", url); else history.replaceState(null, "", url);
+  route();
+}
+function go(id){ setRoute(id); }
+function route(){
+  let h = decodeURIComponent(location.hash.slice(1));
+  const q = new URLSearchParams(location.search).get("e");   // links from Telegram
+  if (!h && q) { h = q; history.replaceState(null, "", location.pathname + "#" + encodeURIComponent(q)); }
+  const [id, part] = h.split(":");
+  if (id && S.items.some(x => x.id === id)){
+    showFocus(id, S.sel !== id);
+    if (part === "i") openDetail(id); else $("#sheet").hidden = true;
+  } else {
+    if (id) toast("هذا الحدث لم يعد في القائمة");
+    $("#sheet").hidden = true;
+    exitFocus();
+  }
+}
+
+/* ---------- one incident on the full map ---------- */
+function showFocus(id, move=true){
+  const it = S.items.find(x => x.id === id); if (!it) return;
+  if (!S.sel && S.map) S.prevView = {c:S.map.getCenter(), z:S.map.getZoom()};
+  S.sel = id;
+  document.body.classList.add("focus");
+  $("#fTitle").innerHTML = bidi(it.headline);
+  const m = latestMeasure(it), f = it.facility;
+  $("#focusCard").innerHTML = `
+    ${sure(it) ? `<div style="margin-bottom:6px"><span class="badge v-sure">مؤكد</span></div>` : ""}
+    <h3>${bidi(it.headline)}</h3>
+    <div class="where">${bidi(it.where || "")}</div>
+    <div class="meta">
+      <span class="tag">بدأ ${esc(clock(it.first))}</span>
+      ${m ? `<span class="tag">${esc(mwText(m[1]))} عند ${esc(clock(m[0]))}</span>` : it.max_frp != null ? `<span class="tag">${esc(mwText(it.max_frp))}</span>` : ""}
+      ${f ? `<span class="tag">${esc(Math.round(f.km))} كم من ${esc(f.cat)}</span>` : ""}
+      <span class="tag">${ago(it.last)}</span>
+    </div>
+    <div class="actions">
+      <button class="btn primary" type="button" id="infoBtn">${it.clip ? "التفاصيل والفيديو" : "التفاصيل"}</button>
+      <button class="btn" type="button" id="fShot">📸 صورة</button>
+      <button class="btn" type="button" id="fShare">مشاركة</button>
+    </div>`;
+  $("#infoBtn").onclick = () => setRoute(id + ":i");
+  $("#fShot").onclick = () => takePicture(it);
+  $("#fShare").onclick = () => share(it);
+  document.documentElement.style.setProperty("--card-h", $("#focusCard").offsetHeight + "px");
+  if (!S.map) return;
+  S.map.invalidateSize();
+  drawMarkers();
+  S.focus.clearLayers();
+  if (f){
+    L.marker([f.lat, f.lon], {icon:L.divIcon({className:"", iconSize:[14,14], iconAnchor:[7,7], html:'<div class="plant"></div>'}), title:f.text}).addTo(S.focus);
+  }
+  if (!move) return;
+  const top = $("#focusBar").offsetHeight + 16, bottom = (innerWidth >= 900 ? 0 : $("#focusCard").offsetHeight) + 24;
+  if (f && f.km < 25) S.map.fitBounds([[it.lat, it.lon], [f.lat, f.lon]], {paddingTopLeft:[40, top], paddingBottomRight:[40, bottom], maxZoom:12});
+  else {
+    S.map.setView([it.lat, it.lon], 11, {animate:false});
+    S.map.panBy([0, (bottom - top) / 2], {animate:false});
+  }
+}
+function exitFocus(){
+  if (!S.sel) return;
+  S.sel = null;
+  document.body.classList.remove("focus");
+  S.focus?.clearLayers();
+  if (!S.map) return;
+  S.map.invalidateSize();
+  drawMarkers();
+  if (S.prevView) S.map.setView(S.prevView.c, S.prevView.z, {animate:false});
+}
+
+/* ---------- detail ---------- */
+function links(it){
+  const out = [[`https://www.google.com/maps?q=${it.lat},${it.lon}&t=k`, "الموقع على الخريطة"]];
+  if (it.place === "sea" || it.place === "coast")
+    out.push([`https://www.marinetraffic.com/en/ais/home/centerx:${it.lon.toFixed(3)}/centery:${it.lat.toFixed(3)}/zoom:11`, "السفن في الموقع"]);
+  out.push([`https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@${it.lon.toFixed(3)},${it.lat.toFixed(3)},11.0z`, "ناسا"]);
+  return out;
+}
+function appLink(it){ return location.origin + location.pathname + "?e=" + encodeURIComponent(it.id) + "#" + encodeURIComponent(it.id); }
+function shareText(it){
+  return `${it.headline}\n${it.where||""}\n${sure(it) ? `مؤكد: ${it.reason}\n` : ""}بدأ: ${it.start_text}\n${it.lat.toFixed(4)}, ${it.lon.toFixed(4)}`;
+}
+async function share(it){
+  const text = shareText(it);
+  if (navigator.share) { try { await navigator.share({title:it.headline, text, url:appLink(it)}); return; } catch(e){ if (e.name==="AbortError") return; } }
+  copy(text + "\n" + appLink(it));
+}
+function openDetail(id){
+  const it = S.items.find(x => x.id === id); if (!it) return;
+  const f = it.facility, series = it.frp_series || [];
+  $("#detail").innerHTML = `
+    <h2 id="dTitle">${bidi(it.headline)}</h2>
+    <div style="color:var(--muted)">${bidi(it.where||"")}</div>
+    ${sure(it) ? `<div class="verdict"><span class="badge v-sure">مؤكد</span><p>${esc(it.reason)}</p></div>`
+               : `<div class="verdict"><span aria-hidden="true">🛰</span><p>${esc(it.reason)}</p></div>`}
+    ${it.clip ? `<video src="${esc(it.clip)}" ${it.snap?`poster="${esc(it.snap)}"`:""} controls playsinline muted loop preload="metadata"></video>`
+              : it.snap ? `<img class="snap" src="${esc(it.snap)}" alt="صورة القمر الصناعي">`
+              : it.clip_note ? `<p class="note">${esc(it.clip_note)}</p>` : ""}
+    <dl class="facts">
+      <dt>المكان</dt><dd>${esc(PLACE[it.place] || "غير محدد")}</dd>
+      <dt>أقرب منشأة</dt><dd>${f ? bidi(f.text) : "لا توجد منشأة طاقة قريبة"}</dd>
+      <dt>بدأ</dt><dd>${esc(it.start_text)}</dd>
+      <dt>آخر رصد</dt><dd>${esc(it.last_text)} (${ago(it.last)})</dd>
+      <dt>الحجم</dt><dd>${it.size ? esc(it.size) + (it.max_frp != null ? ` (${esc(mwText(it.max_frp))})` : "") : "يُعرف بعد مرور قمر أمريكي"}</dd>
+      ${series.length > 1 ? `<dt>الشدة عبر الوقت</dt><dd class="series">${series.map(r => `<span>${esc(clock(r[0]))} · ${esc(mwText(r[1]))}</span>`).join("")}</dd>` : ""}
+      <dt>رصدته</dt><dd>${esc(it.sources_text ? "أقمار: " + it.sources_text : "—")}</dd>
+      <dt>الإحداثيات</dt><dd><button class="btn" type="button" id="copyBtn" dir="ltr">${it.lat.toFixed(4)},${it.lon.toFixed(4)}</button></dd>
+      <dt>الدقة</dt><dd>${it.best === "polar" ? "دقيقة (نحو نصف كيلومتر)" : "تقريبية (نحو 3 كم) حتى يمر قمر أمريكي"}</dd>
+    </dl>
+    <div class="actions">
+      <button class="btn primary" type="button" id="shareBtn">مشاركة</button>
+      <button class="btn" type="button" id="shotBtn">📸 صورة</button>
+      ${links(it).map(([u,t]) => `<a class="btn" href="${u}" target="_blank" rel="noopener">${t}</a>`).join("")}
+    </div>
+    <div class="help"><b>«مؤكد»</b> يعني أن قمرين مختلفين رأياه أو ظهر في 3 صور متتالية. باقي الأحداث رصدات لم تتأكد بعد، ولونها على الخريطة برتقالي أو أصفر.<br>
+    الأقمار ترى الحرارة لا السبب. اسم المنشأة من خرائط OpenStreetMap.</div>`;
+  $("#dAgo").textContent = ago(it.last);
+  $("#sheet").hidden = false; $("#sheet").scrollTop = 0;
+  $("#copyBtn").onclick = () => copy(`${it.lat.toFixed(5)},${it.lon.toFixed(5)}`);
+  $("#shareBtn").onclick = () => share(it);
+  $("#shotBtn").onclick = () => takePicture(it);
+}
+
+/* ---------- the incident picture (when there is no satellite clip, or to post a still) ---------- */
+const EMBLEM = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>
+<linearGradient id="a" x1="0" y1="25" x2="0" y2="73" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ff7828"/><stop offset=".55" stop-color="#fa541c"/><stop offset="1" stop-color="#e2301e"/></linearGradient>
+<linearGradient id="b" x1="0" y1="46" x2="0" y2="71" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffec8c"/><stop offset=".6" stop-color="#ffd65a"/><stop offset="1" stop-color="#ffb232"/></linearGradient></defs>
+<g fill="none" stroke="#40d6ec" stroke-width="5" stroke-linecap="butt">
+<path d="M88.98 59A40 40 0 0 1 59 88.98M41 88.98A40 40 0 0 1 11.02 59M11.02 41A40 40 0 0 1 41 11.02M59 11.02A40 40 0 0 1 88.98 41"/>
+<path d="M83 50H99M50 83V99M17 50H1M50 17V1"/></g>
+<path fill="url(#a)" d="M50 73C60.64 73 67.1 64.36 67.1 53.8C67.1 43.24 61.4 35.56 54.56 25C55.32 34.6 50.76 40.36 46.2 45.16C43.92 42.28 41.64 39.88 40.12 35.56C34.8 44.2 32.9 51.88 32.9 56.68C32.9 66.28 40.12 73 50 73Z"/>
+<path fill="url(#b)" d="M50 70.6C56.08 70.6 59.5 65.8 59.5 60.52C59.5 54.76 54.94 51.4 52.66 46.12C51.14 51.4 46.2 53.8 43.16 58.6C40.5 63.4 43.16 70.6 50 70.6Z"/></svg>`;
+function loadImg(src, cors){
+  return new Promise(res => {
+    const im = new Image();
+    if (cors) im.crossOrigin = "anonymous";
+    const t = setTimeout(() => res(null), 9000);
+    im.onload = () => { clearTimeout(t); res(im); };
+    im.onerror = () => { clearTimeout(t); res(null); };
+    im.src = src;
+  });
+}
+function spaced(g, text, x, y, track){       // Latin capitals with letter spacing, left to right
+  for (const ch of text){ g.fillText(ch, x, y); x += g.measureText(ch).width + track; }
+  return x - track;
+}
+async function renderPicture(it){
+  // a portrait picture (4:5) for posting: brand, place, a wide satellite view with the fire marked,
+  // then the strongest measurement, the first sighting and the coordinates
+  const W = 1080, H = 1350, TOP = 104, TITLE = 128, MY = TOP + TITLE, MH = 800, FY = MY + MH;
+  const CYAN = "#40d6ec", BGC = "#06090e", WHITE = "#f0f4fa", DIMC = "#8a97aa", LINE = "rgba(64,214,236,.28)";
+  const SURE = "#e83e3e", HOTC = "#ff9632";
+  const accent = sure(it) ? SURE : HOTC;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  cv.setAttribute("dir", "rtl"); cv.style.cssText = "position:fixed;left:-99999px;top:0";
+  document.body.appendChild(cv);
+  const g = cv.getContext("2d");
+  const rtl = on => { try { g.direction = on ? "rtl" : "ltr"; } catch {} };
+  await Promise.all(['700 34px "Chakra Petch"', '500 34px "Chakra Petch"', '800 44px "Noto Kufi Arabic"',
+                     '600 30px "Noto Kufi Arabic"', '500 26px "IBM Plex Sans Arabic"'].map(f => document.fonts?.load(f).catch(() => null)));
+  const AR = '"IBM Plex Sans Arabic","Noto Kufi Arabic",Tahoma,sans-serif', KUFI = '"Noto Kufi Arabic",' + AR;
+  const LAT = '"Chakra Petch",ui-monospace,Menlo,sans-serif', MONO = 'ui-monospace,"SF Mono",Menlo,Consolas,monospace';
+  g.fillStyle = BGC; g.fillRect(0, 0, W, H);
+
+  // a wide satellite view (nearby coasts and towns show), north up
+  const z = Math.max(8, Math.min(13, Math.round(S.map ? S.map.getZoom() : 11)));
+  const n = 256 * 2 ** z;
+  const wx = (it.lon + 180) / 360 * n;
+  const sl = Math.sin(it.lat * Math.PI / 180);
+  const wy = (0.5 - Math.log((1 + sl) / (1 - sl)) / (4 * Math.PI)) * n;
+  const ox = wx - W / 2, oy = wy - MH / 2;
+  const jobs = [];
+  for (let tx = Math.floor(ox / 256); tx <= Math.floor((ox + W) / 256); tx++)
+    for (let ty = Math.floor(oy / 256); ty <= Math.floor((oy + MH) / 256); ty++) jobs.push({tx, ty});
+  const layer = async (path, alpha) => {
+    const ims = await Promise.all(jobs.map(j => loadImg(`${ESRI}${path}/MapServer/tile/${z}/${j.ty}/${j.tx}`, true)));
+    g.save(); g.beginPath(); g.rect(0, MY, W, MH); g.clip(); g.globalAlpha = alpha;
+    ims.forEach((im, k) => { if (im) g.drawImage(im, jobs[k].tx * 256 - ox, MY + jobs[k].ty * 256 - oy); });
+    g.restore();
+    return ims.filter(Boolean).length;
+  };
+  g.fillStyle = "#0c1420"; g.fillRect(0, MY, W, MH);
+  const got = await layer("World_Imagery", 1);
+  await layer("Reference/World_Boundaries_and_Places", .9);
+  g.save(); g.beginPath(); g.rect(0, MY, W, MH); g.clip();
+  g.fillStyle = "rgba(4,9,16,.16)"; g.fillRect(0, MY, W, MH);
+  if (!got){
+    g.strokeStyle = "rgba(64,214,236,.12)"; g.lineWidth = 1;
+    for (let x = 0; x < W; x += 90){ g.beginPath(); g.moveTo(x, MY); g.lineTo(x, MY + MH); g.stroke(); }
+    for (let y = MY; y < MY + MH; y += 90){ g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  }
+  const vg = g.createRadialGradient(W / 2, MY + MH / 2, MH * .42, W / 2, MY + MH / 2, MH * .78);
+  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.5)");
+  g.fillStyle = vg; g.fillRect(0, MY, W, MH);
+  // the fire: a hot point, the target ring with ticks, a dashed ring
+  const cx = W / 2, cy = MY + MH / 2, r = 46;
+  const hot = g.createRadialGradient(cx, cy, 0, cx, cy, 26);
+  hot.addColorStop(0, "rgba(255,244,200,1)"); hot.addColorStop(.35, "rgba(255,120,30,.95)"); hot.addColorStop(1, "rgba(220,40,20,0)");
+  g.fillStyle = hot; g.beginPath(); g.arc(cx, cy, 26, 0, 2 * Math.PI); g.fill();
+  g.lineWidth = 7; g.strokeStyle = "rgba(0,0,0,.55)"; g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.stroke();
+  g.lineWidth = 3.5; g.strokeStyle = CYAN; g.beginPath(); g.arc(cx, cy, r, 0, 2 * Math.PI); g.stroke();
+  for (let a = 0; a < 4; a++){
+    const c = Math.cos(a * Math.PI / 2), s2 = Math.sin(a * Math.PI / 2);
+    g.beginPath(); g.moveTo(cx + c * (r + 6), cy + s2 * (r + 6)); g.lineTo(cx + c * (r + 19), cy + s2 * (r + 19)); g.stroke();
+  }
+  g.setLineDash([8, 6]); g.lineWidth = 2; g.strokeStyle = "rgba(64,214,236,.7)";
+  g.beginPath(); g.arc(cx, cy, r + 27, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]);
+  // the strongest measurement on a line from the ring
+  const mw = it.max_frp;
+  if (mw != null){
+    const p0 = [cx + (r + 10) * .7071, cy - (r + 10) * .7071], p1 = [p0[0] + 48, p0[1] - 48];
+    rtl(false); g.font = `700 36px ${LAT}`;
+    const label = mwText(mw), tw = g.measureText(label).width, p2 = [p1[0] + tw + 34, p1[1]];
+    g.lineWidth = 7; g.strokeStyle = "rgba(0,0,0,.55)";
+    g.beginPath(); g.moveTo(...p0); g.lineTo(...p1); g.lineTo(...p2); g.stroke();
+    g.lineWidth = 3; g.strokeStyle = CYAN; g.beginPath(); g.moveTo(...p0); g.lineTo(...p1); g.lineTo(...p2); g.stroke();
+    g.fillStyle = CYAN; g.beginPath(); g.arc(p2[0], p2[1], 6, 0, 2 * Math.PI); g.fill();
+    g.textAlign = "center"; g.textBaseline = "alphabetic";
+    g.fillStyle = "rgba(0,0,0,.8)"; g.fillText(label, (p1[0] + p2[0]) / 2 + 2, p1[1] - 14 + 2);
+    g.fillStyle = WHITE; g.fillText(label, (p1[0] + p2[0]) / 2, p1[1] - 14);
+  }
+  g.restore();
+  // north and scale
+  rtl(false); g.textAlign = "center"; g.fillStyle = WHITE;
+  g.beginPath(); g.moveTo(W - 50, MY + 30); g.lineTo(W - 60, MY + 58); g.lineTo(W - 50, MY + 52); g.lineTo(W - 40, MY + 58); g.closePath(); g.fill();
+  g.font = `700 21px ${MONO}`; g.fillText("N", W - 50, MY + 82);
+  const mpp = 156543.03392 * Math.cos(it.lat * Math.PI / 180) / 2 ** z;
+  const km = [1, 2, 5, 10, 20, 50, 100].find(k => k * 1000 / mpp >= 150) || 100, bar = km * 1000 / mpp;
+  const bx = 34, by = MY + MH - 34;
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(bx - 12, by - 40, bar + 24, 54);
+  g.strokeStyle = WHITE; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(bx, by - 8); g.lineTo(bx, by); g.lineTo(bx + bar, by); g.lineTo(bx + bar, by - 8); g.stroke();
+  g.font = `600 20px ${MONO}`; g.fillStyle = WHITE; g.fillText(`${km} km`, bx + bar / 2, by - 14);
+  g.fillStyle = LINE; g.fillRect(0, MY - 2, W, 2); g.fillRect(0, FY, W, 2);
+
+  // brand row: emblem and name, and "مؤكد" when confirmed
+  const em = await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(EMBLEM), false);
+  if (em){
+    const glow = g.createRadialGradient(64, TOP / 2, 4, 64, TOP / 2, 40);
+    glow.addColorStop(0, "rgba(255,110,30,.4)"); glow.addColorStop(1, "rgba(255,110,30,0)");
+    g.fillStyle = glow; g.fillRect(20, 10, 90, 86);
+    g.drawImage(em, 36, (TOP - 56) / 2, 56, 56);
+  }
+  rtl(false); g.textAlign = "left"; g.textBaseline = "alphabetic";
+  g.font = `700 30px ${LAT}`; g.fillStyle = WHITE;
+  let x = spaced(g, "ALFAQAAR", 108, TOP / 2 + 11, 3);
+  g.fillStyle = "rgba(64,214,236,.7)"; g.fillRect(x + 12, TOP / 2 - 13, 2, 26);
+  g.font = `500 30px ${LAT}`; g.fillStyle = CYAN;
+  spaced(g, "FIRMS", x + 26, TOP / 2 + 11, 3);
+  if (sure(it)){
+    rtl(true); g.font = `800 30px ${KUFI}`;
+    const vw = g.measureText("مؤكد").width + 52;
+    g.fillStyle = SURE; g.beginPath(); g.roundRect ? g.roundRect(W - 36 - vw, TOP / 2 - 27, vw, 54, 12) : g.rect(W - 36 - vw, TOP / 2 - 27, vw, 54); g.fill();
+    g.textAlign = "center"; g.fillStyle = "#0c0c0e"; g.fillText("مؤكد", W - 36 - vw / 2, TOP / 2 + 11);
+  }
+  g.fillStyle = LINE; g.fillRect(36, TOP - 1, W - 72, 1);
+  // the place
+  rtl(true); g.textAlign = "center";
+  let title = it.where || it.headline, size = 40;
+  for (; size >= 26; size -= 2){ g.font = `800 ${size}px ${KUFI}`; if (g.measureText(title).width <= W - 72) break; }
+  if (g.measureText(title).width > W - 72 && title.includes("(")){
+    title = title.slice(0, title.lastIndexOf("(")).trim();
+    for (size = 40; size >= 26; size -= 2){ g.font = `800 ${size}px ${KUFI}`; if (g.measureText(title).width <= W - 72) break; }
+  }
+  g.fillStyle = WHITE; g.fillText(title, W / 2, TOP + 58);
+  const sub = [it.region_name, it.country].filter((v, i, a) => v && !title.includes(v) && a.indexOf(v) === i).join(" • ");
+  if (sub){ g.font = `500 26px ${AR}`; g.fillStyle = DIMC; g.fillText(sub, W / 2, TOP + 102); }
+
+  // facts: strongest measurement, first sighting, coordinates
+  const off = (S.meta?.local_offset_hours ?? 3) * 3600e3, first = new Date(Date.parse(it.first) + off);
+  const hhmm = d => String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+  const day = `${first.getUTCFullYear()}/${String(first.getUTCMonth() + 1).padStart(2, "0")}/${String(first.getUTCDate()).padStart(2, "0")}`;
+  const colW = W / 3, labelY = FY + 62, valY = FY + 132, noteY = FY + 180;
+  const cols = [   // right to left
+    {label:"أعلى شدة", value: mw != null ? mwText(mw) : "—", note: it.size || "", color: WHITE},
+    {label:"أول رصد", value: hhmm(first), note: `${day} · ${S.meta?.local_name || "بغداد"}`, color: accent},
+    {label:"الإحداثيات", value: `${it.lat.toFixed(4)}°N`, note: `${it.lon.toFixed(4)}°E`, color: WHITE, mono:true}
+  ];
+  cols.forEach((c, i) => {
+    const cxl = W - colW * i - colW / 2;
+    if (i) { g.fillStyle = LINE; g.fillRect(W - colW * i, FY + 40, 1, 170); }
+    rtl(true); g.textAlign = "center"; g.font = `500 24px ${AR}`; g.fillStyle = DIMC; g.fillText(c.label, cxl, labelY);
+    rtl(false); g.font = c.mono ? `700 40px ${MONO}` : `700 54px ${LAT}`; g.fillStyle = c.color; g.fillText(c.value, cxl, valY);
+    if (c.note){
+      const latin = /^[0-9.°NE\-]+$/.test(c.note);
+      rtl(!latin); g.font = latin ? `700 40px ${MONO}` : `500 23px ${AR}`; g.fillStyle = latin ? WHITE : DIMC;
+      g.fillText(c.note, cxl, latin ? valY + 52 : noteY);
+    }
+  });
+  rtl(false); g.textAlign = "center"; g.font = `500 16px ${MONO}`; g.fillStyle = "#56627a";
+  if (got) g.fillText("Imagery © Esri, Maxar, Earthstar Geographics", W / 2, H - 26);
+  const blob = await new Promise(res => { try { cv.toBlob(res, "image/png"); } catch { res(null); } });
+  cv.remove();
+  return blob;
+}
+async function takePicture(it){
+  const box = $("#shot");
+  box.innerHTML = `<div class="spin" aria-hidden="true"></div><p>جارٍ تجهيز صورة الحدث…</p>`;
+  box.hidden = false;
+  let blob = null;
+  try { blob = await renderPicture(it); } catch (e) { blob = null; }
+  if (!blob){
+    box.innerHTML = `<p>تعذّر تجهيز الصورة. حاول مرة أخرى.</p><div class="actions"><button class="btn" type="button" id="shotClose">إغلاق</button></div>`;
+    $("#shotClose").onclick = () => box.hidden = true;
+    return;
+  }
+  const name = `ALFAQAAR-${it.id}.png`, file = new File([blob], name, {type:"image/png"});
+  const url = URL.createObjectURL(blob);
+  const canShare = !!(navigator.canShare && navigator.canShare({files:[file]}));
+  box.innerHTML = `<img src="${url}" alt="صورة الحدث">
+    <div class="actions">
+      <button class="btn primary" type="button" id="shotSave">${canShare ? "حفظ في الصور" : "تنزيل الصورة"}</button>
+      <button class="btn" type="button" id="shotClose">إغلاق</button>
+    </div>
+    <p>${canShare ? "ستفتح نافذة المشاركة: اختر «حفظ الصورة». أو اضغط مطولاً على الصورة واختر «إضافة إلى الصور»." : "أو اضغط مطولاً على الصورة لحفظها."}</p>`;
+  $("#shotClose").onclick = () => { box.hidden = true; URL.revokeObjectURL(url); };
+  $("#shotSave").onclick = async () => {
+    if (canShare){
+      try { await navigator.share({files:[file], title:it.headline}); return; }
+      catch (e) { if (e.name === "AbortError") return; }
+    }
+    const a = document.createElement("a"); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); toast("حُفظت الصورة");
+  };
+}
+async function copy(text){
+  try { await navigator.clipboard.writeText(text); toast("نُسخ"); }
+  catch { toast(text); }
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", e => {
+  const chip = e.target.closest(".chip");
+  if (chip){ S.region = chip.dataset.id; renderChips(); render(); return; }
+  const card = e.target.closest(".card");
+  if (card){ go(card.dataset.id); return; }
+  if (e.target.closest("#impBtn")){ S.important = !S.important; render(); return; }
+  const period = e.target.closest("[data-hours]");
+  if (period){
+    S.hours = +period.dataset.hours;
+    try { localStorage.setItem("firms-period", String(S.hours)); } catch {}
+    render(); return;
+  }
+});
+$("#closeBtn").onclick = () => S.sel ? setRoute(S.sel) : setRoute("");   // details -> the incident on the map
+$("#allBtn").onclick = () => setRoute("");                               // the map -> all incidents
+$("#basemapBtn").onclick = () => { S.sat = !S.sat; setBase(); };
+addEventListener("popstate", route);
+addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("#shot").hidden) { $("#shot").hidden = true; return; }
+  if (!$("#sheet").hidden) setRoute(S.sel || ""); else if (S.sel) setRoute("");
+});
+addEventListener("resize", () => { if (S.sel) document.documentElement.style.setProperty("--card-h", $("#focusCard").offsetHeight + "px"); });
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
+  try { if (!localStorage.getItem("rasad-install-seen")) { $("#install").hidden = false; localStorage.setItem("rasad-install-seen", "1"); } } catch {}
+}
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+/* ---------- private access: staff accounts, each tied to one browser ---------- */
+const hexOf = a => [...a].map(b => b.toString(16).padStart(2, "0")).join("");
+function deviceKey(){       // a random key kept by this browser: the account works only where it was first used
+  let k = null;
+  try { k = localStorage.getItem("firms-device"); } catch {}
+  if (!k || !/^[0-9a-f]{64}$/.test(k)){
+    k = hexOf(crypto.getRandomValues(new Uint8Array(32)));
+    try { localStorage.setItem("firms-device", k); } catch {}
+  }
+  return k;
+}
+function showGate(){
+  document.body.classList.add("locked");
+  $("#gate").hidden = false;
+  setTimeout(() => $("#lUser").focus(), 50);
+}
+let started = false;
+function startApp(){
+  document.body.classList.remove("locked");
+  $("#gate").hidden = true;
+  $("#adminBtn").hidden = !(S.me && S.me.role === "admin");
+  if (started) { load(); return; }
+  started = true;
+  initMap(); load();
+  setInterval(load, 60000);
+  setInterval(renderStatus, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+}
+$("#loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("#lBtn"), err = $("#lErr");
+  err.textContent = ""; btn.disabled = true; btn.textContent = "جارٍ الدخول…";
+  try {
+    const r = await fetch("api/login", {method:"POST", credentials:"same-origin", headers:{"content-type":"application/json"},
+      body: JSON.stringify({username: $("#lUser").value.trim(), password: $("#lPass").value, device: deviceKey()})});
+    if (r.ok){
+      S.me = await (await fetch("api/me", {cache:"no-store", credentials:"same-origin"})).json();
+      $("#lPass").value = "";
+      startApp();
+    } else {
+      const code = (await r.json().catch(() => ({}))).error;
+      err.textContent = {wrong:"اسم المستخدم أو كلمة السر غير صحيحة.", device:"هذا الحساب مرتبط بجهاز أو متصفح آخر. اطلب من المدير كلمة سر جديدة.",
+        wait:"محاولات كثيرة. حاول بعد ربع ساعة.", missing:"أدخل اسم المستخدم وكلمة السر."}[code] || "تعذّر الدخول. حاول مرة أخرى.";
+    }
+  } catch { err.textContent = "لا اتصال بالإنترنت."; }
+  btn.disabled = false; btn.textContent = "دخول";
+});
+
+/* ---------- the manager's panel ---------- */
+const EVENT_AR = {open:"فتح التطبيق", login:"دخل", blocked:"محاولة من جهاز آخر (رُفضت)", failed:"كلمة سر خاطئة",
+  added:"أُضيف حسابه", reset:"كلمة سر جديدة", disabled:"أُوقف", enabled:"أُعيد تفعيله", deleted:"حُذف"};
+const COUNTRY = {IQ:"العراق", IR:"إيران", SA:"السعودية", AE:"الإمارات", KW:"الكويت", QA:"قطر", BH:"البحرين", OM:"عُمان",
+  YE:"اليمن", JO:"الأردن", SY:"سوريا", LB:"لبنان", TR:"تركيا", EG:"مصر"};
+const where = (c, k) => [c, COUNTRY[k] || k].filter(Boolean).join("، ") || "—";
+const when = t => t ? new Date(t).toLocaleString("ar-IQ-u-nu-latn", {timeZone:"Asia/Baghdad", day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"}) : "—";
+async function adminCall(path, body){
+  const r = await fetch("api/admin/" + path, {method: body ? "POST" : "GET", credentials:"same-origin",
+    headers:{"content-type":"application/json"}, body: body ? JSON.stringify(body) : undefined});
+  return r.json().catch(() => ({}));
+}
+let shown = null;   // {name, password} to show once after making or resetting an account
+async function openAdmin(){
+  $("#adminSheet").hidden = false;
+  const box = $("#adminBody");
+  if (!box.innerHTML) box.innerHTML = `<p style="color:var(--muted)">جارٍ التحميل…</p>`;
+  const st = await adminCall("state");
+  const staff = (st.users || []).filter(u => u.role !== "admin").sort((a, b) => (b.last_open || 0) - (a.last_open || 0));
+  const online = st.online || [];
+  box.innerHTML = `
+    <section><h3><span class="live">مفتوح الآن: ${online.length}</span></h3>
+      ${online.length ? online.map(o => `<div class="row"><div class="who"><b>${esc(o.display)}</b><small>${esc(where(o.city, o.country))} · منذ ${esc(when(o.since))}</small></div></div>`).join("")
+                      : `<p style="color:var(--muted);margin:0">لا أحد يفتح التطبيق الآن.</p>`}
+    </section>
+    <section><h3>إشعاراتي على تلكرام</h3>
+      <div class="row"><div class="who"><b>${st.telegram ? "مفعّلة ✅" : "غير مفعّلة"}</b>
+        <small>رسالة لك كلما فتح أحد الكادر التطبيق، مع مدينته وعدد من يفتحه الآن، وأي محاولة دخول مرفوضة.</small></div>
+        <button class="btn primary" type="button" id="tgBtn">${st.telegram ? "إعادة الربط" : "تفعيل"}</button></div>
+    </section>
+    <section><h3>إضافة حساب</h3>
+      <form id="addForm"><input id="addName" placeholder="اسم الموظف (مثال: ali)" autocapitalize="none" required><button class="btn primary" type="submit">إضافة</button></form>
+      ${shown ? `<div class="secret">أعطِ <b>${esc(shown.name)}</b> هذه البيانات:<br>اسم المستخدم: <code>${esc(shown.name)}</code><br>كلمة السر: <code>${esc(shown.password)}</code>
+        <br><small>تعمل مرة واحدة: على أول متصفح يدخل منه فقط. لن تظهر كلمة السر مرة أخرى.</small>
+        <div style="margin-top:8px"><button class="btn" type="button" id="copySecret">نسخ</button></div></div>` : ""}
+    </section>
+    <section><h3>الحسابات (${staff.length})</h3>
+      ${staff.length ? staff.map(u => `<div class="row" data-u="${esc(u.username)}">
+        <div class="who"><b>${esc(u.display)}</b>
+          <small>${u.disabled ? `<span class="tagx off">موقوف</span>` : u.bound ? `<span class="tagx ok">مرتبط: ${esc(u.agent || "جهاز")}</span>` : `<span class="tagx wait">بانتظار أول دخول</span>`}
+          · آخر فتح: ${esc(when(u.last_open))}${u.city || u.country ? " · " + esc(where(u.city, u.country)) : ""}</small></div>
+        <button class="btn" type="button" data-act="reset">كلمة سر جديدة</button>
+        <button class="btn" type="button" data-act="${u.disabled ? "enable" : "disable"}">${u.disabled ? "تفعيل" : "إيقاف"}</button>
+        <button class="btn warn" type="button" data-act="delete">حذف</button></div>`).join("")
+        : `<p style="color:var(--muted);margin:0">لا حسابات بعد. أضف أول موظف أعلاه.</p>`}
+    </section>
+    <section><h3>سجل الدخول</h3><div class="log">
+      ${(st.log || []).slice(0, 60).map(e => `<div>${esc(when(e.t))} · <b>${esc(e.username === "admin" ? "المدير" : e.username)}</b> · ${esc(EVENT_AR[e.event] || e.event)}${e.city || e.country ? " · " + esc(where(e.city, e.country)) : ""}${e.agent ? " · " + esc(e.agent) : ""}</div>`).join("") || "لا شيء بعد."}
+    </div></section>`;
+  $("#tgBtn").onclick = async () => {
+    const r = await adminCall("telegram", {});
+    if (r.link) location.href = r.link; else toast("تعذّر الربط");
+  };
+  $("#addForm").onsubmit = async e => {
+    e.preventDefault();
+    const name = $("#addName").value.trim();
+    const r = await adminCall("add", {username: name, display: name});
+    if (r.password) { shown = {name: r.username, password: r.password}; openAdmin(); }
+    else toast(r.error === "exists" ? "الاسم مستخدم" : "اسم غير صالح (أحرف وأرقام فقط)");
+  };
+  const cp = $("#copySecret");
+  if (cp) cp.onclick = () => copy(`اسم المستخدم: ${shown.name}\nكلمة السر: ${shown.password}\nالرابط: ${location.origin}/`);
+  box.querySelectorAll("[data-act]").forEach(b => b.onclick = async () => {
+    if (!b.dataset.sure){ b.dataset.sure = "1"; b.textContent = "تأكيد؟"; return; }    // a second tap confirms
+    const u = b.closest("[data-u]").dataset.u, act = b.dataset.act;
+    const r = await adminCall(act === "enable" || act === "disable" ? "disable" : act, {username: u, disabled: act === "disable"});
+    if (act === "reset" && r.password) shown = {name: r.username, password: r.password};
+    openAdmin();
+  });
+}
+$("#adminBtn").onclick = () => { shown = null; openAdmin(); };
+$("#adminClose").onclick = () => { $("#adminSheet").hidden = true; shown = null; $("#adminBody").innerHTML = ""; };
+
+(async function boot(){
+  // on the private site the door answers; on the old public site there is no door
+  try {
+    const r = await fetch("api/me", {cache:"no-store", credentials:"same-origin"});
+    if (r.status === 200) { S.mode = "private"; S.me = await r.json(); startApp(); return; }
+    if (r.status === 401) { S.mode = "private"; showGate(); return; }
+  } catch {}
+  S.mode = "public";
+  startApp();
+})();
+</script>
+</body>
+</html>
