@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-07T08:46:01Z",
+ "generated": "2026-11-07T08:56:02Z",
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 3,
+ "detections_this_run": 15,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -111,12 +111,12 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-07T08:20:00Z"
+   "latest": "2026-11-07T08:30:00Z"
   },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-07T08:30:00Z"
+   "latest": "2026-11-07T08:45:00Z"
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
