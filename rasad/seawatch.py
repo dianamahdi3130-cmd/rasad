@@ -297,6 +297,11 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     cad = int(C["cadence_min"])
     km = float(C["km_per_px"])
     sun = float(C["sun_max_elev"])
+    platform_km = float(C["platform_km"])
+    if state.get("sea_platform_km") != platform_km:
+        # Recheck recent pictures under the new radius; keep candidates and heat history.
+        state["seawatch"] = {}
+        state["sea_platform_km"] = platform_km
     done = state.setdefault("seawatch", {})
     cands = state.setdefault("sea_candidates", [])
     pics = Pictures(wms)

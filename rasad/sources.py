@@ -49,6 +49,10 @@ def detect_geo_layer(wms, L, tile, t):
     img, actual = wms.getmap(L["name"], tile, W, H, t=t, style=L.get("style", ""), quiet=True)
     if img is None:
         return None
+    # WMS can substitute a nearby picture when the requested product is not ready.
+    # Leave this slot unread so the engine retries it when its own picture arrives.
+    if actual is not None and abs((actual - t).total_seconds()) > 120:
+        return None
     arr = np.asarray(img)
     mask = arr[..., 3] > 40
     if mask.mean() > 0.25:
@@ -64,7 +68,7 @@ def detect_geo_layer(wms, L, tile, t):
         out.append({"src": L["id"], "family": L["family"], "kind": "geo", "t": iso(when),
                     "lat": round(lat, 4), "lon": round(lon, 4), "frp": None,
                     # where to ask the server for this fire's strength, only if it matters
-                    "_fi": [L["name"], tile, W, H, c, r, iso(t)] if L.get("feature_info", True) else None})
+                    "_fi": [L["name"], tile, W, H, c, r, iso(when)] if L.get("feature_info", True) else None})
     return out
 
 

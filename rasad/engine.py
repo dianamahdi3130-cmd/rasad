@@ -100,7 +100,7 @@ DEFAULTS = {
         # low cloud or fog drifting off is not a fire: the speck must be hotter than the clear sea
         # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km)
         "min_above_sea": 3.0, "max_warm_extent_km": 8.0,
-        "min_coast_km": 3.0, "platform_km": 10.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
+        "min_coast_km": 3.0, "platform_km": 3.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
         "sun_max_elev": -6.0,
         # areas switched on only after a replay of a real night showed no false fires there
         # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and
@@ -478,9 +478,20 @@ def run_cycle(cfg, send=True, alert_now=False):
         # burns far hotter, not for farm areas that burn now and then
         steady = known and n_days >= max(3, math.ceil(0.5 * min(avail, int(M["window_days"]))))
         frp = d.get("frp")  # NASA gives the strength directly; European symbols are asked later
+        steady_facility = None
+        # A known European symbol needs its strength before it can be dismissed as routine.
+        # Limit these extra queries to steady heat at facilities, where a surge matters.
+        if steady and typical is not None and frp is None and d["kind"] == "geo" \
+                and frp_budget > 0 and d.get("_fi"):
+            steady_facility = geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"]))
+            if steady_facility:
+                frp_budget -= 1
+                fetch_frp(wms, d)
+                frp = d.get("frp")
         unusual = steady and frp is not None and typical is not None and \
             frp >= max(float(M["unusual_ratio"]) * typical, typical + float(M["unusual_add_mw"])) and \
-            geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"]))
+            (steady_facility if steady_facility is not None else
+             geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"])))
         routine = known and not unusual
         mem.record(d["lat"], d["lon"], day, frp)
         inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h)
