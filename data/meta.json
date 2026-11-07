@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-07T07:04:34Z",
+ "generated": "2026-11-07T07:14:34Z",
  "app_name": "رصد",
  "learning": false,
  "detections_this_run": 0,
@@ -111,7 +111,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-07T06:40:00Z"
+   "latest": "2026-11-07T06:50:00Z"
   },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
