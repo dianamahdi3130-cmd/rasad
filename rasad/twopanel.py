@@ -489,10 +489,9 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
             title = title[:-1]
         title = title.rstrip("، ") + "…"
     _text(d, (W // 2, 48), title, f_title, WHITE, anchor="mm", rtl=True)
-    region, country = info.get("region") or "", info.get("country") or ""
-    if region and country and (region in country or country in region):
-        region = ""
-    sub = " • ".join(x for x in (region, country) if x and x not in title)
+    # Monitoring boxes can span inland cities and seas; they are not incident locations.
+    country = str(info.get("country") or "").strip()
+    sub = country if country and country not in title else ""
     if sub:
         _text(d, (W // 2, 100), sub, f_sub, DIM, anchor="mm", rtl=True)
     overlay = _monitor_overlay(PW, PH)

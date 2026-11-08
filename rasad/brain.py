@@ -8,6 +8,7 @@ import re
 import statistics
 
 from .util import esc, haversine_km, local_text, parse_time, size_word
+from .updates import latest_reading, peak_reading
 
 CELL = 0.02  # ~2 km memory cells
 
@@ -306,7 +307,37 @@ def mw_ar(v):
     return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " MW"
 
 
-def alert_message(inc, cfg, update=False, threaded=False):
+def _strength_lines(inc, cfg, intensity=False, with_size=False):
+    peak, latest = peak_reading(inc), latest_reading(inc)
+    when, mw = peak if peak is not None else (None, None)
+    try:
+        stored = float(inc.get("max_frp"))
+        if math.isfinite(stored) and stored >= 0 and (mw is None or stored > mw):
+            when, mw = None, stored
+    except (TypeError, ValueError, OverflowError):
+        pass
+    if mw is None:
+        return []
+    text = f"🔥 <b>أعلى شدة مرصودة:</b> {mw_ar(mw)}"
+    if when:
+        text += " · " + local_text(parse_time(when), cfg, with_date=False)
+    if with_size and inc.get("size"):
+        text += f" · {inc['size']}"
+    lines = [text]
+    if intensity:
+        try:
+            previous = float(inc.get("alerted_max_frp"))
+            if math.isfinite(previous) and 0 <= previous < mw:
+                lines.append(f"📈 <b>منذ آخر تنبيه:</b> من {mw_ar(previous)} إلى {mw_ar(mw)}")
+        except (TypeError, ValueError, OverflowError):
+            pass
+    if latest is not None and latest[1] != mw:
+        lines.append(f"🌡 <b>آخر قراءة:</b> {mw_ar(latest[1])} · "
+                     + local_text(parse_time(latest[0]), cfg, with_date=False))
+    return lines
+
+
+def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video_update=False):
     """The channel post: a bold headline, one fact per line with a label, the coordinates to copy
     and the links on their own lines. Only a confirmed fire is called "مؤكد"; other grades are not
     named. An update that is sent as a reply to the first post only says what changed."""
@@ -318,13 +349,19 @@ def alert_message(inc, cfg, update=False, threaded=False):
     when = f"{start:%H:%M} بتوقيت {lt['name']}" + ("" if start.date() == now_local.date() else f" · {start:%Y/%m/%d}")
     lines = []
     if update:
-        lines.append("🔄 <b>تحديث: الحريق مؤكد الآن</b>" if sure else "🔄 <b>تحديث</b>")
+        newly_confirmed = sure and inc.get("alerted_verdict") != "مؤكد" and not video_update
+        if video_update:
+            lines.append("🔄 <b>فيديو محدث للحريق</b>")
+        elif intensity:
+            title = "تحديث: الحريق مؤكد الآن وارتفعت شدته" if newly_confirmed else "تحديث: ارتفاع شدة الحريق"
+            lines.append(f"🔄 <b>{title}</b>")
+        else:
+            lines.append("🔄 <b>تحديث: الحريق مؤكد الآن</b>" if newly_confirmed else "🔄 <b>تحديث</b>")
         if not threaded:
             lines.append(f"<b>{esc(bidi_safe(inc['headline']))}</b>")
-        if sure:
+        if newly_confirmed:
             lines.append(f"✅ {esc(bidi_safe(inc['reason']))}")
-        if inc.get("max_frp"):
-            lines.append(f"🔥 <b>الشدة:</b> {mw_ar(inc['max_frp'])}")
+        lines.extend(_strength_lines(inc, cfg, intensity=intensity))
         lines.append(f"🕒 <b>آخر رصد:</b> {local_text(parse_time(inc['last']), cfg, with_date=False)}")
         if not threaded:
             lines.append(f"<code>{inc['lat']:.4f}, {inc['lon']:.4f}</code>")
@@ -337,8 +374,7 @@ def alert_message(inc, cfg, update=False, threaded=False):
     lines.append("")
     lines.append(f"📍 <b>المكان:</b> {esc(bidi_safe(inc['where']))}")
     lines.append(f"🕒 <b>البداية:</b> {when}")
-    if inc.get("max_frp"):
-        lines.append(f"🔥 <b>الشدة:</b> {mw_ar(inc['max_frp'])}" + (f" · {inc['size']}" if inc.get("size") else ""))
+    lines.extend(_strength_lines(inc, cfg, with_size=True))
     f = inc.get("facility")
     if f:
         lines.append(f"🏭 <b>أقرب منشأة:</b> {esc(bidi_safe(f.get('label') or f['cat']))} · على بعد {f['km']:.0f} كم")

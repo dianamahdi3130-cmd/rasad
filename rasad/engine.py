@@ -18,13 +18,14 @@ from .geodb import Geo
 from . import seawatch
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
+from .updates import intensity_update_due, peak_reading
 from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse_time, save_json,
                    utcnow)
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
 RULES = 11  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 15  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 16  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 
 DEFAULTS = {
@@ -38,6 +39,7 @@ DEFAULTS = {
     "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
                "big_fire_mw": 50, "big_fire_far_mw": 100, "busy_area_days": 2, "faint_mw": 3,
                "max_new_per_run": 6, "max_age_hours": 8,
+               "intensity_ratio": 1.5, "intensity_add_mw": 25, "intensity_interval_min": 30,
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
                                    "عُمان", "إيران", "اليمن"]},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 100,
@@ -84,12 +86,11 @@ DEFAULTS = {
              # a speck longer than this is a streak (a cloud band's edge), not a fire; at sea at night
              # the speck must also be this much hotter (red, 0-255) than the clear sea around it
              "speck_max_extent_km": 8, "speck_above_sea": 8,
-             # wait for the first NASA measurement after the start (up to this long) so the clip
-             # can show the fire's strength
-             "measure_wait_min": 90},
+             # New measurements may arrive before their pictures: retry refreshed clips later.
+             "refresh_retry_min": 10},
     # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
     "seawatch": {
-        "enabled": True, "alerts": False, "look_back": True, "look_back_km_per_px": 0.5,
+        "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         "cadence_min": 10, "delay_min": 15, "slots_per_run": 6, "km_per_px": 0.5,
@@ -101,6 +102,7 @@ DEFAULTS = {
         # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km)
         "min_above_sea": 3.0, "max_warm_extent_km": 8.0,
         "min_coast_km": 3.0, "platform_km": 3.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
+        "sparkle_min_days": 3,
         "sun_max_elev": -6.0,
         # areas switched on only after a replay of a real night showed no false fires there
         # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and
@@ -241,7 +243,25 @@ def clip_layers(cfg):
     return [mtg, E["clip_layer"]]
 
 
-def clip_for(cfg, wms, S, inc):
+def clip_for(cfg, wms, S, inc, focus_time=None):
+    import hashlib
+    import json
+    from .updates import peak_reading
+
+    peak = peak_reading(inc)
+    focus = parse_time(focus_time) if focus_time is not None else \
+        (parse_time(peak[0]) if peak else None)
+    measurements = set()
+    rows = [r[:2] for r in inc.get("frp_series") or [] if isinstance(r, (list, tuple)) and len(r) >= 2]
+    rows += [[p.get("t"), p.get("frp")] for p in inc.get("polar") or [] if isinstance(p, dict)]
+    for when, value in rows:
+        try:
+            if value is not None and not isinstance(value, bool):
+                mw = float(value)
+                if math.isfinite(mw) and mw >= 0:
+                    measurements.add((iso(parse_time(when)), mw))
+        except (TypeError, ValueError, OverflowError):
+            continue
     err = "no pictures"
     for L in clip_layers(cfg):
         cad = int(L["cadence_min"])
@@ -250,28 +270,35 @@ def clip_for(cfg, wms, S, inc):
         if latest is None or utcnow() - latest > dt.timedelta(hours=STALE_HOURS):
             err = f"{L['name']}: no recent pictures"
             continue
+        if focus is not None and latest < floor_time(focus, cad):
+            err = f"{L['name']}: pictures of the new measurement are not ready"
+            continue
         C = cfg["clip"]
         after = int(C.get("frames_after", 2))
         start = floor_time(parse_time(inc["first"]), cad)
         t_end = start + dt.timedelta(minutes=cad * after)
-        # run on to the first strength measurement if it comes soon after the start
-        wait = dt.timedelta(minutes=float(C.get("measure_wait_min", 90)))
-        meas = [parse_time(r[0]) for r in inc.get("frp_series") or []] + \
-               [parse_time(p["t"]) for p in inc.get("polar") or [] if p.get("frp") is not None]
-        meas = [t for t in meas if start <= t <= start + wait]
-        if meas:
-            t_end = max(t_end, floor_time(min(meas), cad) + dt.timedelta(minutes=cad))
+        # Include the strongest recorded measurement even when it arrives hours after the
+        # start. The frame cap below keeps a long-running incident's update near its peak.
+        if focus is not None:
+            t_end = max(t_end, floor_time(focus, cad) + dt.timedelta(minutes=cad))
         t_end = min(latest, t_end)
         n_before = max(2, int(C.get("frames", 8)) - after - 1)
         frames = min(16, n_before + 1 + max(0, int((t_end - start).total_seconds() // (cad * 60))))
-        base = Path(cfg["_site_dir"]) / "clips" / inc["id"]
         fac = inc.get("facility")
         info = {"where": inc.get("where"), "region": inc.get("region_name"), "verdict": inc.get("verdict"),
                 "country": inc.get("country"), "place": inc.get("place"),
                 "size": inc.get("size"), "first": inc.get("first"),
-                "frp": [[r[0], r[1]] for r in inc.get("frp_series") or []] or
-                       [[p["t"], p["frp"]] for p in inc.get("polar") or [] if p.get("frp") is not None],
+                "frp": [list(r) for r in sorted(measurements)],
                 "facility": fac["text"] if fac and fac.get("km", 99) <= 15 else None}
+        # The cloud publisher uploads new names only. A changed clip must have a new
+        # content revision so an existing remote video and browser cache cannot hide it.
+        revision = {"style": CLIP_STYLE, "layer": L["name"], "end": iso(t_end),
+                    "info": info,
+                    "where": inc.get("where"), "verdict": inc.get("verdict"),
+                    "first": inc.get("first"), "last": inc.get("last"),
+                    "frp": info["frp"], "polar": inc.get("polar") or []}
+        digest = hashlib.sha256(json.dumps(revision, sort_keys=True, default=str).encode()).hexdigest()[:12]
+        base = Path(cfg["_site_dir"]) / "clips" / f"{inc['id']}-{digest}"
         try:
             return make_clip(dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L)), wms,
                              inc["lat"], inc["lon"], t_end, base, frames=frames, info=info)
@@ -282,23 +309,55 @@ def clip_for(cfg, wms, S, inc):
     raise err if isinstance(err, Exception) else RuntimeError(err)
 
 
-def add_clip(cfg, wms, S, inc, now):
-    """Make the satellite clip of an incident once (retried later if the pictures were not ready)."""
-    if not cfg["clip"].get("enabled", True) or inc.get("clip"):
-        return
-    tried = inc.get("clip_tried")
-    if tried and now - parse_time(tried) < dt.timedelta(minutes=60):
-        return
-    inc["clip_tried"] = iso(now)
+def add_clip(cfg, wms, S, inc, now, refresh=False):
+    """Make or refresh a clip; preserve the previous usable media if a refresh fails."""
+    from .updates import peak_reading
+
+    if not cfg["clip"].get("enabled", True):
+        return False
+    refresh = refresh or bool(inc.get("clip_needs_refresh"))
+    peak = peak_reading(inc)
+    if inc.get("clip"):
+        if not refresh:
+            return True
+        try:
+            up_to_date = ((Path(cfg["_site_dir"]) / inc["clip"]).is_file()
+                          and inc.get("clip_style") == CLIP_STYLE
+                          and inc.get("clip_peak_time") == (peak[0] if peak else None)
+                          and float(inc.get("clip_max_frp")) >= float(inc.get("max_frp") or 0))
+        except (TypeError, ValueError):
+            up_to_date = False
+        if up_to_date:
+            inc.pop("clip_needs_refresh", None)
+            return True
+    tried_key = "clip_refresh_tried" if refresh else "clip_tried"
+    tried = inc.get(tried_key)
+    retry_min = float(cfg["clip"].get("refresh_retry_min", 10)) if refresh else 60
+    if tried and now - parse_time(tried) < dt.timedelta(minutes=retry_min):
+        return False
+    inc[tried_key] = iso(now)
     try:
-        video, snap = clip_for(cfg, wms, S, inc)
+        if refresh:
+            video, snap = clip_for(cfg, wms, S, inc, focus_time=peak[0] if peak else inc["last"])
+        else:
+            video, snap = clip_for(cfg, wms, S, inc)
         site = Path(cfg["_site_dir"])
-        inc["clip"] = video.relative_to(site).as_posix()
-        inc["snap"] = snap.relative_to(site).as_posix()
+        # Replace both references only once rendering has succeeded.
+        video_name = Path(video).relative_to(site).as_posix()
+        snap_name = Path(snap).relative_to(site).as_posix()
+        inc["clip"], inc["snap"] = video_name, snap_name
+        inc["clip_max_frp"] = inc.get("max_frp")
+        inc["clip_peak_time"] = peak[0] if peak else None
+        inc["clip_updated_at"], inc["clip_style"] = iso(now), CLIP_STYLE
+        inc.pop("clip_needs_refresh", None)
         inc.pop("clip_note", None)
         if inc.pop("unseen_close", None):
             finalize(inc, cfg)
+        return True
     except NotVisible:
+        if refresh:
+            log.info("updated clip for %s: the new heat is not visible yet; keeping previous media", inc["id"])
+            return False
         if inc.get("srcs") and set(inc["srcs"]) <= {seawatch.SRC}:
             # found by Rasad's own sea finder only, and the closer look does not show it either
             inc["clip_note"] = ("وجده الباحث الحراري في صور القمر الأوروبي، لكنه لا يظهر بوضوح عند التدقيق في "
@@ -311,7 +370,28 @@ def add_clip(cfg, wms, S, inc, now):
             inc["clip_note"] = "لا يظهر هذا الحريق بوضوح في الصور القريبة للقمر الأوروبي، وننتظر مرور قمر أمريكي"
         log.info("clip for %s: the fire does not show in the European pictures", inc["id"])
     except Exception as e:  # noqa: BLE001
+        if not refresh:
+            inc["clip_note"] = "تعذر تجهيز الفيديو حالياً؛ ستُعاد المحاولة تلقائياً عند توفر صور صالحة"
         log.warning("clip for %s failed: %s", inc["id"], e)
+    return False
+
+
+def _sent_peak(inc):
+    """Snapshot the peak actually included in a successful post, not its latest sample."""
+    peak = peak_reading(inc)
+    values = [peak[1]] if peak is not None else []
+    try:
+        value = float(inc.get("max_frp"))
+        if math.isfinite(value) and value >= 0:
+            values.append(value)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return max(values) if values else None
+
+
+def _remember_post(inc, now):
+    inc["alerted_max_frp"] = _sent_peak(inc)
+    inc["alert_updated_at"] = iso(now)
 
 
 def run_cycle(cfg, send=True, alert_now=False):
@@ -548,10 +628,12 @@ def run_cycle(cfg, send=True, alert_now=False):
         else:
             log.info("look back %s: nothing on Meteosat-12 before NASA's pass", inc["id"])
         return True
-    # clips in an older look are dropped before any alert, so an alert never carries an old clip
+    # Refresh old presentation without removing a usable clip before its replacement exists.
     if S.state.get("clip_style") != CLIP_STYLE:
         for inc in S.incidents:
-            for k in ("clip", "snap", "clip_tried"):
+            if (inc.get("clip") or inc.get("snap")) and now - parse_time(inc["last"]) <= dt.timedelta(days=2):
+                inc["clip_needs_refresh"] = True
+            for k in ("clip_tried", "clip_refresh_tried"):
                 inc.pop(k, None)
         S.state["clip_style"] = CLIP_STYLE
     if S.state.get("sea_check") != SEA_CHECK:
@@ -589,9 +671,14 @@ def run_cycle(cfg, send=True, alert_now=False):
         S.state["rules"] = RULES
         log.info("re-judged stored incidents with the current rules: %d kept, %d dropped", len(keep), dropped)
     for inc in S.incidents:
+        if inc.get("status") == "alerted" and "alerted_max_frp" not in inc:
+            # Earlier releases did not save the sent strength. Do not invent its value
+            # or flood the channel with historical increases on the first upgraded run.
+            inc["alerted_max_frp"] = _sent_peak(inc)
+            inc.setdefault("alert_updated_at", inc.get("alerted_at") or iso(now))
         recent = now - parse_time(inc["last"]) <= dt.timedelta(hours=24)
         stale_map = recent and (inc.get("_pos") or [None])[-1] != geo.version
-        if inc["id"] not in touched and not (recent and inc.get("status") == "pending") \
+        if inc["id"] not in touched and not (recent and inc.get("status") in ("pending", "alerted")) \
                 and not stale_map and not rejudge:
             continue
         if inc.get("place") == "sea":  # another fire confirmed close by shortly before this one
@@ -612,10 +699,13 @@ def run_cycle(cfg, send=True, alert_now=False):
                 log.info("not alerting %s: its newest evidence is older than %s", inc["id"], max_age)
                 continue
             first_alerts.append(inc)
-        elif inc.get("alerted_verdict") and rank > VERDICT_RANK[inc["alerted_verdict"]]:
+        elif inc.get("alerted_verdict"):
+            verdict_changed = rank > VERDICT_RANK[inc["alerted_verdict"]]
+            intensity_changed = intensity_update_due(inc, cfg, now)
             if inc.get("status") == "alerted" and now - parse_time(inc["last"]) <= max_age:
-                updates.append(inc)  # only for news that was really sent, and only while it is fresh
-            else:
+                if verdict_changed or intensity_changed:
+                    updates.append((inc, intensity_changed))
+            elif verdict_changed:
                 inc["alerted_verdict"] = inc["verdict"]  # remember it quietly: the app shows it
 
     # safety valve: many "new" fires at once usually means the memory is not ready, not a war
@@ -635,23 +725,54 @@ def run_cycle(cfg, send=True, alert_now=False):
     for inc in first_alerts:
         inc["status"] = "pending"
         media = None
-        add_clip(cfg, wms, S, inc, now)
-        if inc.get("clip"):
+        ready = add_clip(cfg, wms, S, inc, now)
+        if ready and inc.get("clip"):
             media = Path(cfg["_site_dir"]) / inc["clip"]
         sent = deliver(cfg, session, alert_message(inc, cfg), media, send)
         if sent:
             S.sent = True
             inc["alerted_verdict"], inc["status"], inc["alerted_at"] = inc["verdict"], "alerted", iso(now)
+            _remember_post(inc, now)
             if sent is not True:
                 inc["tg_msg"] = sent  # updates answer this post
             log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
-    for inc in updates:
+    updated_ids = set()
+    for inc, intensity in updates:
+        updated_ids.add(inc["id"])
         first_post = inc.get("tg_msg")
-        if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post)), None, send,
+        media = None
+        if intensity and add_clip(cfg, wms, S, inc, now, refresh=True) and inc.get("clip"):
+            path = Path(cfg["_site_dir"]) / inc["clip"]
+            if path.exists():
+                media = path
+        if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post),
+                                               intensity=intensity), media, send,
                    reply_to=first_post):
             S.sent = True
             inc["alerted_verdict"] = inc["verdict"]
-            log.info("UPDATE %s -> %s", inc["id"], inc["verdict"])
+            _remember_post(inc, now)
+            if intensity:
+                inc["clip_video_pending"] = bool(cfg["clip"].get("enabled", True) and media is None)
+            log.info("UPDATE %s -> %s%s", inc["id"], inc["verdict"], " (stronger)" if intensity else "")
+
+    # If the newest pictures were late, the strength update went out immediately as text.
+    # Retry its media separately without repeating the same rise notification every run.
+    for inc in S.incidents:
+        if inc["id"] in updated_ids or not inc.get("clip_video_pending") \
+                or inc.get("status") != "alerted" or inc.get("priority") != "high" \
+                or now - parse_time(inc["last"]) > max_age:
+            continue
+        if not add_clip(cfg, wms, S, inc, now, refresh=True) or not inc.get("clip"):
+            continue
+        media = Path(cfg["_site_dir"]) / inc["clip"]
+        if not media.exists():
+            continue
+        first_post = inc.get("tg_msg")
+        if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post),
+                                               video_update=True), media, send, reply_to=first_post):
+            S.sent = True
+            inc["clip_video_pending"] = False
+            _remember_post(inc, now)
 
     # sea incidents found before the look-back existed, or not touched in this run
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
@@ -665,10 +786,13 @@ def run_cycle(cfg, send=True, alert_now=False):
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
         if budget <= 0:
             break
-        if inc.get("priority") == "high" and not inc.get("clip") and \
+        needs_refresh = bool(inc.get("clip_needs_refresh"))
+        if inc.get("priority") == "high" and (not inc.get("clip") or needs_refresh) and \
                 now - parse_time(inc["last"]) <= dt.timedelta(days=2):
-            if not inc.get("clip_tried") or now - parse_time(inc["clip_tried"]) >= dt.timedelta(minutes=60):
-                add_clip(cfg, wms, S, inc, now)
+            tried = inc.get("clip_refresh_tried" if needs_refresh else "clip_tried")
+            retry = float(cfg["clip"].get("refresh_retry_min", 10)) if needs_refresh else 60
+            if not tried or now - parse_time(tried) >= dt.timedelta(minutes=retry):
+                add_clip(cfg, wms, S, inc, now, refresh=needs_refresh)
                 budget -= 1
 
     # 5) tidy up and publish
@@ -695,12 +819,26 @@ def run_cycle(cfg, send=True, alert_now=False):
 
 PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "start_text", "last_text",
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
-          "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series"]
+          "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
+          "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp"]
 
 
 def publish(cfg, S, status, now, learning, n_dets):
     site = Path(cfg["_site_dir"])
     items = [{k: i.get(k) for k in PUBLIC} for i in S.incidents if i.get("headline")]
+    for item in items:
+        if item.get("clip_video_pending") or item.get("clip_needs_refresh"):
+            item["clip_status_text"] = "يجري تجهيز فيديو محدث وفق القياسات الجديدة"
+        elif item.get("clip"):
+            item["clip_status_text"] = ""
+        elif not cfg["clip"].get("enabled", True):
+            item["clip_status_text"] = "إنشاء الفيديو غير مفعّل حالياً"
+        elif item.get("clip_note"):
+            item["clip_status_text"] = item["clip_note"]
+        elif item.get("priority") == "high" and now - parse_time(item["last"]) <= dt.timedelta(days=2):
+            item["clip_status_text"] = "الفيديو قيد التجهيز؛ سيظهر عند توفر صور صالحة"
+        else:
+            item["clip_status_text"] = "لا يتوفر فيديو لهذا الحدث حالياً"
     items.sort(key=lambda i: i["last"], reverse=True)
     # every important incident, but only the latest small ones, so the app stays light on a phone
     low = [i for i in items if i["priority"] != "high"][250:]

@@ -298,10 +298,13 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     km = float(C["km_per_px"])
     sun = float(C["sun_max_elev"])
     platform_km = float(C["platform_km"])
-    if state.get("sea_platform_km") != platform_km:
-        # Recheck recent pictures under the new radius; keep candidates and heat history.
+    sparkle_min_days = max(1, int(C.get("sparkle_min_days", 3)))
+    if (state.get("sea_platform_km") != platform_km
+            or state.get("sea_sparkle_min_days") != sparkle_min_days):
+        # Recheck recent pictures under changed filters; keep candidates and heat history.
         state["seawatch"] = {}
         state["sea_platform_km"] = platform_km
+        state["sea_sparkle_min_days"] = sparkle_min_days
     done = state.setdefault("seawatch", {})
     cands = state.setdefault("sea_candidates", [])
     pics = Pictures(wms)
@@ -309,7 +312,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []
     live = [b for b in C["boxes"] if b.get("enabled", True)]
-    sparkle = state.setdefault("sea_sparkle", {})  # ~5 km cell -> days a speck was seen there
+    sparkle = state.setdefault("sea_sparkle", {})  # ~5 km cell -> nights a speck was seen there
     span = max(int(C["slots_per_run"]), int(round(float(C.get("catchup_hours", 3)) * 60 / cad)))
     per_run, budget, t_start = int(C["slots_per_run"]), float(C.get("budget_s", 240)), time.time()
     probe = box_around(26.3, 56.6, 10)   # one tiny picture over the strait answers for the whole view
@@ -348,17 +351,19 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                 log.info("sea watch %s %s: %s", box["id"], iso(t), notes)
                 continue  # the download failed: try again next run
             done[key] = iso(t)
-            day = t.date().isoformat()
+            # One night spans midnight: adjacent pictures of a new fire must not
+            # become prior-night evidence against each other.
+            night = (t - dt.timedelta(hours=12)).date().isoformat()
             for sp in spots:
                 pair = confirm(cands, sp)
                 cands.append({k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")})
                 ci, cj = math.floor(sp["lat"] / 0.05), math.floor(sp["lon"] / 0.05)
                 before = {d for di in (-1, 0, 1) for dj in (-1, 0, 1)
-                          for d in sparkle.get(f"{ci + di},{cj + dj}", []) if d < day}
+                          for d in sparkle.get(f"{ci + di},{cj + dj}", []) if d < night}
                 sparkle.setdefault(f"{ci},{cj}", [])
-                if day not in sparkle[f"{ci},{cj}"]:
-                    sparkle[f"{ci},{cj}"].append(day)
-                if pair and before:
+                if night not in sparkle[f"{ci},{cj}"]:
+                    sparkle[f"{ci},{cj}"].append(night)
+                if pair and len(before) >= sparkle_min_days:
                     log.info("sea watch: specks at %.3f,%.3f again (also on %s): a flare, not news",
                              sp["lat"], sp["lon"], ", ".join(sorted(before)))
                 elif pair:
