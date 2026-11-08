@@ -103,6 +103,7 @@ main{display:grid;grid-template-columns:1fr}
 .stripe{border-radius:6px;background:var(--check)}
 .card h3{margin:0 0 2px;font:600 16px/1.45 var(--font-display);text-wrap:balance}
 .card .where{color:var(--muted);font-size:14px}
+.card .strength{display:block;margin-top:8px;font-size:15px;font-weight:600;color:var(--fg)}
 .meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:13px}
 .tag{border-radius:6px;padding:1px 8px;background:var(--surface-2);color:var(--muted)}
 .badge{border-radius:6px;padding:1px 8px;font-weight:600;color:#111}
@@ -369,6 +370,21 @@ function mwText(v){
   if (v == null || isNaN(v)) return "";
   return (v < 10 ? (Math.round(v * 10) / 10) : Math.round(v)) + " MW";
 }
+function cardStrengthText(it){
+  const measured = value => {
+    if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())) return null;
+    const mw = Number(value);
+    return Number.isFinite(mw) && mw >= 0 ? mw : null;
+  };
+  let peak = measured(it.max_frp);
+  if (peak === null){
+    for (const row of Array.isArray(it.frp_series) ? it.frp_series : []){
+      const mw = Array.isArray(row) ? measured(row[1]) : null;
+      if (mw !== null) peak = peak === null ? mw : Math.max(peak, mw);
+    }
+  }
+  return peak === null ? "الشدة غير متاحة" : "أعلى شدة " + mwText(peak);
+}
 function latestMeasure(it){   // the newest strength measurement [time, MW], if the data has them
   const s = it.frp_series || [];
   return s.length ? s[s.length - 1] : null;
@@ -437,8 +453,11 @@ function renderChips(){
   $("#chips").innerHTML = regions.map(r => `<button class="chip" type="button" data-id="${esc(r.id)}" aria-pressed="${r.id===S.region}">${esc(r.name)}</button>`).join("");
 }
 function visible(hours = S.hours){
+  const lastTime = it => Number.isFinite(Date.parse(it.last)) ? Date.parse(it.last) : 0;
+  const startTime = it => Number.isFinite(Date.parse(it.first)) ? Date.parse(it.first) : lastTime(it);
   return S.items.filter(it => (S.region==="all" || (it.regions||[]).includes(S.region)) && (!S.important || it.priority==="high")
-    && recent(it, hours));
+    && recent(it, hours)).sort((a, b) => startTime(b) - startTime(a) || lastTime(b) - lastTime(a)
+      || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
 }
 const PERIOD_AR = {24:"آخر 24 ساعة", 72:"آخر 3 أيام", 168:"آخر أسبوع"};
 function render(){
@@ -462,10 +481,11 @@ function render(){
         <span>
           <h3>${bidi(it.headline)}</h3>
           <span class="where">${bidi(it.where||"")}</span>
+          <span class="strength">${esc(cardStrengthText(it))}</span>
           <span class="meta">
             ${sure(it) ? `<span class="badge v-sure">مؤكد</span>` : ""}
-            <span class="tag">${ago(it.first)}</span>
-            ${it.max_frp != null ? `<span class="tag">${esc(mwText(it.max_frp))}</span>` : it.size ? `<span class="tag">حجمه ${esc(it.size)}</span>` : ""}
+            <span class="tag">${Number.isFinite(Date.parse(it.first)) ? "بدأ " + ago(it.first) : "آخر رصد " + ago(it.last)}</span>
+            ${it.max_frp == null && it.size ? `<span class="tag">حجمه ${esc(it.size)}</span>` : ""}
             ${it.facility ? `<span class="tag">${esc(Math.round(it.facility.km))} كم من ${esc(it.facility.cat)}</span>` : ""}
           </span>
         </span>

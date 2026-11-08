@@ -17,6 +17,9 @@ FAMILY_AR = {"mtg": "أوروبي", "msg_iodc": "أوروبي ثانٍ", "viirs"
 VERDICT_RANK = {"يحتاج تأكيداً": 0, "مرجّح": 1, "مؤكد": 2}
 VERDICT_ICON = {"مؤكد": "🔴", "مرجّح": "🟠", "يحتاج تأكيداً": "🟡"}
 PLACE_AR = {"sea": "في البحر", "coast": "على الساحل", "land": "على اليابسة", "unknown": ""}
+OWN_SEA_SOURCES = frozenset({"mtg_spot", "mtg_day_spot"})
+OFFICIAL_GEO_SOURCES = frozenset({"mtg_frp", "iodc_fire"})
+NASA_FAMILIES = frozenset({"viirs", "modis", "landsat"})
 
 
 # ----------------------------------------------------------------- memory of normal heat
@@ -77,6 +80,12 @@ def add_to_incident(inc, det):
     inc["last"] = max(inc["last"], det["t"])
     inc["n"] += 1
     srcs = inc.setdefault("srcs", [])
+    if "own_night_slots" not in inc and set(srcs) == {"mtg_spot"}:
+        # Older state stored only the combined geo times. Before another source joins,
+        # these times are known to belong to the original night finder alone.
+        inc["own_night_slots"] = sorted(set(inc["geo_slots"]))[-60:]
+    if det["src"] == "mtg_spot" and det["kind"] == "geo":
+        inc["own_night_slots"] = sorted(set(inc.get("own_night_slots") or []) | {det["t"]})[-60:]
     if det["src"] not in srcs:
         srcs.append(det["src"])
     if det["family"] not in inc["families"]:
@@ -120,12 +129,23 @@ def verdict_of(inc):
     fams = inc["families"]
     slots = len(inc["geo_slots"])
     names = "، ".join(sorted({FAMILY_AR.get(f, f) for f in fams}))
+    srcs = set(inc.get("srcs") or [])
+    if day_requires_confirmation(inc):
+        # Daylight can brighten the short-wave channel through reflected sunlight.
+        # Repeated pictures or a weak/unknown NASA detection cannot establish fire.
+        return "يحتاج تأكيداً", "بقعة حرارية نهارية تجريبية، تحتاج تأكيداً من مصدر مستقل"
+    if "mtg_day_spot" in srcs and not _day_corroborated(inc):
+        # Experimental day pictures cannot weaken established night evidence or
+        # promote it through their own slot count or low-confidence polar families.
+        night_slots = len(set(inc.get("own_night_slots") or []))
+        return "مرجّح", (f"وجده الباحث الحراري ليلاً في "
+                         f"{count_ar(night_slots, 'صورة', 'صورتين متتاليتين', 'صور متتالية')} "
+                         "للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
     if len(fams) >= 2:
         return "مؤكد", f"رصده {count_ar(len(fams), 'قمر', 'قمران مختلفان', 'أقمار مختلفة')} ({names})"
     if sea_finder_doubt(inc):
         return "يحتاج تأكيداً", "وجده الباحث الحراري في صورتين، لكنه لم يظهر بوضوح عند التدقيق"
-    srcs = set(inc.get("srcs") or [])
-    if slots >= 2 and srcs and srcs <= {"mtg_spot"}:
+    if slots >= 2 and srcs and srcs <= OWN_SEA_SOURCES:
         # Rasad's own sea finder alone, on one satellite's pictures: those pictures sometimes carry
         # small blocks and streaks that look like new heat, so it is never "confirmed" by itself
         return "مرجّح", (f"وجده الباحث الحراري في {count_ar(slots, 'صورة', 'صورتين متتاليتين', 'صور متتالية')} "
@@ -154,7 +174,43 @@ def verdict_of(inc):
 def sea_finder_doubt(inc):
     """Only Rasad's sea finder saw it, and the closer look at the pictures did not show it."""
     srcs = set(inc.get("srcs") or [])
-    return bool(inc.get("unseen_close")) and bool(srcs) and srcs <= {"mtg_spot"}
+    return bool(inc.get("unseen_close")) and bool(srcs) and srcs <= OWN_SEA_SOURCES
+
+
+def day_source_only(inc):
+    """Only the experimental daytime sea finder has observed this incident."""
+    srcs = set(inc.get("srcs") or [])
+    return bool(srcs) and srcs <= {"mtg_day_spot"}
+
+
+def day_requires_confirmation(inc):
+    """Daytime evidence alone cannot establish a fire or erase valid night evidence."""
+    return ("mtg_day_spot" in (inc.get("srcs") or [])
+            and not _day_corroborated(inc) and not _night_finder_supported(inc))
+
+
+def _night_finder_supported(inc):
+    """Two distinct night observations retain the existing probable-fire verdict."""
+    return ("mtg_spot" in (inc.get("srcs") or []) and not inc.get("unseen_close")
+            and len(set(inc.get("own_night_slots") or [])) >= 2)
+
+
+def _day_corroborated(inc):
+    """Daylight candidates need an official fire product or clear NASA evidence."""
+    if set(inc.get("srcs") or []) & OFFICIAL_GEO_SOURCES:
+        return True
+    if not set(inc.get("families") or []) & NASA_FAMILIES:
+        return False
+    for p in inc.get("polar") or []:
+        c = str(p.get("conf") if p.get("conf") is not None else "").strip().lower()
+        if c in {"n", "nominal", "h", "high"}:
+            return True
+        try:
+            if float(c) >= 40:
+                return True
+        except ValueError:
+            pass
+    return False
 
 
 def _clear(p):
@@ -206,6 +262,8 @@ def headline(inc, cfg):
     f = inc.get("facility")
     region = inc.get("region_name")
     near = float(cfg["alerts"]["near_facility_km"])
+    if day_requires_confirmation(inc):
+        return "بقعة حرارية نهارية في البحر" + (f" قرب {region}" if region else "")
     if inc["kind"] == "unusual":
         return f"حرارة غير معتادة في {f['label']}" if f else "حرارة غير معتادة في موقع صناعي"
     if f and f["km"] < 0.8:
@@ -307,7 +365,7 @@ def mw_ar(v):
     return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " MW"
 
 
-def _strength_lines(inc, cfg, intensity=False, with_size=False):
+def _strength_lines(inc, cfg, intensity=False, with_size=False, with_date=False):
     peak, latest = peak_reading(inc), latest_reading(inc)
     when, mw = peak if peak is not None else (None, None)
     try:
@@ -320,7 +378,7 @@ def _strength_lines(inc, cfg, intensity=False, with_size=False):
         return []
     text = f"🔥 <b>أعلى شدة مرصودة:</b> {mw_ar(mw)}"
     if when:
-        text += " · " + local_text(parse_time(when), cfg, with_date=False)
+        text += " · " + local_text(parse_time(when), cfg, with_date=with_date)
     if with_size and inc.get("size"):
         text += f" · {inc['size']}"
     lines = [text]
@@ -333,11 +391,11 @@ def _strength_lines(inc, cfg, intensity=False, with_size=False):
             pass
     if latest is not None and latest[1] != mw:
         lines.append(f"🌡 <b>آخر قراءة:</b> {mw_ar(latest[1])} · "
-                     + local_text(parse_time(latest[0]), cfg, with_date=False))
+                     + local_text(parse_time(latest[0]), cfg, with_date=with_date))
     return lines
 
 
-def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video_update=False):
+def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video_update=False, delayed=False):
     """The channel post: a bold headline, one fact per line with a label, the coordinates to copy
     and the links on their own lines. Only a confirmed fire is called "مؤكد"; other grades are not
     named. An update that is sent as a reply to the first post only says what changed."""
@@ -349,8 +407,11 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     when = f"{start:%H:%M} بتوقيت {lt['name']}" + ("" if start.date() == now_local.date() else f" · {start:%Y/%m/%d}")
     lines = []
     if update:
-        newly_confirmed = sure and inc.get("alerted_verdict") != "مؤكد" and not video_update
-        if video_update:
+        newly_confirmed = sure and inc.get("alerted_verdict") != "مؤكد" and not video_update and not delayed
+        if delayed:
+            title = "فيديو محدث لقياسات سابقة للحريق" if video_update else "تحديث متأخر لقياسات الحريق"
+            lines.append(f"🔄 <b>{title}</b>")
+        elif video_update:
             lines.append("🔄 <b>فيديو محدث للحريق</b>")
         elif intensity:
             title = "تحديث: الحريق مؤكد الآن وارتفعت شدته" if newly_confirmed else "تحديث: ارتفاع شدة الحريق"
@@ -361,8 +422,10 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
             lines.append(f"<b>{esc(bidi_safe(inc['headline']))}</b>")
         if newly_confirmed:
             lines.append(f"✅ {esc(bidi_safe(inc['reason']))}")
-        lines.extend(_strength_lines(inc, cfg, intensity=intensity))
-        lines.append(f"🕒 <b>آخر رصد:</b> {local_text(parse_time(inc['last']), cfg, with_date=False)}")
+        lines.extend(_strength_lines(inc, cfg, intensity=intensity, with_date=delayed))
+        lines.append(f"🕒 <b>آخر رصد:</b> {local_text(parse_time(inc['last']), cfg, with_date=delayed)}")
+        if delayed:
+            lines.append("القياسات المذكورة سابقة وليست رصداً جديداً الآن")
         if not threaded:
             lines.append(f"<code>{inc['lat']:.4f}, {inc['lon']:.4f}</code>")
         if cfg.get("app_url"):

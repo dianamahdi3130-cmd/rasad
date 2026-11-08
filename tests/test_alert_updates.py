@@ -92,6 +92,9 @@ class AlertUpdateIntegrationTests(unittest.TestCase):
             incident[field] = name
         incident["clip_max_frp"] = peak[1]
         incident["clip_peak_time"] = peak[0]
+        incident["clip_style"] = engine.CLIP_STYLE
+        incident["clip_updated_at"] = iso(now)
+        incident.pop("clip_needs_refresh", None)
         return True
 
     def cycle(self):
@@ -129,7 +132,8 @@ class AlertUpdateIntegrationTests(unittest.TestCase):
         self.now += dt.timedelta(minutes=45)
         self.cycle()
         self.deliver.assert_called_once()
-        self.render.assert_called_once()
+        self.assertEqual(self.render.call_count, 2, "the website clip follows new readings independently of posts")
+        self.assertEqual(self.incident()["clip_max_frp"], 181)
         self.assertEqual(self.incident()["alerted_max_frp"], 164)
 
     def test_failed_delivery_keeps_baseline_and_retries_without_new_detection(self):
@@ -149,7 +153,7 @@ class AlertUpdateIntegrationTests(unittest.TestCase):
         self.change_incident(alert_updated_at="2026-11-08T11:45:00Z")
         self.cycle()
         self.deliver.assert_not_called()
-        self.render.assert_not_called()
+        self.render.assert_called_once()  # Website media can refresh during the notification cooldown.
         self.now += dt.timedelta(minutes=15)
         self.cycle()
         self.deliver.assert_called_once()
@@ -163,8 +167,9 @@ class AlertUpdateIntegrationTests(unittest.TestCase):
         self.assertEqual(incident["alerted_max_frp"], 164)
 
     def test_old_peak_with_fresh_incident_last_does_not_send_update(self):
-        self.change_incident(frp_series=[["2026-11-08T02:00:00Z", 164, "mtg"],
-                                        ["2026-11-08T11:50:00Z", 51, "mtg"]])
+        self.change_incident(frp_series=[["2026-11-07T10:00:00Z", 164, "mtg"],
+                                        ["2026-11-08T11:50:00Z", 51, "mtg"]],
+                             clip_max_frp=164, clip_peak_time="2026-11-07T10:00:00Z")
         self.cycle()
         self.deliver.assert_not_called()
         self.render.assert_not_called()
@@ -232,6 +237,39 @@ class AlertUpdateIntegrationTests(unittest.TestCase):
         published = load_json(self.cfg["_site_dir"] / "data" / "incidents.json", {})["items"][0]
         self.assertEqual(published["clip"], self.old_clip)
         self.assertTrue(published["clip_status_text"])
+
+    def test_small_sea_fire_increase_sends_update(self):
+        self.change_incident(max_frp=13.39, alerted_max_frp=2.41,
+                             frp_series=[["2026-11-08T10:10:00Z", 2.41, "viirs"],
+                                         ["2026-11-08T11:50:00Z", 13.39, "viirs"]],
+                             clip_max_frp=2.41)
+        incident = self.cycle()
+        self.deliver.assert_called_once()
+        self.assertIn("ارتفاع شدة الحريق", self.deliver.call_args.args[2])
+        self.assertNotIn("متأخر", self.deliver.call_args.args[2])
+        self.assertEqual(incident["alerted_max_frp"], 13.39)
+        self.assertEqual(incident["clip_max_frp"], 13.39)
+
+    def test_actual_oman_update_after_eleven_hours_is_labeled_and_sent_once(self):
+        self.change_incident(first="2026-11-07T22:09:00Z", last="2026-11-07T23:05:00Z",
+                             max_frp=13.39, alerted_max_frp=2.41,
+                             alerted_at="2026-11-08T00:00:13Z", alert_updated_at="2026-11-08T00:00:13Z",
+                             frp_series=[["2026-11-07T22:09:00Z", 2.4, "viirs"],
+                                         ["2026-11-07T23:05:00Z", 13.4, "viirs"]],
+                             polar=[{"t": "2026-11-07T23:05:00Z", "frp": 13.39}],
+                             clip_max_frp=2.41, clip_peak_time="2026-11-07T22:09:00Z")
+        incident = self.cycle()
+        self.deliver.assert_called_once()
+        message = self.deliver.call_args.args[2]
+        self.assertIn("تحديث متأخر لقياسات الحريق", message)
+        self.assertIn("2026-11-08 الساعة 02:05", message)
+        self.assertIn("ليست رصداً جديداً الآن", message)
+        self.assertEqual(self.deliver.call_args.kwargs["reply_to"], 123)
+        self.assertIsNotNone(self.deliver.call_args.args[3])
+        self.assertEqual(incident["alerted_max_frp"], 13.4)
+        self.assertEqual(incident["clip_peak_time"], "2026-11-07T23:05:00Z")
+        self.cycle()
+        self.deliver.assert_called_once()
 
 
 if __name__ == "__main__":

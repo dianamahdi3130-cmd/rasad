@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
-                    nearby_confirmed, new_incident)
+                    nearby_confirmed, new_incident, day_requires_confirmation)
 from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
@@ -24,8 +24,8 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 11  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 16  # bump when clips change look, so the app's clips are made again
+RULES = 13  # bump when the importance rules change, so stored incidents are judged again
+CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 
 DEFAULTS = {
@@ -39,10 +39,11 @@ DEFAULTS = {
     "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
                "big_fire_mw": 50, "big_fire_far_mw": 100, "busy_area_days": 2, "faint_mw": 3,
                "max_new_per_run": 6, "max_age_hours": 8,
-               "intensity_ratio": 1.5, "intensity_add_mw": 25, "intensity_interval_min": 30,
+               "intensity_ratio": 1.5, "intensity_add_mw": 1, "intensity_interval_min": 30,
+               "intensity_max_age_hours": 24,
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
                                    "عُمان", "إيران", "اليمن"]},
-    "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 100,
+    "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 25,
                "unusual_facility_km": 3},
     "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7},
     "firms": {"map_key": "", "base_url": "https://firms.modaps.eosdis.nasa.gov",
@@ -88,7 +89,7 @@ DEFAULTS = {
              "speck_max_extent_km": 8, "speck_above_sea": 8,
              # New measurements may arrive before their pictures: retry refreshed clips later.
              "refresh_retry_min": 10},
-    # Rasad's own finder of new warm specks at sea at night, on Meteosat-12 pictures (see seawatch.py)
+    # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
         "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
@@ -104,6 +105,17 @@ DEFAULTS = {
         "min_coast_km": 3.0, "platform_km": 3.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
         "sparkle_min_days": 3,
         "sun_max_elev": -6.0,
+        # These thresholds are image display levels, never Kelvin or fire power in MW.
+        # Day candidates need independent official/NASA evidence before any Telegram alert.
+        "daytime": {
+            "enabled": True, "ref_minutes": [30, 60],
+            "min_sun_elev": 6.0, "min_view_elev": 10.0, "min_glint_angle": 25.0,
+            "min_rise": 12.0, "min_z": 8.0, "min_above_sea": 12.0, "max_was_hot": 8.0,
+            "max_area_km2": 40.0, "max_warm_extent_km": 8.0,
+            "max_blue_contrast": 12.0, "max_blue_rise": 10.0,
+            "max_ir_change_z": 3.0, "max_ir_cold_excess": 20.0,
+            "max_candidates": 6, "burst_max": 3,
+        },
         # areas switched on only after a replay of a real night showed no false fires there
         # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and
         # 01:10; the northern Gulf oil fields sparkle all night, so they stay off)
@@ -235,11 +247,11 @@ def clip_layers(cfg):
     pixels) shows small fires that the older IODC picture smears out (the Hormuz ship fire of
     1 Nov 2026 shows only on Meteosat-12)."""
     E, W = cfg["eumetview"], cfg["seawatch"]
-    # the heat panel uses the red part of the Fire Temperature RGB only: that is the 3.8 micron
-    # temperature (0..60 C, gamma 0.4); green and blue are daylight reflections that make clouds
-    # look like heat
+    # Use only the displayed red channel: the other channels include solar reflections.
+    # This WMS composite has no validated temperature calibration; do not infer power from it.
     mtg = dict(E["clip_layer"], name=W["layer"], cadence_min=W["cadence_min"], label=W["label"],
-               hot_is_bright=True, channel=0, bt=[273.15, 333.15, 0.4])
+               hot_is_bright=True, channel=0)
+    mtg.pop("bt", None)
     return [mtg, E["clip_layer"]]
 
 
@@ -309,6 +321,21 @@ def clip_for(cfg, wms, S, inc, focus_time=None):
     raise err if isinstance(err, Exception) else RuntimeError(err)
 
 
+def _clip_measurement_changed(inc):
+    """Whether a stored clip is behind a real measured peak, independent of alerts."""
+    peak = peak_reading(inc)
+    if not inc.get("clip") or peak is None:
+        return False
+    if inc.get("clip_peak_time") != peak[0]:
+        return True
+    try:
+        covered = float(inc.get("clip_max_frp"))
+    except (TypeError, ValueError, OverflowError):
+        return True
+    # The public series rounds to one decimal; avoid refreshing 13.39 MW as 13.4 MW.
+    return not math.isfinite(covered) or covered < 0 or peak[1] > covered + 0.05
+
+
 def add_clip(cfg, wms, S, inc, now, refresh=False):
     """Make or refresh a clip; preserve the previous usable media if a refresh fails."""
     from .updates import peak_reading
@@ -346,7 +373,13 @@ def add_clip(cfg, wms, S, inc, now, refresh=False):
         video_name = Path(video).relative_to(site).as_posix()
         snap_name = Path(snap).relative_to(site).as_posix()
         inc["clip"], inc["snap"] = video_name, snap_name
-        inc["clip_max_frp"] = inc.get("max_frp")
+        try:
+            covered = float(inc.get("max_frp"))
+            if not math.isfinite(covered) or covered < 0:
+                raise ValueError("invalid peak")
+        except (TypeError, ValueError, OverflowError):
+            covered = peak[1] if peak else None
+        inc["clip_max_frp"] = covered
         inc["clip_peak_time"] = peak[0] if peak else None
         inc["clip_updated_at"], inc["clip_style"] = iso(now), CLIP_STYLE
         inc.pop("clip_needs_refresh", None)
@@ -358,7 +391,7 @@ def add_clip(cfg, wms, S, inc, now, refresh=False):
         if refresh:
             log.info("updated clip for %s: the new heat is not visible yet; keeping previous media", inc["id"])
             return False
-        if inc.get("srcs") and set(inc["srcs"]) <= {seawatch.SRC}:
+        if inc.get("srcs") and set(inc["srcs"]) <= seawatch.FINDER_SOURCES:
             # found by Rasad's own sea finder only, and the closer look does not show it either
             inc["clip_note"] = ("وجده الباحث الحراري في صور القمر الأوروبي، لكنه لا يظهر بوضوح عند التدقيق في "
                                 "الصور القريبة، وقد يكون تغيّراً في الغيوم أو الضباب لا حريقاً. ننتظر مرور قمر أمريكي")
@@ -392,6 +425,12 @@ def _sent_peak(inc):
 def _remember_post(inc, now):
     inc["alerted_max_frp"] = _sent_peak(inc)
     inc["alert_updated_at"] = iso(now)
+
+
+def _delayed_update(inc, cfg, now):
+    peak = peak_reading(inc)
+    return peak is not None and now - parse_time(peak[0]) > dt.timedelta(
+        hours=float(cfg["alerts"].get("max_age_hours", 8)))
 
 
 def run_cycle(cfg, send=True, alert_now=False):
@@ -491,7 +530,7 @@ def run_cycle(cfg, send=True, alert_now=False):
 
     log.info("European satellites: %d images read, %d fire points, %.0f s", n_images, len(dets), time.time() - t0)
 
-    # 1b) Rasad's own finder: new warm specks at sea at night on Meteosat-12 (small ship fires)
+    # 1b) Own sea finders: nighttime checks and separately guarded daytime candidates.
     SW = cfg["seawatch"]
     if SW.get("enabled"):
         t1 = time.time()
@@ -503,7 +542,17 @@ def run_cycle(cfg, send=True, alert_now=False):
             spots, ok = [], False
         dets += spots
         status["seawatch"] = {"name": "كاشف رصد للبحر ليلاً (Meteosat-12)", "ok": ok,
-                              "latest": max((d["t"] for d in spots), default=None)}
+                              "latest": max((d["t"] for d in spots if d["src"] == seawatch.SRC), default=None)}
+        if SW.get("daytime", {}).get("enabled"):
+            day_status = S.state.get("sea_day_status", {})
+            checked_at = day_status.get("last_checked")
+            fresh_day = (checked_at and now - parse_time(checked_at) <=
+                         dt.timedelta(minutes=float(SW["delay_min"]) + 3 * float(SW["cadence_min"])))
+            status["seawatch_day"] = {
+                **day_status, "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
+                "ok": bool(ok and fresh_day and not day_status.get("missing")),
+                "latest": checked_at, "experimental": True,
+            }
         log.info("sea watch: %d spot(s), %.0f s", len(spots), time.time() - t1)
 
     # 2) NASA (VIIRS/MODIS), precise but a few hours late.
@@ -547,8 +596,10 @@ def run_cycle(cfg, send=True, alert_now=False):
         if not any(in_bbox(r["bbox"], d["lat"], d["lon"]) for r in regions):
             continue
         day = d["t"][:10]
+        experimental_day = d["src"] == seawatch.DAY_SRC
         if d.get("_history"):
-            mem.record(d["lat"], d["lon"], day, d.get("frp"))
+            if not experimental_day:
+                mem.record(d["lat"], d["lon"], day, d.get("frp"))
             continue
         # European pixels are coarse (Meteosat-12 sees the Gulf at a steep angle): look wider around
         reach = {"mtg": 3, "msg_iodc": 2}.get(d["family"], 2) if d["kind"] == "geo" else 1
@@ -573,7 +624,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             (steady_facility if steady_facility is not None else
              geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"])))
         routine = known and not unusual
-        mem.record(d["lat"], d["lon"], day, frp)
+        if not experimental_day:
+            mem.record(d["lat"], d["lon"], day, frp)
         inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h)
         if inc is None and (routine or learning):
             continue
@@ -600,6 +652,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     # 4) describe, decide, alert
     min_rank = VERDICT_RANK.get(cfg["alerts"]["min_verdict"], 1)
     max_age = dt.timedelta(hours=float(cfg["alerts"].get("max_age_hours", 8)))
+    update_max_age = dt.timedelta(hours=float(cfg["alerts"].get("intensity_max_age_hours", 24)))
     first_alerts, updates = [], []
     look_budget = 2
 
@@ -607,7 +660,8 @@ def run_cycle(cfg, send=True, alert_now=False):
         """NASA saw a fire at sea hours late: find when it first showed on Meteosat-12."""
         fac = inc.get("facility")
         if not (SW.get("look_back") and inc.get("place") in ("sea", "coast") and inc.get("polar")
-                and seawatch.SRC not in (inc.get("srcs") or []) and not inc.get("looked_back")
+                and not set(inc.get("srcs") or []) & seawatch.FINDER_SOURCES
+                and not day_requires_confirmation(inc) and not inc.get("looked_back")
                 and inc.get("priority") == "high" and not (fac and fac["km"] <= 3)):
             return False
         inc["looked_back"] = iso(now)
@@ -638,7 +692,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         S.state["clip_style"] = CLIP_STYLE
     if S.state.get("sea_check") != SEA_CHECK:
         for inc in S.incidents:
-            if inc.get("srcs") and set(inc["srcs"]) <= {seawatch.SRC} and len(inc.get("families") or []) < 2 \
+            if inc.get("srcs") and set(inc["srcs"]) <= seawatch.FINDER_SOURCES and len(inc.get("families") or []) < 2 \
                     and now - parse_time(inc["last"]) <= dt.timedelta(days=2):
                 for k in ("clip", "snap", "clip_tried", "clip_note"):
                     inc.pop(k, None)
@@ -660,7 +714,7 @@ def run_cycle(cfg, send=True, alert_now=False):
             elif avail > 0 and kd >= min(int(M["persistent_min_days"]), avail):
                 dropped += 1  # a former 'unusual' one: the usual heat of that place
                 continue
-            if inc.get("srcs") and set(inc["srcs"]) <= {seawatch.SRC} and inc.get("clip_note") and not inc.get("clip"):
+            if inc.get("srcs") and set(inc["srcs"]) <= seawatch.FINDER_SOURCES and inc.get("clip_note") and not inc.get("clip"):
                 inc["unseen_close"] = True  # the sea finder's speck that the closer look did not show
             inc.pop("_pos", None)  # describe it again (nearest facility rules changed too)
             if inc.get("area_days") is None:
@@ -688,9 +742,11 @@ def run_cycle(cfg, send=True, alert_now=False):
             look_budget -= 1
         if inc["priority"] != "high" or inc.get("status") == "held":
             continue
+        if day_requires_confirmation(inc):
+            continue  # experimental day evidence cannot send alerts or updates without corroboration
         rank = VERDICT_RANK[inc["verdict"]]
         if inc.get("alerted_verdict") is None and rank >= min_rank and not SW.get("alerts") \
-                and set(inc.get("srcs") or []) <= {seawatch.SRC}:
+                and set(inc.get("srcs") or []) <= seawatch.FINDER_SOURCES:
             continue  # the sea finder is still on trial: shown in the app, not sent, until others confirm
         if inc.get("alerted_verdict") is None and rank >= min_rank:
             if now - parse_time(inc["last"]) > max_age:
@@ -702,7 +758,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         elif inc.get("alerted_verdict"):
             verdict_changed = rank > VERDICT_RANK[inc["alerted_verdict"]]
             intensity_changed = intensity_update_due(inc, cfg, now)
-            if inc.get("status") == "alerted" and now - parse_time(inc["last"]) <= max_age:
+            if inc.get("status") == "alerted" and (intensity_changed or now - parse_time(inc["last"]) <= max_age):
                 if verdict_changed or intensity_changed:
                     updates.append((inc, intensity_changed))
             elif verdict_changed:
@@ -746,7 +802,7 @@ def run_cycle(cfg, send=True, alert_now=False):
             if path.exists():
                 media = path
         if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post),
-                                               intensity=intensity), media, send,
+                                               intensity=intensity, delayed=_delayed_update(inc, cfg, now)), media, send,
                    reply_to=first_post):
             S.sent = True
             inc["alerted_verdict"] = inc["verdict"]
@@ -760,7 +816,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     for inc in S.incidents:
         if inc["id"] in updated_ids or not inc.get("clip_video_pending") \
                 or inc.get("status") != "alerted" or inc.get("priority") != "high" \
-                or now - parse_time(inc["last"]) > max_age:
+                or day_requires_confirmation(inc) or now - parse_time(inc["last"]) > update_max_age:
             continue
         if not add_clip(cfg, wms, S, inc, now, refresh=True) or not inc.get("clip"):
             continue
@@ -769,7 +825,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             continue
         first_post = inc.get("tg_msg")
         if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post),
-                                               video_update=True), media, send, reply_to=first_post):
+                                               video_update=True, delayed=_delayed_update(inc, cfg, now)), media, send,
+                   reply_to=first_post):
             S.sent = True
             inc["clip_video_pending"] = False
             _remember_post(inc, now)
@@ -784,11 +841,17 @@ def run_cycle(cfg, send=True, alert_now=False):
     # every important incident gets its clip in the app, even when it was not sent (a few per run)
     budget = int(cfg["clip"].get("per_run", 4))
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
+        important_recent = (inc.get("priority") == "high"
+                            and now - parse_time(inc["last"]) <= dt.timedelta(days=2))
+        if not important_recent:
+            continue
+        if _clip_measurement_changed(inc):
+            inc["clip_needs_refresh"] = True
+        # Record the pending state even when another video used this run's budget.
         if budget <= 0:
-            break
+            continue
         needs_refresh = bool(inc.get("clip_needs_refresh"))
-        if inc.get("priority") == "high" and (not inc.get("clip") or needs_refresh) and \
-                now - parse_time(inc["last"]) <= dt.timedelta(days=2):
+        if not inc.get("clip") or needs_refresh:
             tried = inc.get("clip_refresh_tried" if needs_refresh else "clip_tried")
             retry = float(cfg["clip"].get("refresh_retry_min", 10)) if needs_refresh else 60
             if not tried or now - parse_time(tried) >= dt.timedelta(minutes=retry):

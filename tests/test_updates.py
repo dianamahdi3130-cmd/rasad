@@ -53,7 +53,7 @@ class IntensityPolicyTests(unittest.TestCase):
         self.assertFalse(intensity_update_due(self.inc, self.cfg, self.now))
 
     def test_both_relative_and_absolute_increase_are_required(self):
-        for baseline, current in ((51, 76), (10, 20), (164, 150), (51, 51)):
+        for baseline, current in ((51, 76), (1, 1.75), (164, 150), (51, 51)):
             with self.subTest(baseline=baseline, current=current):
                 self.inc["alerted_max_frp"] = baseline
                 self.inc["frp_series"][0][1] = current
@@ -66,7 +66,7 @@ class IntensityPolicyTests(unittest.TestCase):
         self.assertTrue(intensity_update_due(self.inc, self.cfg, later))
 
     def test_stale_or_future_peak_is_rejected_even_with_fresh_incident_last(self):
-        for when in ("2026-11-08T03:00:00Z", "2026-11-08T12:01:00Z"):
+        for when in ("2026-11-07T11:59:00Z", "2026-11-08T12:01:00Z"):
             with self.subTest(when=when):
                 self.inc["frp_series"][0][0] = when
                 self.assertFalse(intensity_update_due(self.inc, self.cfg, self.now))
@@ -75,12 +75,39 @@ class IntensityPolicyTests(unittest.TestCase):
         del self.inc["alerted_max_frp"]
         self.assertFalse(intensity_update_due(self.inc, self.cfg, self.now))
 
-    def test_previously_unmeasured_fire_needs_25_mw_before_update(self):
+    def test_previously_unmeasured_fire_needs_one_mw_before_update(self):
         self.inc["alerted_max_frp"] = None
-        self.inc["frp_series"][0][1] = 24
+        self.inc["frp_series"][0][1] = 0.9
         self.assertFalse(intensity_update_due(self.inc, self.cfg, self.now))
-        self.inc["frp_series"][0][1] = 25
+        self.inc["frp_series"][0][1] = 1
         self.assertTrue(intensity_update_due(self.inc, self.cfg, self.now))
+
+    def test_small_oman_fire_increase_is_not_blocked_by_first_alert_age_or_25_mw(self):
+        self.inc.update(alerted_max_frp=2.41, alerted_at="2026-11-08T00:00:13Z",
+                        alert_updated_at="2026-11-08T00:00:13Z", last="2026-11-07T23:05:00Z",
+                        frp_series=[["2026-11-07T22:09:00Z", 2.4, "viirs"],
+                                    ["2026-11-07T23:05:00Z", 13.4, "viirs"]],
+                        polar=[{"t": "2026-11-07T23:05:00Z", "frp": 13.39}])
+        before = copy.deepcopy(self.inc)
+        now = dt.datetime(2026, 11, 8, 9, 40, tzinfo=UTC)
+
+        self.assertTrue(intensity_update_due(self.inc, self.cfg, now))
+        self.assertEqual(self.inc, before, "eligibility must not consume a failed delivery's baseline")
+
+    def test_sub_megawatt_noise_does_not_trigger_despite_large_relative_change(self):
+        self.inc["alerted_max_frp"] = 0.2
+        self.inc["frp_series"][0][1] = 0.8
+        self.assertFalse(intensity_update_due(self.inc, self.cfg, self.now))
+
+    def test_update_window_is_separate_configurable_and_bounded_at_24_hours(self):
+        self.inc["frp_series"][0][0] = "2026-11-07T12:00:00Z"
+        self.assertTrue(intensity_update_due(self.inc, self.cfg, self.now))
+        self.assertFalse(intensity_update_due(self.inc, self.cfg, self.now + dt.timedelta(seconds=1)))
+        self.cfg["alerts"]["intensity_max_age_hours"] = 12
+        self.inc["frp_series"][0][0] = "2026-11-08T01:00:00Z"
+        self.assertTrue(intensity_update_due(self.inc, self.cfg, self.now))
+        self.inc["frp_series"][0][0] = "2026-11-07T23:00:00Z"
+        self.assertFalse(intensity_update_due(self.inc, self.cfg, self.now))
 
     def test_nonfinite_baseline_or_peak_is_not_a_trigger(self):
         for invalid in (float("nan"), float("inf"), "bad"):
@@ -169,6 +196,37 @@ class IntensityMessageTests(unittest.TestCase):
                 self.inc["alerted_max_frp"] = previous
                 message = alert_message(self.inc, self.cfg, update=True, threaded=True, intensity=True)
                 self.assertNotIn("منذ آخر تنبيه", message)
+
+    def test_delayed_intensity_update_labels_prior_measurements_with_full_dates(self):
+        self.inc.update(first="2026-11-07T22:09:00Z", last="2026-11-07T23:05:00Z",
+                        alerted_max_frp=2.41, max_frp=13.39,
+                        frp_series=[["2026-11-07T22:09:00Z", 2.4, "viirs"],
+                                    ["2026-11-07T23:05:00Z", 13.4, "viirs"]])
+        message = alert_message(self.inc, self.cfg, update=True, threaded=True, intensity=True, delayed=True)
+
+        self.assertIn("تحديث متأخر لقياسات الحريق", message)
+        self.assertIn("2026-11-08 الساعة 02:05 (بغداد)", message)
+        self.assertIn("من 2.4 MW إلى 13 MW", message)
+        self.assertIn("القياسات المذكورة سابقة وليست رصداً جديداً الآن", message)
+        self.assertNotIn("مؤكد الآن", message)
+
+    def test_delayed_update_dates_both_peak_and_lower_latest_reading(self):
+        self.inc["max_frp"] = 181
+        self.inc["frp_series"].insert(0, ["2026-11-08T11:30:00Z", 181, "mtg"])
+        message = alert_message(self.inc, self.cfg, update=True, threaded=True, intensity=True, delayed=True)
+
+        self.assertIn("أعلى شدة مرصودة:</b> 181 MW · 2026-11-08 الساعة 14:30 (بغداد)", message)
+        self.assertIn("آخر قراءة:</b> 164 MW · 2026-11-08 الساعة 14:50 (بغداد)", message)
+
+    def test_delayed_video_update_does_not_announce_a_new_fire_or_new_confirmation(self):
+        self.inc["alerted_verdict"] = "مرجّح"
+        message = alert_message(self.inc, self.cfg, update=True, threaded=True, video_update=True, delayed=True)
+
+        self.assertIn("فيديو محدث لقياسات سابقة للحريق", message)
+        self.assertIn("2026-11-08 الساعة 14:50 (بغداد)", message)
+        self.assertIn("القياسات المذكورة سابقة وليست رصداً جديداً الآن", message)
+        self.assertNotIn("مؤكد الآن", message)
+        self.assertNotIn("منذ آخر تنبيه", message)
 
 
 if __name__ == "__main__":

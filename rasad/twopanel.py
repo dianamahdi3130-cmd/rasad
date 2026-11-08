@@ -6,8 +6,8 @@ confirmed.
 The circle stays on the fire's position. It moves only onto a small hot speck that really shows
 in the pictures next to that position (a speck that appears with the fire, or at night one that
 stands out from the dark sea); bright land or cloud a few km away never pulls it. A short line
-from the circle carries the fire's strength in megawatts at each moment: measured values as they
-are, values between measurements estimated from the heat picture (marked ≈).
+from the circle carries only measured fire power in megawatts. The latest measurement remains
+until another arrives; the rendered image's brightness is never converted to power.
 
 When the fire first appears during the loop, a circle opens from it and uncovers the new picture
 (before / after). A faint, slanted pattern of the channel logo drifts slowly over both pictures,
@@ -38,7 +38,6 @@ WHITE = (240, 244, 250)
 DIM = (128, 142, 160)
 SURE = (232, 62, 62)    # "مؤكد"
 HOT = (255, 150, 50)    # the first sighting of a fire that is not confirmed (yet)
-SIGMA_OVER_A = 5.670374e-8 / 3.0e-9  # fire radiative power from 3.8 micron radiance (Wooster et al.)
 
 _RAQM = features.check("raqm")
 _FONTS = {}
@@ -52,8 +51,6 @@ def _font(size, kind="ar"):
         cands = ["DejaVuSansMono-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"]
     elif kind == "monol":
         cands = ["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"]
-    elif kind == "sym":  # signs the Arabic font lacks (≈)
-        cands = ["DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
     elif kind in ("brand", "brandm"):  # the channel's name in Latin letters
         name = "ChakraPetch-Bold.ttf" if kind == "brand" else "ChakraPetch-Medium.ttf"
         cands = [str(ROOT / "assets/fonts" / name), "DejaVuSans-Bold.ttf",
@@ -279,13 +276,35 @@ def _blob(mask, r0, c0, limit=4000):
     return out
 
 
-def _radiance(v, bt):
-    """Picture value (0-255) -> 3.8 micron radiance (W m-2 sr-1 um-1), for a picture drawn with a
-    known stretch [lowest K, highest K, gamma]: the Fire Temperature RGB's red is 0..60 C, gamma 0.4."""
-    lo, hi, gamma = bt
-    T = lo + (hi - lo) * np.power(np.clip(v, 0, 255) / 255.0, gamma)
-    lam = 3.8
-    return 1.191042e8 / (lam ** 5 * (np.exp(1.4387752e4 / (lam * T)) - 1.0))
+def _power_timeline(times, rows, cadence_min, shown_from=0):
+    """Match actual readings to nearby frames, then hold the last measured value.
+
+    WMS pictures contain display indices without a validated temperature scale.
+    Neither missing measurements nor brighter pixels may create a power estimate.
+    """
+    def utc(value):
+        when = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return when.replace(tzinfo=dt.timezone.utc) if when.tzinfo is None else when.astimezone(dt.timezone.utc)
+
+    readings = []
+    for row in rows or []:
+        try:
+            if not isinstance(row, (list, tuple)) or len(row) < 2 or isinstance(row[1], bool):
+                continue
+            when, mw = utc(row[0]), float(row[1])
+            if math.isfinite(mw) and mw >= 0:
+                readings.append((when, mw))
+        except (ValueError, TypeError, OverflowError):
+            continue
+    slot = dt.timedelta(minutes=float(cadence_min) / 2 + 1)
+    measured = [max((mw for when, mw in readings if abs(when - utc(t)) <= slot), default=None)
+                for t in times]
+    shown, last = [], None
+    for i, value in enumerate(measured):
+        if i >= shown_from and value is not None:
+            last = value
+        shown.append(last if i >= shown_from else None)
+    return measured, shown
 
 
 def _mw_text(v):
@@ -403,41 +422,8 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         fire_idx = next((i for i in after if strength[i] >= max(vis, 0.5 * peak)), None)
     shown_from = fire_idx if fire_idx is not None else 0
 
-    # ---- the fire's strength at each moment: measurements, and estimates between them
-    meas = []
-    for row in info.get("frp") or []:
-        try:
-            meas.append((dt.datetime.fromisoformat(str(row[0]).replace("Z", "+00:00")), float(row[1])))
-        except (ValueError, TypeError, IndexError):
-            continue
-    slot = dt.timedelta(minutes=cad / 2 + 1)
-    measured = [max([mw for tm, mw in meas if abs(tm - t) <= slot], default=None) for t, _, _ in shots]
-    est = [None] * len(shots)
-    if fire_layer.get("bt"):
-        area = (px_km * 1000.0) ** 2
-        rad_ref = _radiance(ref, fire_layer["bt"])
-        energy = [float(np.maximum(_radiance(v, fire_layer["bt"]) - rad_ref, 0)[speck].sum()) * area
-                  * SIGMA_OVER_A / 1e6 for v in stack]
-        seen = [i for i in range(len(shots)) if i >= shown_from and strength[i] >= vis and energy[i] > 1e-6]
-        known = [measured[i] for i in range(len(shots)) if measured[i] is not None]
-        if seen and known:
-            # scaled so that the fire's usual brightness in these pictures matches the satellites'
-            # own measurement; small fires flicker from picture to picture, so each value is
-            # smoothed with its neighbours
-            k = float(np.median(known)) / float(np.median([energy[i] for i in seen]))
-            raw = {i: k * energy[i] for i in seen}
-            for i in seen:
-                near = [raw[j] for j in (i - 1, i, i + 1) if j in raw]
-                est[i] = float(np.mean(near))
-    shown_mw, last = [], None
-    for i in range(len(shots)):
-        if measured[i] is not None and i >= shown_from:
-            last = (measured[i], False)
-        elif est[i] is not None and est[i] >= 0.5:
-            last = (est[i], True)
-        elif est[i] is not None:
-            last = None
-        shown_mw.append(last if i >= shown_from else None)
+    # Actual source measurements only; the last reading stays until another arrives.
+    measured, shown_mw = _power_timeline([t for t, _, _ in shots], info.get("frp"), cad, shown_from)
 
     base_img = stack[0]
     lo = float(np.percentile(base_img, 1))
@@ -456,7 +442,6 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     f_clock = _font(56, "mono")
     f_coord, f_small = _font(30, "mono"), _font(18, "monol")
     f_lab, f_first, f_badge, f_mw = _font(26, "ar"), _font(30, "arb"), _font(32, "arb"), _font(32, "brand")
-    f_sym = _font(28, "sym")
 
     static = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(static)
@@ -576,9 +561,8 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         cx, cy = LX + int(tx_), PY + int(ty_)
         sx = -1 if tx_ > PW * 0.62 else 1   # point towards the open side of the picture
         sy = 1 if ty_ < PH * 0.30 else -1
-        text = _mw_text(val[0])
-        sym_w = _width(d, "≈", f_sym) + 10 if val[1] else 0  # estimates carry ≈ before the number
-        tw = _width(d, text, f_mw) + sym_w
+        text = _mw_text(val)
+        tw = _width(d, text, f_mw)
         rr = r + 12
         p0 = (cx + sx * rr * 0.7071, cy + sy * rr * 0.7071)
         p1 = (p0[0] + sx * 46, p0[1] + sy * 46)
@@ -597,9 +581,7 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
             left = (p1[0] + p2[0]) / 2 - tw / 2
             ty = p1[1] - 24 if sy < 0 else p1[1] + 26
             for dx, col in ((2, (0, 0, 0, 200)), (0, WHITE)):  # a soft shadow, then the text
-                if sym_w:
-                    _text(d, (left + dx, ty + dx), "≈", f_sym, col, anchor="lm")
-                _text(d, (left + sym_w + dx, ty + dx), text, f_mw, col, anchor="lm")
+                _text(d, (left + dx, ty + dx), text, f_mw, col, anchor="lm")
 
     def chrome(frame, si, k, fire_on):
         """Target marks, strength line, brand light, clock and timeline for picture si, frame k."""
@@ -637,7 +619,12 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
                   anchor="mb", rtl=True)
 
     out, k, prev = [], 0, None
-    best = (max(range(len(shots)), key=lambda i: strength[i]) + 1) * rep - 1
+    # The thumbnail should show the strongest measured value, even when an earlier
+    # picture looked brighter. This keeps a refreshed video's poster up to date.
+    measured_shots = [i for i in range(shown_from, len(shots)) if measured[i] is not None]
+    best_shot = (max(measured_shots, key=lambda i: (measured[i], shots[i][0])) if measured_shots
+                 else max(range(len(shots)), key=lambda i: strength[i]))
+    best = (best_shot + 1) * rep - 1
     for i, si in enumerate(seq):
         left, right = panels(si)
         fire_on = si >= shown_from
@@ -685,5 +672,5 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     video = _write(out, base, out_fps, str(C.get("format", "mp4")))
     log.info("clip: %d pictures, %d frames, speck %.1f km from the reported point, strength %s", len(shots),
              len(out), math.hypot(tx_ - PW / 2, ty_ - PH / 2) * 2 * half_h / PH,
-             [None if v is None else round(v[0], 1) for v in shown_mw])
+             [None if v is None else round(v, 1) for v in shown_mw])
     return video, snap

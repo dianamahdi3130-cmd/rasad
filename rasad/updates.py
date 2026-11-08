@@ -45,10 +45,12 @@ def latest_reading(inc):
 
 
 def intensity_update_due(inc, cfg, now):
-    """A substantial fresh peak since the last successful alert, after its cooldown.
+    """A substantial peak since the last successful alert, after its cooldown.
 
     An absent baseline is a legacy incident requiring explicit migration; a stored None
-    means the earlier alert had no strength measurement. This function never mutates state.
+    means the earlier alert had no strength measurement. Updates have their own bounded
+    age window because late measurements update an existing post, not announce a new fire.
+    This function never mutates state.
     """
     if inc.get("status") != "alerted" or "alerted_max_frp" not in inc:
         return False
@@ -62,11 +64,11 @@ def intensity_update_due(inc, cfg, now):
         last_post = parse_time(inc.get("alert_updated_at") or inc.get("alerted_at"))
     except (TypeError, ValueError, OverflowError):
         return False
-    if not dt.timedelta(0) <= peak_age <= dt.timedelta(hours=float(alerts.get("max_age_hours", 8))):
+    if not dt.timedelta(0) <= peak_age <= dt.timedelta(hours=float(alerts.get("intensity_max_age_hours", 24))):
         return False
     if now - last_post < dt.timedelta(minutes=float(alerts.get("intensity_interval_min", 30))):
         return False
-    added = float(alerts.get("intensity_add_mw", 25))
+    added = float(alerts.get("intensity_add_mw", 1))
     baseline = inc["alerted_max_frp"]
     if baseline is None:
         return peak[1] >= added

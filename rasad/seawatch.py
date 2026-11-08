@@ -3,8 +3,8 @@
 The official fire product only flags fires above roughly 20-50 MW at the angle Meteosat-12 sees
 the Gulf, so a small ship fire (the Hormuz fire of 1 November 2026 was about 5 MW) is not flagged,
 although it does show in the picture as a new warm speck. This finder looks for exactly that,
-at night and at sea, where the background is calm. By day the sun glints on the water in the
-3.8 micron channel, so daytime is left to the other sources.
+at night and at sea, where the background is calm. Experimental daytime checks live in
+daywatch.py, with separate solar-reflection filters and a requirement for independent confirmation.
 
 A speck is kept only if:
   * it is warmer than the same spot 30 and 60 minutes earlier, by a clear margin, while the
@@ -28,6 +28,8 @@ from .util import box_around, floor_time, iso, log, parse_time, px_to_latlon, su
 from .wms import Availability, components
 
 SRC = "mtg_spot"
+DAY_SRC = "mtg_day_spot"
+FINDER_SOURCES = frozenset({SRC, DAY_SRC})
 
 
 def _win_sum(a, r):
@@ -45,13 +47,14 @@ def local_mean(x, r):
             ).astype(np.float32)
 
 
-def _gray(img):
+def _gray(img, channel=None):
     if img is None:
         return None
     a = np.asarray(img)
     if a[..., 3].mean() < 30:
         return None  # nothing drawn: no data for that time
-    g = a[..., :3].astype(np.float32).mean(axis=2)
+    g = (a[..., :3].astype(np.float32).mean(axis=2) if channel is None
+         else a[..., channel].astype(np.float32))
     g[a[..., 3] < 128] = np.nan
     return g
 
@@ -73,19 +76,32 @@ class Pictures:
     def prefetch(self, requests_):
         """Ask for several pictures at once (the server is slow per picture, not per request)."""
         from concurrent.futures import ThreadPoolExecutor
-        todo = [r for r in requests_ if (r[0], tuple(r[1]), r[2], r[3], iso(r[4])) not in self.cache]
+        # Red, blue and the old mean share one RGBA download, including at the day/night boundary.
+        todo = {}
+        for r in requests_:
+            base = (r[0], tuple(r[1]), r[2], r[3], iso(r[4]))
+            if base + ("rgba",) not in self.cache:
+                todo.setdefault(base, r)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            list(pool.map(lambda r: self.get(*r), todo))
+            list(pool.map(lambda r: self.get(*r), todo.values()))
 
-    def get(self, layer, bbox, W, H, t):
-        key = (layer, tuple(bbox), W, H, iso(t))
-        if key not in self.cache:
+    def get(self, layer, bbox, W, H, t, channel=None):
+        if channel not in (None, 0, 1, 2):
+            raise ValueError("RGB channel must be 0, 1 or 2")
+        base = (layer, tuple(bbox), W, H, iso(t))
+        raw_key = base + ("rgba",)
+        key = base if channel is None else base + (channel,)
+        if key in self.cache:
+            return self.cache[key]
+        if raw_key not in self.cache:
             img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
             if img is None:  # big pictures sometimes fail once: ask again
                 img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
             if actual is not None and abs((actual - t).total_seconds()) > 120:
                 img = None  # the server gave another time: this slot is not published yet
-            self.cache[key] = _gray(img)
+            self.cache[raw_key] = None if img is None else np.asarray(img)
+        if key not in self.cache:
+            self.cache[key] = _gray(self.cache[raw_key], channel)
         return self.cache[key]
 
 
@@ -289,11 +305,20 @@ def confirm(cands, spot, km=3.0, minutes=40):
 
 
 def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
-    """Run the finder on the Meteosat-12 slots not looked at yet: the newest first, then any slot of
-    the last few hours that was missed (the source was late or down, or a run was slow). Only
-    pictures the source really has are downloaded. A speck is reported only once a second picture
-    shows one at the same place (single specks are mostly noise)."""
+    """Check recent slots, pairing candidates only within the same day/night detector.
+
+    The experimental day detector requires both reference times and the cloud-check channel.
+    Missing data stays pending, while day candidates never enter the night flare history.
+    """
+    import hashlib
+    import json
+
     C = cfg["seawatch"]
+    D = C.get("daytime", {})
+    day_src = "mtg_day_spot"
+    day_enabled = bool(D.get("enabled", False))
+    if day_enabled:
+        from .daywatch import find_spots as find_day_spots
     cad = int(C["cadence_min"])
     km = float(C["km_per_px"])
     sun = float(C["sun_max_elev"])
@@ -307,6 +332,18 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         state["sea_sparkle_min_days"] = sparkle_min_days
     done = state.setdefault("seawatch", {})
     cands = state.setdefault("sea_candidates", [])
+    day_signature = hashlib.sha256(json.dumps({"version": 1, "config": D}, sort_keys=True,
+                                             separators=(",", ":")).encode()).hexdigest()
+    if state.get("sea_day_config") != day_signature:
+        for key in [key for key in done if key.startswith("day:")]:
+            del done[key]
+        cands[:] = [c for c in cands if c.get("src", SRC) != day_src]
+        state["sea_day_config"] = day_signature
+    day_status = {"enabled": day_enabled, "experimental": True, "checked": 0,
+                  "missing": 0, "waiting": 0, "candidates": 0, "spots": 0,
+                  "last_checked": max((v for k, v in done.items() if k.startswith("day:")), default=None),
+                  "last_attempt": None}
+    state["sea_day_status"] = day_status
     pics = Pictures(wms)
     avail = avail or Availability(wms, state, now)
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
@@ -319,14 +356,29 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     todo = []
     for k in range(span):                # newest first
         t = latest - dt.timedelta(minutes=cad * k)
-        if any(f"{b['id']}|{iso(t)}" not in done and any(_night(b["bbox"], t, sun)) for b in live):
-            todo.append(t)
+        night_boxes = [b for b in live if f"{b['id']}|{iso(t)}" not in done
+                       and any(_night(b["bbox"], t, sun))]
+        day_boxes = []
+        if day_enabled:
+            for box in live:
+                if f"day:{box['id']}|{iso(t)}" in done:
+                    continue
+                w, s, e, n = box["bbox"]
+                if any(sun_elevation(lat, lon, t) >= float(D.get("min_sun_elev", 6))
+                       for lat in (s, n) for lon in (w, e)):
+                    day_boxes.append(box)
+        if night_boxes or day_boxes:
+            todo.append((t, night_boxes, day_boxes))
     checked, waiting, lost = [], 0, 0
-    for t in todo:
+    for t, night_boxes, day_boxes in todo:
         if len(checked) >= per_run or time.time() - t_start > budget:
             waiting += 1
+            day_status["waiting"] += len(day_boxes)
             continue
+        if day_boxes and day_status["last_attempt"] is None:
+            day_status["last_attempt"] = iso(t)
         if not avail.has(C["layer"], t, probe):
+            day_status["missing"] += len(day_boxes)
             if now - t > dt.timedelta(minutes=40):
                 lost += 1    # a hole at the source (asked again now and then)
             else:
@@ -335,28 +387,63 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         # compare with the picture 30 minutes before, or the nearest one the source does have; just
         # after an outage that is the last picture before it, so a fire that began during the
         # outage still shows as new
-        refs = next(([m] for m in [int(x) for x in C["ref_minutes"]] + [40, 20, 50, 60, 70, 80, 90, 100, 110, 120]
-                     if avail.has(C["layer"], t - dt.timedelta(minutes=m), probe)), None)
-        if refs is None:
-            lost += 1
+        jobs = []
+        if night_boxes:
+            refs = next(([m] for m in [int(x) for x in C["ref_minutes"]]
+                         + [40, 20, 50, 60, 70, 80, 90, 100, 110, 120]
+                         if avail.has(C["layer"], t - dt.timedelta(minutes=m), probe)), None)
+            if refs is None:
+                lost += 1
+            else:
+                jobs += [(box, SRC, refs) for box in night_boxes]
+        if day_boxes:
+            refs = [int(m) for m in D.get("ref_minutes", [30, 60])]
+            times = [t] + [t - dt.timedelta(minutes=m) for m in refs]
+            if refs and all(avail.has(layer, tt, probe)
+                            for layer in (C["layer"], C["check_layer"]) for tt in times):
+                jobs += [(box, day_src, refs) for box in day_boxes]
+            else:
+                day_status["missing"] += len(day_boxes)
+                lost += 1
+        if not jobs:
             continue
-        boxes = [b for b in live if f"{b['id']}|{iso(t)}" not in done and any(_night(b["bbox"], t, sun))]
-        pics.prefetch([(C["layer"], b["bbox"], *box_size(b, km), tt) for b in boxes
-                       for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]])
+        requests = []
+        for box, src, refs in jobs:
+            for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]:
+                request = (C["layer"], box["bbox"], *box_size(box, km), tt)
+                requests.append(request + (0,) if src == day_src else request)
+                if src == day_src:
+                    requests.append((C["check_layer"], box["bbox"], *box_size(box, km), tt))
+        pics.prefetch(requests)
         checked.append(t)
-        for box in boxes:
-            key = f"{box['id']}|{iso(t)}"
-            spots, notes = find_spots(cfg, pics, box, t, mem, geo, refs=refs)
+        for box, src, refs in jobs:
+            is_day = src == day_src
+            if time.time() - t_start > budget:
+                day_status["waiting"] += int(is_day)
+                continue
+            key = ("day:" if is_day else "") + f"{box['id']}|{iso(t)}"
+            finder = find_day_spots if is_day else find_spots
+            spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
             if spots is None:
                 log.info("sea watch %s %s: %s", box["id"], iso(t), notes)
+                day_status["missing"] += int(is_day)
                 continue  # the download failed: try again next run
             done[key] = iso(t)
+            if is_day:
+                day_status["checked"] += 1
+                day_status["candidates"] += len(spots)
+                day_status["last_checked"] = max(day_status["last_checked"] or iso(t), iso(t))
             # One night spans midnight: adjacent pictures of a new fire must not
             # become prior-night evidence against each other.
             night = (t - dt.timedelta(hours=12)).date().isoformat()
             for sp in spots:
-                pair = confirm(cands, sp)
-                cands.append({k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")})
+                pair = confirm([c for c in cands if c.get("src", SRC) == src], sp)
+                cands.append(dict({k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")}, src=src))
+                if is_day:
+                    if pair:
+                        found += [dict(row, src=day_src, family="mtg", kind="geo", frp=None,
+                                       daytime=True, experimental=True) for row in pair + [sp]]
+                    continue
                 ci, cj = math.floor(sp["lat"] / 0.05), math.floor(sp["lon"] / 0.05)
                 before = {d for di in (-1, 0, 1) for dj in (-1, 0, 1)
                           for d in sparkle.get(f"{ci + di},{cj + dj}", []) if d < night}
@@ -384,7 +471,8 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                             if any(d >= oldest for d in v)}
     uniq = {}
     for d in found:
-        uniq[(d["t"], d["lat"], d["lon"])] = d
+        uniq[(d["src"], d["t"], d["lat"], d["lon"])] = d
+    day_status["spots"] = sum(d["src"] == day_src for d in uniq.values())
     return list(uniq.values())
 
 
