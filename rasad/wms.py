@@ -4,7 +4,9 @@ from __future__ import annotations
 import datetime as dt
 import io
 import re
+import time
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 
 import numpy as np
 import requests
@@ -14,9 +16,29 @@ from .util import floor_time, iso, log, parse_time, utcnow
 
 
 class WMS:
-    def __init__(self, url, session, timeout=60):
+    def __init__(self, url, session, timeout=20):
         self.url, self.s, self.timeout = url, session, timeout
         self._caps = None
+        self._deadline = None
+        self._request_limit = None
+
+    @contextmanager
+    def budget(self, seconds, timeout_s=20):
+        """Share a request deadline across a phase and its download threads."""
+        previous = self._deadline, self._request_limit
+        deadline = time.monotonic() + max(0, float(seconds))
+        self._deadline = min(deadline, self._deadline) if self._deadline is not None else deadline
+        self._request_limit = min(float(timeout_s), self._request_limit or float(timeout_s))
+        try:
+            yield self
+        finally:
+            self._deadline, self._request_limit = previous
+
+    def _timeout(self, requested=None):
+        timeout = min(float(requested or self.timeout), self._request_limit or float(self.timeout))
+        if self._deadline is not None:
+            timeout = min(timeout, self._deadline - time.monotonic())
+        return timeout if timeout > 0 else None
 
     def _base(self, layer, bbox, W, H, t, style):
         p = {"SERVICE": "WMS", "VERSION": "1.1.1", "SRS": "EPSG:4326", "LAYERS": layer,
@@ -31,8 +53,11 @@ class WMS:
         """(RGBA image, time actually served) or (None, None)."""
         p = self._base(layer, bbox, W, H, t, style)
         p.update({"REQUEST": "GetMap", "FORMAT": "image/png", "TRANSPARENT": "TRUE"})
+        timeout = self._timeout(timeout)
+        if timeout is None:
+            return None, None
         try:
-            r = self.s.get(self.url, params=p, timeout=timeout or self.timeout)
+            r = self.s.get(self.url, params=p, timeout=timeout)
         except requests.RequestException as e:
             if not quiet:
                 log.warning("WMS %s: network error: %s", layer, e)
@@ -65,8 +90,11 @@ class WMS:
         p.update({"REQUEST": "GetFeatureInfo", "QUERY_LAYERS": layer,
                   "X": str(int(round(col))), "Y": str(int(round(row))),
                   "INFO_FORMAT": "application/json", "FEATURE_COUNT": "5"})
+        timeout = self._timeout()
+        if timeout is None:
+            return None
         try:
-            r = self.s.get(self.url, params=p, timeout=self.timeout)
+            r = self.s.get(self.url, params=p, timeout=timeout)
             if r.status_code != 200 or "json" not in r.headers.get("Content-Type", ""):
                 return None
             feats = r.json().get("features") or []
@@ -77,10 +105,13 @@ class WMS:
     def time_end(self, layer):
         """Last time advertised for `layer` in GetCapabilities (or None)."""
         if self._caps is None:
+            timeout = self._timeout()
+            if timeout is None:
+                return None
             self._caps = False
             try:
                 r = self.s.get(self.url, params={"SERVICE": "WMS", "VERSION": "1.3.0",
-                                                 "REQUEST": "GetCapabilities"}, timeout=self.timeout)
+                                                 "REQUEST": "GetCapabilities"}, timeout=timeout)
                 if r.status_code == 200:
                     self._caps = ET.fromstring(r.content)
             except (requests.RequestException, ET.ParseError) as e:
@@ -183,8 +214,16 @@ class Availability:
                       if k.startswith(layer + "|") and parse_time(k.rsplit("|", 1)[1]) >= since)
 
 
-def latest_time(wms, state, layer, cadence, pbox, max_steps=30):
+def latest_time(wms, state, layer, cadence, pbox, max_steps=8):
     """Newest time step of `layer` that really has data; remembers the answer in state."""
+    from contextlib import nullcontext
+    method = getattr(type(wms), "budget", None)
+    context = wms.budget(12, timeout_s=8) if callable(method) else nullcontext()
+    with context:
+        return _latest_time(wms, state, layer, cadence, pbox, max_steps)
+
+
+def _latest_time(wms, state, layer, cadence, pbox, max_steps):
     known = state.setdefault("latest", {}).get(layer)
     known_t = parse_time(known) if known else None
     cands, t = [], floor_time(utcnow(), cadence)
@@ -193,14 +232,23 @@ def latest_time(wms, state, layer, cadence, pbox, max_steps=30):
         t -= dt.timedelta(minutes=cadence)
     if known_t is not None:
         cands.append(known_t)
-    else:
-        end = wms.time_end(layer)
-        if end is not None and (not cands or end < cands[-1]):
-            cands += [floor_time(end, cadence) - dt.timedelta(minutes=cadence * k) for k in range(3)]
     for t in cands:
+        if isinstance(wms, WMS) and wms._timeout() is None:
+            break
         img, actual = wms.getmap(layer, pbox, 24, 24, t=t, quiet=True)
         if img is not None and coverage(img) > 0.5:
             found = actual or t
             state["latest"][layer] = iso(found)
             return found
+    # GetMap usually tells us its actual time directly. Do not let a slow
+    # capabilities document consume a cold start before the first data probe.
+    if known_t is None and (not isinstance(wms, WMS) or wms._timeout() is not None):
+        end = wms.time_end(layer)
+        if end is not None:
+            t = floor_time(end, cadence)
+            img, actual = wms.getmap(layer, pbox, 24, 24, t=t, quiet=True)
+            if img is not None and coverage(img) > 0.5:
+                found = actual or t
+                state["latest"][layer] = iso(found)
+                return found
     return known_t

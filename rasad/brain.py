@@ -68,14 +68,21 @@ class Memory:
 
 # ----------------------------------------------------------------- incidents
 def new_incident(det, kind):
-    return {"id": f"{det['t'][:16].replace('-', '').replace(':', '').replace('T', '-')}"
+    inc = {"id": f"{det['t'][:16].replace('-', '').replace(':', '').replace('T', '-')}"
                   f"_{det['lat']:.3f}_{det['lon']:.3f}",
             "kind": kind, "first": det["t"], "last": det["t"], "lat": det["lat"], "lon": det["lon"],
             "best": det["kind"], "families": [], "geo_slots": [], "polar": [], "max_frp": None,
             "n": 0, "status": "new", "alerted_verdict": None}
+    if det.get("_association"):
+        inc["association"] = dict(det["_association"])
+        inc["association_uncertain"] = True
+    return inc
 
 
 def add_to_incident(inc, det):
+    if association_requires_confirmation(inc) and _association_corroborated(inc, det):
+        inc["association_uncertain"] = False
+        inc["association_resolved_at"] = det["t"]
     inc["first"] = min(inc["first"], det["t"])
     inc["last"] = max(inc["last"], det["t"])
     inc["n"] += 1
@@ -90,12 +97,28 @@ def add_to_incident(inc, det):
         srcs.append(det["src"])
     if det["family"] not in inc["families"]:
         inc["families"].append(det["family"])
+    # Keep acquisition positions rather than reconstructing them from the displayed
+    # incident anchor later. Older state has no such provenance; leave it unknown.
+    observation = {key: det[key] for key in ("src", "family", "kind", "t", "lat", "lon")}
+    for key in ("frp", "scan", "track", "conf", "night", "instrument", "satellite"):
+        if det.get(key) is not None:
+            observation[key] = det[key]
+    observations = inc.setdefault("observations", [])
+    if observation not in observations:
+        observations.append(observation)
+        inc["observations"] = sorted(observations, key=lambda row: row["t"])[-120:]
     if det["kind"] == "geo" and det["t"] not in inc["geo_slots"]:
         inc["geo_slots"].append(det["t"])
         inc["geo_slots"] = sorted(inc["geo_slots"])[-60:]
     if det["kind"] == "polar":
-        inc["polar"].append({"t": det["t"], "frp": det.get("frp"), "conf": det.get("conf"),
-                             "night": det.get("night")})
+        reading = {"t": det["t"], "frp": det.get("frp"), "conf": det.get("conf"),
+                   "night": det.get("night"), "src": det["src"], "family": det["family"],
+                   "lat": det["lat"], "lon": det["lon"]}
+        for key in ("scan", "track", "instrument", "satellite"):
+            if det.get(key) is not None:
+                reading[key] = det[key]
+        if reading not in inc["polar"]:
+            inc["polar"].append(reading)
         inc["polar"] = inc["polar"][-20:]
         if inc["best"] != "polar":  # NASA's position is accurate to a few hundred metres
             inc["lat"], inc["lon"], inc["best"] = det["lat"], det["lon"], "polar"
@@ -108,16 +131,122 @@ def add_to_incident(inc, det):
             inc["frp_series"] = sorted(series)[-40:]
 
 
-def find_incident(incidents, det, merge_km, merge_hours):
+def _polar_observations(inc):
+    """Positioned acquisitions only. Never assign a legacy reading the display anchor."""
+    out, seen = [], set()
+    for row in list(inc.get("observations") or []) + list(inc.get("polar") or []):
+        if row.get("kind", "polar") != "polar":
+            continue
+        try:
+            if not all(math.isfinite(float(row[key])) for key in ("lat", "lon")):
+                continue
+            parse_time(row["t"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        row = dict(row, lat=float(row["lat"]), lon=float(row["lon"]))
+        key = (row.get("src"), row["t"], row["lat"], row["lon"])
+        if key not in seen:
+            out.append(row)
+            seen.add(key)
+    return out
+
+
+def _footprint_radius(row):
+    """Approximate half-diagonal (km), with a modest geolocation allowance."""
+    try:
+        scan, track = float(row["scan"]), float(row["track"])
+        if all(math.isfinite(v) and v > 0 for v in (scan, track)):
+            return 0.5 * math.hypot(scan, track) + 0.5
+    except (KeyError, TypeError, ValueError, OverflowError):
+        pass
+    # Missing metadata cannot turn a coarse MODIS pixel into a precise VIIRS point.
+    return 3.0 if row.get("family") == "modis" or str(row.get("src", "")).startswith("MODIS") else 1.0
+
+
+def _known_polar_confidence(row):
+    c = str(row.get("conf") if row.get("conf") is not None else "").strip().lower()
+    if c in {"n", "nominal", "h", "high"}:
+        return True
+    try:
+        value = float(c)
+        return math.isfinite(value) and 40 <= value <= 100
+    except ValueError:
+        return False
+
+
+def association_requires_confirmation(inc):
+    """A nearby acquisition cannot yet be identified as a new or continuing event."""
+    return bool(inc.get("association_uncertain"))
+
+
+def _association_corroborated(inc, det):
+    if det.get("kind") != "polar" or not _known_polar_confidence(det):
+        return False
+    for prior in _polar_observations(inc):
+        if not _known_polar_confidence(prior):
+            continue
+        gap = abs((parse_time(det["t"]) - parse_time(prior["t"])).total_seconds()) / 60
+        different_source = bool(det.get("src") and prior.get("src") and det["src"] != prior["src"])
+        different_platform = bool(det.get("satellite") and prior.get("satellite")
+                                  and det["satellite"] != prior["satellite"])
+        if not different_source and not different_platform and gap < 60:
+            continue  # neighbouring pixels of one pass cannot corroborate each other
+        reach = min(2.0, _footprint_radius(det) + _footprint_radius(prior))
+        if haversine_km(det["lat"], det["lon"], prior["lat"], prior["lon"]) <= reach:
+            return True
+    return False
+
+
+def find_incident(incidents, det, merge_km, merge_hours, rules=None):
     t = parse_time(det["t"])
     best, best_d = None, merge_km
+    association, association_distance = None, float("inf")
+    rules = rules or {}
+    max_gap = float(rules.get("max_polar_gap_hours", 3))
+    relocation = float(rules.get("polar_relocation_km", 2))
+    det.pop("_association", None)
     for inc in incidents:
         if abs((t - parse_time(inc["last"])).total_seconds()) > merge_hours * 3600 \
                 and abs((t - parse_time(inc["first"])).total_seconds()) > merge_hours * 3600:
             continue
         d = haversine_km(det["lat"], det["lon"], inc["lat"], inc["lon"])
+        if d > merge_km:
+            continue
+        observations = _polar_observations(inc) if det.get("kind") == "polar" else []
+        if observations:
+            nearest_time = min(observations, key=lambda row: abs((t - parse_time(row["t"])).total_seconds()))
+            gap_h = abs((t - parse_time(nearest_time["t"])).total_seconds()) / 3600
+            cluster = [row for row in observations if abs((parse_time(row["t"]) -
+                       parse_time(nearest_time["t"])).total_seconds()) <= max_gap * 3600]
+            lat = sum(row["lat"] for row in cluster) / len(cluster)
+            lon = sum(row["lon"] for row in cluster) / len(cluster)
+            shift = haversine_km(det["lat"], det["lon"], lat, lon)
+            overlap = any(haversine_km(det["lat"], det["lon"], row["lat"], row["lon"]) <=
+                          min(merge_km, _footprint_radius(det) + _footprint_radius(row))
+                          for row in observations)
+            if not overlap or (gap_h > max_gap and shift > relocation):
+                if d < association_distance:
+                    association_distance = d
+                    association = {"previous_id": inc["id"], "distance_km": round(shift, 2),
+                                   "gap_hours": round(gap_h, 2),
+                                   "reason": "nearby acquisition after a gap or outside the prior pixel footprint"}
+                continue
+        elif det.get("kind") == "polar" and inc.get("best") == "polar":
+            # Old state retained only an incident anchor, not individual pixel positions.
+            # Use it as weak association context for NEW acquisitions, without assigning
+            # it to old measurements or splitting those historical records.
+            gap_h = abs((t - parse_time(inc.get("last") or inc["first"])).total_seconds()) / 3600
+            if gap_h > max_gap and d > relocation:
+                if d < association_distance:
+                    association_distance = d
+                    association = {"previous_id": inc["id"], "distance_km": round(d, 2),
+                                   "gap_hours": round(gap_h, 2), "legacy_positions_unknown": True,
+                                   "reason": "nearby acquisition after a gap; prior source positions unavailable"}
+                continue
         if d <= best_d:
             best, best_d = inc, d
+    if best is None and association is not None:
+        det["_association"] = association
     return best
 
 
@@ -130,6 +259,9 @@ def verdict_of(inc):
     slots = len(inc["geo_slots"])
     names = "، ".join(sorted({FAMILY_AR.get(f, f) for f in fams}))
     srcs = set(inc.get("srcs") or [])
+    if association_requires_confirmation(inc):
+        return "يحتاج تأكيداً", ("رصدة حرارية قرب حدث سابق؛ لم يتضح إن كانت امتداداً له أو حدثاً منفصلاً، "
+                                "وننتظر رصداً مستقلاً في موقعها")
     if day_requires_confirmation(inc):
         # Daylight can brighten the short-wave channel through reflected sunlight.
         # Repeated pictures or a weak/unknown NASA detection cannot establish fire.
@@ -262,6 +394,9 @@ def headline(inc, cfg):
     f = inc.get("facility")
     region = inc.get("region_name")
     near = float(cfg["alerts"]["near_facility_km"])
+    if association_requires_confirmation(inc):
+        return ("بقعة حرارية في البحر قرب حدث سابق" if inc.get("place") == "sea"
+                else "بقعة حرارية قرب حدث سابق")
     if day_requires_confirmation(inc):
         return "بقعة حرارية نهارية في البحر" + (f" قرب {region}" if region else "")
     if inc["kind"] == "unusual":
@@ -323,9 +458,12 @@ def finalize(inc, cfg):
     if inc["kind"] == "unusual" and inc.get("typical_frp") and inc.get("max_frp"):
         ratio = round(inc["max_frp"] / max(inc["typical_frp"], 1.0))
         times = count_ar(ratio, "ضعف", "ضعفين", "أضعاف") if ratio <= 10 else f"{ratio} ضعفاً"
-        inc["reason"] = f"في هذا المكان حرارة يومية معتادة، لكنها الآن أعلى بنحو {times}. " + inc["reason"]
+        when = "وقت الرصد" if inc.get("recovered_historical") else "الآن"
+        inc["reason"] = f"في هذا المكان حرارة يومية معتادة، لكنها {when} أعلى بنحو {times}. " + inc["reason"]
     inc["size"] = size_word(inc.get("max_frp"))
     inc["headline"] = headline(inc, cfg)
+    if inc.get("recovered_historical"):
+        inc["headline"] = "رصد سابق مسترجع: " + inc["headline"]
     inc["priority"] = "high" if alert_worthy(inc, cfg) else "low"
     inc["start_text"] = local_text(parse_time(inc["first"]), cfg)
     inc["last_text"] = local_text(parse_time(inc["last"]), cfg)

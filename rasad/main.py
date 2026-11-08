@@ -23,6 +23,22 @@ def geo_needed(cfg):
     return in_progress or age is None or age > float(cfg["geodata"]["rebuild_days"])
 
 
+def media_worker(cfg, interval=2.0, max_minutes=340.0, once=False):
+    """Render queued clips without owning or saving the scanner's state."""
+    from .mediaqueue import process_one
+    stop_at = time.monotonic() + max(0.0, float(max_minutes)) * 60
+    while once or time.monotonic() < stop_at:
+        try:
+            worked = process_one(cfg)
+        except Exception:  # noqa: BLE001
+            log.exception("media worker failed; pending jobs remain available for retry")
+            worked = False
+        if once:
+            return
+        if not worked:
+            time.sleep(max(0.1, float(interval)))
+
+
 def cmd_status(cfg):
     session = make_session()
     wms = WMS(cfg["eumetview"]["wms_url"], session)
@@ -86,6 +102,12 @@ def main(argv=None):
     p.add_argument("--alert-now", action="store_true", help="alert even during the learning day")
     p.add_argument("--auto-geo", action="store_true", help="(re)build the facility database when old")
     p.add_argument("--geo-budget", type=float, default=240, help="seconds per run for the facility map")
+    p = sub.add_parser("media-worker", help="render queued clips separately from satellite checks")
+    p.add_argument("--interval", type=float, default=2, help="seconds between checks for queued clips")
+    p.add_argument("--max-minutes", type=float, default=340, help="worker lifetime in minutes")
+    p.add_argument("--once", action="store_true", help="process at most one queued clip")
+    p = sub.add_parser("maintain-geo", help="refresh the facility map separately from satellite checks")
+    p.add_argument("--budget", type=float, default=45, help="seconds for this maintenance pass")
     p = sub.add_parser("loop", help="monitor continuously on this computer")
     p.add_argument("--interval", type=int, default=10)
     p.add_argument("--no-send", action="store_true")
@@ -134,6 +156,14 @@ def main(argv=None):
         for h in logging.getLogger().handlers:
             h.addFilter(_Mask())
     cfg = load_config(args.config, args.state, args.site)
+
+    if args.cmd == "media-worker":
+        media_worker(cfg, args.interval, args.max_minutes, args.once)
+        return
+    if args.cmd == "maintain-geo":
+        if geo_needed(cfg):
+            build_geodata(cfg, make_session(), budget_s=args.budget)
+        return
 
     if args.cmd == "hotspots":
         from .seawatch import hotspots

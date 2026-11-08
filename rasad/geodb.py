@@ -330,25 +330,50 @@ class Geo:
         """Arabic country/province names from OpenStreetMap Nominatim (cached)."""
         key = f"{round(lat, 2)},{round(lon, 2)}"
         cache = self.state.setdefault("geocode", {})
-        if key in cache:
+        if cache.get(key):
             return cache[key]
         G = self.cfg["geodata"]
+        bounded = bool(self.cfg.get("_background_media")) or "reverse_budget_s" in G
+        if bounded:
+            if not hasattr(self, "_reverse_deadline"):
+                self._reverse_deadline = time.monotonic() + max(0, float(G.get("reverse_budget_s", 8)))
+                self._reverse_requests = 0
+            remaining = self._reverse_deadline - time.monotonic()
+            if remaining <= 0 or self._reverse_requests >= max(0, int(G.get("max_reverse_requests", 1))):
+                self.naming_deferred = True
+                return {}
         wait = 1.1 - (time.time() - self._last_nominatim)
         if wait > 0:
+            if bounded and wait >= self._reverse_deadline - time.monotonic():
+                self.naming_deferred = True
+                return {}
             time.sleep(wait)
         res = {}
+        timeout = min(30, self._reverse_deadline - time.monotonic()) if bounded else 30
+        if timeout <= 0:
+            self.naming_deferred = True
+            return {}
+        if bounded:
+            self._reverse_requests += 1
         try:
             r = self.s.get(G["nominatim_url"], params={"format": "jsonv2", "lat": f"{lat:.5f}",
                                                          "lon": f"{lon:.5f}", "zoom": 10,
-                                                         "accept-language": "ar"}, timeout=30)
-            self._last_nominatim = time.time()
+                                                         "accept-language": "ar"}, timeout=timeout)
             if r.status_code == 200:
                 a = (r.json() or {}).get("address") or {}
-                res = {"country": a.get("country", ""), "state": a.get("state") or a.get("region", ""),
-                       "local": a.get("city") or a.get("town") or a.get("village") or a.get("county", "")}
+                if a:
+                    res = {"country": a.get("country", ""), "state": a.get("state") or a.get("region", ""),
+                           "local": a.get("city") or a.get("town") or a.get("village") or a.get("county", "")}
         except (requests.RequestException, ValueError) as e:
             log.warning("Nominatim: %s", e)
-        cache[key] = res
+        finally:
+            self._last_nominatim = time.time()
+        if res:
+            cache[key] = res
+        else:
+            # An unavailable name must be retried later, rather than becoming
+            # permanent empty geocoding and a permanently cached incident title.
+            self.naming_deferred = True
         return res
 
     def describe(self, lat, lon, place_kind):

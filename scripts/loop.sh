@@ -10,19 +10,48 @@ set -uo pipefail
 
 EVERY=${RASAD_EVERY_SECONDS:-150}        # start a check this often (a long check is followed at once)
 MINUTES=${RASAD_LOOP_MINUTES:-340}       # GitHub stops a job after 6 hours
-GEO=${RASAD_GEO_BUDGET:-45}              # seconds per check for growing the facility map
+GEO=${RASAD_GEO_BUDGET:-45}              # seconds per background facility-map pass
+CYCLE_LIMIT=${RASAD_SCAN_TIMEOUT_SECONDS:-210}
+GEO_LIMIT=${RASAD_GEO_TIMEOUT_SECONDS:-60}
 LOCKED=${RASAD_CLOUD_URL:+1}
 WATCHED="web rasad scripts config.yaml requirements.txt .github/workflows/rasad.yml"
 start_sha=$(git rev-parse HEAD)
 end=$((SECONDS + MINUTES * 60))
 n=0
 closed=""
+media_pid=""
+geo_pid=""
+last_geo=-600
+
+cleanup_workers() {
+  local pid
+  for pid in "$media_pid" "$geo_pid"; do
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+  done
+  for pid in "$media_pid" "$geo_pid"; do
+    [ -n "$pid" ] && wait "$pid" 2>/dev/null || true
+  done
+}
+trap cleanup_workers EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+# Workers write only staging media or the facility database. The scanner alone owns incidents.
+# GNU timeout forwards shutdown to the worker process group, including an active ffmpeg child.
+timeout --signal=TERM --kill-after=5s "$((MINUTES * 60))s" \
+  python -m rasad --state _state --site _site media-worker --interval 2 --max-minutes "$MINUTES" \
+  > .rasad-media-worker.log 2>&1 &
+media_pid=$!
 
 while [ "$SECONDS" -lt "$end" ]; do
   t0=$SECONDS
   n=$((n + 1))
   echo "::group::check $n ($(date -u +%H:%M:%S) UTC)"
-  python -m rasad --state _state --site _site cycle --auto-geo --geo-budget "$GEO" || echo "check $n failed"
+  # A failed/expired check keeps the previous published data; it cannot hold the loop indefinitely.
+  if ! timeout --signal=TERM --kill-after=5s "${CYCLE_LIMIT}s" \
+      env RASAD_BACKGROUND_MEDIA=1 python -m rasad --state _state --site _site cycle; then
+    echo "check $n failed or exceeded ${CYCLE_LIMIT}s; keeping the last completed feed"
+  fi
   if [ -n "$LOCKED" ]; then
     if python -m rasad --state _state --site _site cloud-publish; then
       # the private app has everything: now the public copies can go
@@ -38,6 +67,16 @@ while [ "$SECONDS" -lt "$end" ]; do
   fi
   echo "::endgroup::"
   echo "check $n took $((SECONDS - t0)) s"
+
+  # Slow Overpass queries never delay publishing or the next satellite check.
+  if [ $((SECONDS - last_geo)) -ge 600 ] && { [ -z "$geo_pid" ] || ! kill -0 "$geo_pid" 2>/dev/null; }; then
+    [ -n "$geo_pid" ] && wait "$geo_pid" 2>/dev/null || true
+    timeout --signal=TERM --kill-after=5s "${GEO_LIMIT}s" \
+      python -m rasad --state _state --site _site maintain-geo --budget "$GEO" \
+      > .rasad-geo-worker.log 2>&1 &
+    geo_pid=$!
+    last_geo=$SECONDS
+  fi
 
   # stop only for a change the watching uses (the same paths that start a new run when pushed):
   # anything else (notes, the diagnosis requests) must not leave a gap in the watching

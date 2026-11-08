@@ -35,7 +35,8 @@ def tg_send(cfg, session, text, media=None, reply_to=None):
             if method == "sendVideo":
                 data["supports_streaming"] = "true"
             with open(media, "rb") as f:
-                r = session.post(f"{base}/{method}", data=data, files={field: (Path(media).name, f)}, timeout=180)
+                r = session.post(f"{base}/{method}", data=data, files={field: (Path(media).name, f)},
+                                 timeout=float(T.get("media_timeout_s", 180)))
             ok = r.status_code == 200 and r.json().get("ok")
             if ok and len(text) > 1024:
                 mid = (r.json().get("result") or {}).get("message_id")
@@ -45,7 +46,8 @@ def tg_send(cfg, session, text, media=None, reply_to=None):
             r = session.post(f"{base}/sendMessage", data={"chat_id": chat, "text": text[:4096],
                                                           "parse_mode": "HTML",
                                                           "link_preview_options": json.dumps({"is_disabled": True}),
-                                                          "disable_web_page_preview": "true", **extra}, timeout=60)
+                                                          "disable_web_page_preview": "true", **extra},
+                             timeout=float(T.get("text_timeout_s", 60)))
             ok = r.status_code == 200 and r.json().get("ok")
         if not ok:
             log.warning("Telegram refused the message: %s", r.text[:300])
@@ -53,7 +55,7 @@ def tg_send(cfg, session, text, media=None, reply_to=None):
         res = r.json().get("result")
         return (res.get("message_id") if isinstance(res, dict) else None) or True
     except (requests.RequestException, ValueError, KeyError) as e:
-        log.warning("Telegram error: %s", e)
+        log.warning("Telegram request failed (%s)", type(e).__name__)
         return None
 
 

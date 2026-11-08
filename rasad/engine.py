@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 import sys
 import time
 from pathlib import Path
@@ -12,10 +12,11 @@ from pathlib import Path
 import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
-                    nearby_confirmed, new_incident, day_requires_confirmation)
+                    nearby_confirmed, new_incident, day_requires_confirmation, association_requires_confirmation)
 from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
+from . import backfill, geocollect, mediaqueue
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -24,7 +25,7 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 13  # bump when the importance rules change, so stored incidents are judged again
+RULES = 14  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 
@@ -45,10 +46,15 @@ DEFAULTS = {
                                    "عُمان", "إيران", "اليمن"]},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 25,
                "unusual_facility_km": 3},
-    "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7},
+    "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7,
+                  "max_polar_gap_hours": 3, "polar_relocation_km": 2},
     "firms": {"map_key": "", "base_url": "https://firms.modaps.eosdis.nasa.gov",
               "sources": ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "VIIRS_SNPP_NRT", "MODIS_NRT"],
-              "bootstrap_days": 10, "max_day_range": 5, "live_hours": 36},
+              "bootstrap_days": 10, "max_day_range": 5, "live_hours": 36,
+              "budget_s": 25, "request_timeout_s": 20, "max_workers": 2},
+    "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
+                 "auto_targets": True, "auto_hours": 24, "max_targets": 6,
+                 "targets": []},
     "telegram": {"bot_token": "", "chat_id": "", "api_base": "https://api.telegram.org"},
     "eumetview": {
         "wms_url": "https://view.eumetsat.int/geoserver/wms",
@@ -59,6 +65,8 @@ DEFAULTS = {
         # after an outage at the source the pictures come out late: slots of the last hours that
         # were never read are read then (a little per run)
         "catchup_hours": 2, "catchup_budget_s": 75,
+        "scan_budget_s": 65, "scan_max_images": 12, "scan_workers": 4, "scan_timeout_s": 15,
+        "strength_budget_s": 20,
         "fire_layers": [
             {"id": "mtg_frp", "name": "mtg_fd:frp", "family": "mtg", "cadence_min": 10,
              "clock_layer": "mtg_fd:ir105_hrfi", "label_ar": "القمر الأوروبي Meteosat-12"},
@@ -165,6 +173,7 @@ def load_config(path, state_dir=None, site_dir=None):
     if env.get("RASAD_APP_URL"):
         cfg["app_url"] = env["RASAD_APP_URL"]
     cfg["firms"]["map_key"] = str(cfg["firms"].get("map_key") or "").strip()
+    cfg["_background_media"] = env.get("RASAD_BACKGROUND_MEDIA") == "1"
     regions = []
     for r in cfg.get("regions") or []:
         if r.get("enabled", True):
@@ -232,10 +241,12 @@ def enrich(inc, cfg, geo):
     """Where is it, what is near it, which region: only redone when the position moves."""
     pos = [round(inc["lat"], 3), round(inc["lon"], 3), geo.version]
     if inc.get("_pos") != pos:  # redo when the fire moved or the facility map grew
+        geo.naming_deferred = False
         inc["place"] = geo.place_kind(inc["lat"], inc["lon"])
         inc["facility"] = geo.facility(inc["lat"], inc["lon"])
         inc["where"], inc["country"] = geo.describe(inc["lat"], inc["lon"], inc["place"])
-        inc["_pos"] = pos
+        if not getattr(geo, "naming_deferred", False):
+            inc["_pos"] = pos
     region, ids = smallest_region(cfg, inc["lat"], inc["lon"])  # cheap: follows renamed regions
     inc["regions"] = ids
     inc["region_name"] = region["name"] if region else None
@@ -435,18 +446,24 @@ def _delayed_update(inc, cfg, now):
 
 def run_cycle(cfg, send=True, alert_now=False):
     now = utcnow()
+    started_clock = time.monotonic()
     today = now.date().isoformat()
     session = make_session()
     wms = WMS(cfg["eumetview"]["wms_url"], session)
     S = State(cfg)
+    if cfg.get("_background_media"):
+        mediaqueue.consume_results(cfg, S, now)
     geo = Geo(cfg, session, wms, S.state)
-    geo.self_test()
+    if cfg.get("_background_media"):
+        method = getattr(type(wms), "budget", None)
+        with wms.budget(8, timeout_s=4) if callable(method) else nullcontext():
+            geo.self_test()
+    else:
+        geo.self_test()
     E, M, I = cfg["eumetview"], cfg["memory"], cfg["incidents"]
     regions = cfg["regions"]
     box = union_bbox([r["bbox"] for r in regions])
     tiles = region_tiles(regions, float(E["tile_deg"]))
-    pcenter = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
-    pbox = [pcenter[0] - 0.2, pcenter[1] - 0.2, pcenter[0] + 0.2, pcenter[1] + 0.2]
     status = {}
 
     if S.state.get("schema", 1) < 3:
@@ -472,70 +489,25 @@ def run_cycle(cfg, send=True, alert_now=False):
         if tg_send(cfg, session, hello):
             S.state["hello_sent"] = iso(now)
 
-    # 1) European weather satellites, every 10-15 minutes
-    dets, n_images, t0 = [], 0, time.time()
+    # Live tiles and outage catch-up share a bounded, resumable collector.
     slots = S.state.setdefault("slots", {})
     avail = Availability(wms, S.state, now)
-    late_budget = float(E.get("catchup_budget_s", 75))   # seconds per run for slots missed earlier
-    for L in E["fire_layers"]:
-        if not L.get("enabled", True):
-            continue
-        cad = int(L["cadence_min"])
-        t_latest = latest_time(wms, S.state, L.get("clock_layer") or L["name"], cad, pbox)
-        fresh = t_latest is not None and now - t_latest <= dt.timedelta(hours=STALE_HOURS)
-        status[L["id"]] = {"name": L.get("label_ar", L["id"]), "ok": fresh,
-                           "latest": iso(t_latest) if t_latest else None}
-        if not fresh:
-            log.warning("%s: no recent data", L["name"])
-            continue
-        # the newest slots every run, then (within a small budget) any slot of the last hours that
-        # was never read: after an outage at the source the pictures can come out late
-        n_new = int(E["lookback_slots"])
-        span = max(n_new, int(round(float(E.get("catchup_hours", 2)) * 60 / cad)))
-        late_done = 0
-        for k in range(span):
-            t = t_latest - dt.timedelta(minutes=cad * k)
-            age = (now - t).total_seconds() / 60
-            late = k >= n_new
-            failed = 0
-            todo = []
-            for tile in tiles:
-                key = f"{L['id']}|{','.join(map(str, tile))}|{iso(t)}"
-                prev = slots.get(key)
-                if prev is not None and (late or prev >= E["settle_minutes"] or age < E["settle_minutes"]):
-                    continue
-                todo.append((key, tile))
-            if not todo:
-                continue
-            if late and (late_done >= 2 or time.time() - t0 > late_budget):
-                continue
-            if k and not avail.has(L["name"], t):
-                continue   # a hole at the source: the server would only send another time's picture
-            if late:
-                late_done += 1
-                log.info("%s %s: reading a slot missed earlier", L["id"], iso(t))
-            # the tiles are asked for in parallel: the server is slow per picture, not per request
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                results = list(pool.map(lambda kt: detect_geo_layer(
-                    wms, dict(L, tile_px=L.get("tile_px", E["tile_px"])), kt[1], t), todo))
-            for (key, tile), res in zip(todo, results):
-                n_images += 1
-                if res is None:
-                    failed += 1  # not ready yet or server busy: retried next run
-                else:
-                    dets += res
-                    slots[key] = age
-            if failed:
-                log.info("%s %s: %d of %d images not available yet, will retry", L["id"], iso(t), failed, len(tiles))
-
-    log.info("European satellites: %d images read, %d fire points, %.0f s", n_images, len(dets), time.time() - t0)
+    dets, status, n_images = geocollect.collect(
+        cfg, wms, S.state, now, tiles, avail, detect=detect_geo_layer, latest=latest_time)
 
     # 1b) Own sea finders: nighttime checks and separately guarded daytime candidates.
     SW = cfg["seawatch"]
     if SW.get("enabled"):
         t1 = time.time()
         try:
-            spots = seawatch.watch(cfg, wms, S.state, now, Memory(S.memory), geo, avail)
+            watch_cfg = cfg
+            if cfg.get("_background_media"):
+                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 35),
+                                                  slots_per_run=min(int(SW["slots_per_run"]), 2)))
+            seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
+            budget = getattr(type(wms), "budget", None)
+            with wms.budget(seconds, timeout_s=12) if callable(budget) else nullcontext():
+                spots = seawatch.watch(watch_cfg, wms, S.state, now, Memory(S.memory), geo, avail)
             ok = True
         except Exception as e:  # noqa: BLE001
             log.warning("sea watch failed: %s", e)
@@ -560,7 +532,10 @@ def run_cycle(cfg, send=True, alert_now=False):
     #    are published after midnight UTC, so "today only" would never see them.
     if cfg["firms"]["map_key"]:
         seen = S.state.setdefault("seen", {})
-        polar = firms_fetch(session, cfg, box, 2)
+        nasa_status = {}
+        nasa_cfg = dict(cfg, firms=dict(cfg["firms"], source_offset=int(S.state.get("firms_source_offset", 0))))
+        polar = firms_fetch(session, nasa_cfg, box, 2, status=nasa_status)
+        S.state["firms_source_offset"] = (int(S.state.get("firms_source_offset", 0)) + 2) % max(1, len(cfg["firms"]["sources"]))
         live_from = now - dt.timedelta(hours=float(cfg["firms"].get("live_hours", 36)))
         n_new = n_old = 0
         for d in polar:
@@ -576,13 +551,30 @@ def run_cycle(cfg, send=True, alert_now=False):
             dets.append(d)
         log.info("NASA: %d detections in the last 2 days, %d new to judge, %d kept as history",
                  len(polar), n_new, n_old)
-        status["firms"] = {"name": "الأقمار الأمريكية (ناسا)", "ok": True, "latest": max(
-            (d["t"] for d in polar), default=None)}
+        status["firms"] = {**nasa_status, "name": "الأقمار الأمريكية (ناسا)",
+                           "ok": bool(nasa_status.get("ok")),
+                           "latest": max((d["t"] for d in polar), default=None)}
+
+    # Historical recovery asks the official product again; daily memory is only a search hint.
+    recovered, recovery_status = backfill.collect(cfg, wms, S.state, Memory(S.memory), geo, now,
+                                                 detect=detect_geo_layer, fetch=fetch_frp)
+    dets += recovered
+    if recovery_status["enabled"]:
+        status["recovery"] = dict(recovery_status, name="استرجاع رصد سابق قرب المنشآت")
+
+    strength_pending = S.state.setdefault("strength_pending", {})
+    for key, det in list(strength_pending.items()):
+        if now - parse_time(det["t"]) > dt.timedelta(hours=24):
+            del strength_pending[key]
+        else:
+            dets.append(dict(det))
 
     # drop duplicates of the same symbol found in two neighbouring tiles
     uniq = {}
     for d in dets:
-        uniq.setdefault((d["src"], d["t"], round(d["lat"], 2), round(d["lon"], 2)), d)
+        # VIIRS pixels can share a 0.01-degree cell. Preserve their distinct
+        # measured powers and positions instead of retaining an arbitrary first pixel.
+        uniq.setdefault((d["src"], d["t"], round(d["lat"], 4), round(d["lon"], 4)), d)
     dets = sorted(uniq.values(), key=lambda d: d["t"])
 
     # 3) judgement
@@ -592,6 +584,28 @@ def run_cycle(cfg, send=True, alert_now=False):
     merge_km, merge_h = float(I["merge_km"]), float(I["merge_hours"])
     open_incs = [i for i in S.incidents if now - parse_time(i["last"]) <= dt.timedelta(hours=merge_h)]
     touched, frp_budget = set(), 40
+    strength_deadline = time.monotonic() + float(E.get("strength_budget_s", 20))
+
+    def strength_key(det):
+        return f"{det['src']}|{det['t']}|{det['lat']}|{det['lon']}"
+
+    def read_strength(det):
+        nonlocal frp_budget
+        fi = det.get("_fi")
+        if not fi or det.get("frp") is not None:
+            return
+        remaining = strength_deadline - time.monotonic()
+        if remaining > 0 and frp_budget > 0:
+            frp_budget -= 1
+            method = getattr(type(wms), "budget", None)
+            with wms.budget(remaining, timeout_s=8) if callable(method) else nullcontext():
+                fetch_frp(wms, det)
+        if det.get("frp") is None:
+            det["_fi"] = fi
+            strength_pending[strength_key(det)] = dict(det)
+        else:
+            strength_pending.pop(strength_key(det), None)
+
     for d in dets:
         if not any(in_bbox(r["bbox"], d["lat"], d["lon"]) for r in regions):
             continue
@@ -613,11 +627,10 @@ def run_cycle(cfg, send=True, alert_now=False):
         # A known European symbol needs its strength before it can be dismissed as routine.
         # Limit these extra queries to steady heat at facilities, where a surge matters.
         if steady and typical is not None and frp is None and d["kind"] == "geo" \
-                and frp_budget > 0 and d.get("_fi"):
+                and d.get("_fi"):
             steady_facility = geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"]))
             if steady_facility:
-                frp_budget -= 1
-                fetch_frp(wms, d)
+                read_strength(d)
                 frp = d.get("frp")
         unusual = steady and frp is not None and typical is not None and \
             frp >= max(float(M["unusual_ratio"]) * typical, typical + float(M["unusual_add_mw"])) and \
@@ -626,14 +639,15 @@ def run_cycle(cfg, send=True, alert_now=False):
         routine = known and not unusual
         if not experimental_day:
             mem.record(d["lat"], d["lon"], day, frp)
-        inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h)
+        inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h, rules=I)
+        if d.get("_no_alert") and inc is not None and inc.get("alerted_verdict") is not None:
+            continue  # recovery fills missing incidents; it cannot rewrite an already-sent event
         if inc is None and (routine or learning):
             continue
         if inc is not None and routine and inc["kind"] == "unusual":
             continue  # the usual flare is not evidence of the unusual heat
-        if d["kind"] == "geo" and frp_budget > 0 and d.get("_fi"):
-            frp_budget -= 1
-            fetch_frp(wms, d)
+        if d["kind"] == "geo" and d.get("_fi"):
+            read_strength(d)
         d.pop("_fi", None)
         if inc is None:
             inc = new_incident(d, "unusual" if unusual else "new")
@@ -642,6 +656,10 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
             S.incidents.append(inc)
             open_incs.append(inc)
+        if d.get("_no_alert"):
+            inc["recovered_historical"] = True
+        elif not d.get("_recovered") and now - parse_time(d["t"]) <= dt.timedelta(hours=8):
+            inc.pop("recovered_historical", None)
         add_to_incident(inc, d)
         touched.add(inc["id"])
     log.info("judged %d detections: %d incidents touched, %d heat cells remembered",
@@ -654,7 +672,26 @@ def run_cycle(cfg, send=True, alert_now=False):
     max_age = dt.timedelta(hours=float(cfg["alerts"].get("max_age_hours", 8)))
     update_max_age = dt.timedelta(hours=float(cfg["alerts"].get("intensity_max_age_hours", 24)))
     first_alerts, updates = [], []
-    look_budget = 2
+    look_budget = 0 if cfg.get("_background_media") else 2
+    post_deadline = time.monotonic() + 20
+
+    def post(message, media=None, reply_to=None):
+        post_cfg = cfg
+        if cfg.get("_background_media"):
+            remaining = post_deadline - time.monotonic()
+            if remaining <= 0:
+                return None  # notification state is unchanged; retry next completed scan
+            post_cfg = dict(cfg, telegram=dict(cfg["telegram"],
+                            text_timeout_s=min(8, remaining), media_timeout_s=min(15, remaining)))
+        return deliver(post_cfg, session, message, media, send, reply_to=reply_to)
+
+    def prepare_clip(inc, refresh=False):
+        if cfg.get("_background_media"):
+            # Pending video retries and website requests must use the same revision.
+            refresh = bool(inc.get("clip") and (refresh or inc.get("clip_video_pending")
+                           or inc.get("clip_needs_refresh") or _clip_measurement_changed(inc)))
+            return mediaqueue.request_clip(cfg, inc, now, refresh=refresh)
+        return add_clip(cfg, wms, S, inc, now, refresh=refresh)
 
     def look_back(inc):
         """NASA saw a fire at sea hours late: find when it first showed on Meteosat-12."""
@@ -742,7 +779,7 @@ def run_cycle(cfg, send=True, alert_now=False):
             look_budget -= 1
         if inc["priority"] != "high" or inc.get("status") == "held":
             continue
-        if day_requires_confirmation(inc):
+        if day_requires_confirmation(inc) or association_requires_confirmation(inc) or inc.get("recovered_historical"):
             continue  # experimental day evidence cannot send alerts or updates without corroboration
         rank = VERDICT_RANK[inc["verdict"]]
         if inc.get("alerted_verdict") is None and rank >= min_rank and not SW.get("alerts") \
@@ -775,20 +812,24 @@ def run_cycle(cfg, send=True, alert_now=False):
                    "لم أرسلها كتنبيهات منفصلة؛ راجعها في التطبيق قبل أي نشر.")
         if cfg.get("app_url"):
             summary += f'\n<a href="{cfg["app_url"]}">افتح التطبيق</a>'
-        deliver(cfg, session, summary, None, send)
+        post(summary)
         first_alerts = []
 
     for inc in first_alerts:
         inc["status"] = "pending"
         media = None
-        ready = add_clip(cfg, wms, S, inc, now)
+        ready = prepare_clip(inc)
         if ready and inc.get("clip"):
             media = Path(cfg["_site_dir"]) / inc["clip"]
-        sent = deliver(cfg, session, alert_message(inc, cfg), media, send)
+        message = alert_message(inc, cfg)
+        if media is None and cfg["clip"].get("enabled", True):
+            message += "\n🎞 الفيديو قيد التجهيز؛ سيُرسل عند توفر صور واضحة للرصد."
+        sent = post(message, media)
         if sent:
             S.sent = True
             inc["alerted_verdict"], inc["status"], inc["alerted_at"] = inc["verdict"], "alerted", iso(now)
             _remember_post(inc, now)
+            inc["clip_video_pending"] = bool(cfg["clip"].get("enabled", True) and media is None)
             if sent is not True:
                 inc["tg_msg"] = sent  # updates answer this post
             log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
@@ -797,13 +838,15 @@ def run_cycle(cfg, send=True, alert_now=False):
         updated_ids.add(inc["id"])
         first_post = inc.get("tg_msg")
         media = None
-        if intensity and add_clip(cfg, wms, S, inc, now, refresh=True) and inc.get("clip"):
+        if intensity and prepare_clip(inc, refresh=True) and inc.get("clip"):
             path = Path(cfg["_site_dir"]) / inc["clip"]
             if path.exists():
                 media = path
-        if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post),
-                                               intensity=intensity, delayed=_delayed_update(inc, cfg, now)), media, send,
-                   reply_to=first_post):
+        message = alert_message(inc, cfg, update=True, threaded=bool(first_post),
+                                intensity=intensity, delayed=_delayed_update(inc, cfg, now))
+        if intensity and media is None and cfg["clip"].get("enabled", True):
+            message += "\n🎞 الفيديو المحدث قيد التجهيز؛ سيُرسل عند توفر صور تُظهر الرصد الجديد بوضوح."
+        if post(message, media, reply_to=first_post):
             S.sent = True
             inc["alerted_verdict"] = inc["verdict"]
             _remember_post(inc, now)
@@ -816,17 +859,18 @@ def run_cycle(cfg, send=True, alert_now=False):
     for inc in S.incidents:
         if inc["id"] in updated_ids or not inc.get("clip_video_pending") \
                 or inc.get("status") != "alerted" or inc.get("priority") != "high" \
-                or day_requires_confirmation(inc) or now - parse_time(inc["last"]) > update_max_age:
+                or day_requires_confirmation(inc) or association_requires_confirmation(inc) or inc.get("recovered_historical") \
+                or now - parse_time(inc["last"]) > update_max_age:
             continue
-        if not add_clip(cfg, wms, S, inc, now, refresh=True) or not inc.get("clip"):
+        if not prepare_clip(inc, refresh=True) or not inc.get("clip"):
             continue
         media = Path(cfg["_site_dir"]) / inc["clip"]
         if not media.exists():
             continue
         first_post = inc.get("tg_msg")
-        if deliver(cfg, session, alert_message(inc, cfg, update=True, threaded=bool(first_post),
-                                               video_update=True, delayed=_delayed_update(inc, cfg, now)), media, send,
-                   reply_to=first_post):
+        if post(alert_message(inc, cfg, update=True, threaded=bool(first_post),
+                              video_update=True, delayed=_delayed_update(inc, cfg, now)), media,
+                reply_to=first_post):
             S.sent = True
             inc["clip_video_pending"] = False
             _remember_post(inc, now)
@@ -855,7 +899,7 @@ def run_cycle(cfg, send=True, alert_now=False):
             tried = inc.get("clip_refresh_tried" if needs_refresh else "clip_tried")
             retry = float(cfg["clip"].get("refresh_retry_min", 10)) if needs_refresh else 60
             if not tried or now - parse_time(tried) >= dt.timedelta(minutes=retry):
-                add_clip(cfg, wms, S, inc, now, refresh=needs_refresh)
+                prepare_clip(inc, refresh=needs_refresh)
                 budget -= 1
 
     # 5) tidy up and publish
@@ -874,20 +918,29 @@ def run_cycle(cfg, send=True, alert_now=False):
     if today not in days:
         days.append(today)
     S.state["run_days"] = sorted(days)[-60:]
-    S.state["last_run"] = iso(now)
+    finished = utcnow()
+    elapsed = max(0.0, time.monotonic() - started_clock)
+    S.state["last_run"] = iso(finished)
+    S.state["scan_started"] = iso(now)
     S.save()
-    publish(cfg, S, status, now, learning, len(dets))
+    publish(cfg, S, status, now, learning, len(dets), finished=finished, duration=elapsed)
     return S
 
 
 PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "start_text", "last_text",
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
-          "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp"]
+          "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
+          "recovered_historical", "association_uncertain", "association"]
 
 
-def publish(cfg, S, status, now, learning, n_dets):
+def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=None):
     site = Path(cfg["_site_dir"])
+    finished = finished or utcnow()
+    partial = any(row.get("pending_recent", 0) or row.get("failed", 0) or row.get("deferred", 0)
+                  or (not row.get("ok", False) and key != "recovery"
+                      and not row.get("experimental"))
+                  for key, row in status.items() if key != "recovery")
     items = [{k: i.get(k) for k in PUBLIC} for i in S.incidents if i.get("headline")]
     for item in items:
         if item.get("clip_video_pending") or item.get("clip_needs_refresh"):
@@ -908,9 +961,11 @@ def publish(cfg, S, status, now, learning, n_dets):
     if low:
         drop = {id(i) for i in low}
         items = [i for i in items if id(i) not in drop]
-    save_json(site / "data" / "incidents.json", {"generated": iso(now), "items": items}, compact=True)
+    save_json(site / "data" / "incidents.json", {"generated": iso(finished), "items": items}, compact=True)
     save_json(site / "data" / "meta.json", {
-        "generated": iso(now), "app_name": cfg["app_name"], "learning": learning,
+        "generated": iso(finished), "scan_started": iso(now), "scan_finished": iso(finished),
+        "scan_duration_s": round(duration if duration is not None else max(0, (finished - now).total_seconds()), 1),
+        "scan_partial": bool(partial), "app_name": cfg["app_name"], "learning": learning,
         "detections_this_run": n_dets, "local_offset_hours": cfg["local_time"]["offset_hours"],
         "local_name": cfg["local_time"]["name"],
         "regions": [{"id": r["id"], "name": r["name"], "bbox": r["bbox"]} for r in cfg["regions"]],

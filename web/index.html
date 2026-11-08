@@ -62,11 +62,11 @@ a{color:var(--accent)}
 header{position:sticky;top:0;z-index:1000;background:var(--bg);
   padding-top:env(safe-area-inset-top,0px);border-bottom:1px solid var(--line)}
 .bar{display:flex;align-items:center;gap:10px;padding-block:10px}
-.brand{display:flex;align-items:center;gap:8px;font:800 22px/1 var(--font-display);letter-spacing:0}
+.brand{display:flex;align-items:center;gap:8px;flex-shrink:0;font:800 22px/1 var(--font-display);letter-spacing:0}
 .brand svg{width:28px;height:28px}
 .pill{margin-inline-start:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);
-  background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 10px;white-space:nowrap}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 10px;min-width:0;white-space:normal}
+.dot{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:var(--muted)}
 .dot.ok{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
 .dot.warn{background:var(--likely)} .dot.bad{background:var(--sure)}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-block:0 10px;scrollbar-width:none}
@@ -441,12 +441,34 @@ async function load(){
   }
 }
 function renderStatus(){
-  const g = S.meta?.generated; if (!g) return;
-  const m = (Date.now() - Date.parse(g)) / 60000;
-  const cls = m < 8 ? "ok" : m < 20 ? "warn" : "bad";
-  const word = m < 8 ? "يراقب" : m < 20 ? "متأخر قليلاً" : "متوقف";
-  $("#status").innerHTML = `<span class="dot ${cls}"></span><span>${word} · آخر فحص ${ago(g)}</span>`;
-  $("#learning").hidden = !S.meta.learning;
+  const meta = S.meta || {}, now = Date.now();
+  const valid = value => typeof value === "string" && Number.isFinite(Date.parse(value))
+    && Date.parse(value) <= now + 120000;
+  const finished = valid(meta.scan_finished), g = finished ? meta.scan_finished : meta.generated;
+  $("#learning").hidden = !meta.learning;
+  if (!valid(g)){
+    $("#status").innerHTML = `<span class="dot warn"></span><span>وقت آخر فحص غير متاح</span>`;
+    return;
+  }
+  const m = Math.max(0, (now - Date.parse(g)) / 60000), partial = meta.scan_partial === true;
+  const sources = Object.values(meta.sources || {}).filter(source => source && source.enabled !== false);
+  const available = sources.filter(source => valid(source.latest));
+  const newest = available.reduce((best, source) => !best || Date.parse(source.latest) > Date.parse(best)
+    ? source.latest : best, null);
+  const sourceMinutes = newest ? Math.max(0, (now - Date.parse(newest)) / 60000) : null;
+  const sourcesLate = sources.length > 0 && (!available.length || sources.every(source => source.ok === false));
+  const cls = m >= 20 ? "bad" : partial || sourcesLate || m >= 8 || sourceMinutes > 30 ? "warn" : "ok";
+  let word = m >= 20 ? "البيانات متأخرة" : sourcesLate ? "المصادر متأخرة" : m >= 8 ? "متأخر قليلاً" : "";
+  if (partial) word = m >= 20 ? "فحص جزئي · " + word : "فحص جزئي";
+  const label = finished ? "آخر فحص مكتمل" : "آخر بيانات";
+  const sourceText = sourceMinutes > 30 ? ` · أحدث وقت بالمصادر ${ago(newest)}` : "";
+  const details = [];
+  if (valid(meta.scan_started)) details.push("بدأ الفحص " + clock(meta.scan_started));
+  const duration = Number(meta.scan_duration_s);
+  if (meta.scan_duration_s != null && Number.isFinite(duration) && duration >= 0)
+    details.push("استغرق " + Math.round(duration) + " ثانية");
+  if (newest) details.push("أحدث وقت متاح بالمصادر " + clock(newest) + " (" + ago(newest) + ")");
+  $("#status").innerHTML = `<span class="dot ${cls}"></span><span title="${esc(details.join(" · "))}">${word ? word + " · " : ""}${label} ${ago(g)}${sourceText}</span>`;
 }
 function renderChips(){
   const regions = [{id:"all", name:"الكل"}, ...(S.meta?.regions || [])];

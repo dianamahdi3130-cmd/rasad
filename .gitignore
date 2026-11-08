@@ -7,3 +7,6 @@ _site/
 .state_pushed
 .site_pushed
 .state_urgent
+.rasad-media/
+.rasad-media-worker.log
+.rasad-geo-worker.log
