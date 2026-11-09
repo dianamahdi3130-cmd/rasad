@@ -2,7 +2,7 @@
 import copy
 import datetime as dt
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from rasad import backfill
 from rasad.brain import Memory
@@ -72,6 +72,9 @@ class BackfillTests(unittest.TestCase):
         self.detect.return_value = None
         rows, status = self.collect()
         self.assertEqual((rows, status["missing"], status["pending"]), ([], 1, 1))
+        self.assertEqual((status["images_fetched"], status["images_reused"]), (1, 0))
+        progress = next(iter(self.state["facility_recovery"]["targets"].values()))
+        self.assertEqual(progress["images"], {})
         self.collect(now=self.NOW + dt.timedelta(minutes=9))
         self.assertEqual(self.detect.call_count, 1)
         self.detect.return_value = []
@@ -110,6 +113,13 @@ class BackfillTests(unittest.TestCase):
         rows, status = self.collect()
         self.assertEqual(rows, [])
         self.assertEqual((status["missing"], status["pending"]), (1, 1))
+        progress = next(iter(self.state["facility_recovery"]["targets"].values()))
+        self.assertEqual(progress["images"], {})
+        self.detect.side_effect = lambda wms, layer, tile, when: [self.detection(when, 63.19)]
+        rows, status = self.collect(now=self.NOW + dt.timedelta(minutes=10))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.detect.call_count, 2)
+        self.assertEqual(status["images_reused"], 0)
 
     def test_invalid_or_negative_power_does_not_become_evidence(self):
         self.one_slot()
@@ -226,6 +236,79 @@ class BackfillTests(unittest.TestCase):
         rows, status = self.collect()
         self.assertEqual((rows, status["pending"]), ([], 0))
         self.fetch.assert_not_called()
+
+    def test_slow_verified_image_resumes_next_cycle_without_another_download(self):
+        self.one_slot()
+        self.cfg["recovery"]["budget_s"] = 15
+        clock = [0.0]
+
+        def slow_image(wms, layer, tile, when):
+            clock[0] += 15
+            return [self.detection(when)]
+
+        self.detect.side_effect = slow_image
+        self.fetch.side_effect = lambda wms, det: det.update(frp=63.19)
+        with patch.object(backfill.time, "monotonic", side_effect=lambda: clock[0]):
+            rows, status = self.collect()
+            self.assertEqual(rows, [])
+            self.assertEqual((status["images_fetched"], status["images_reused"]), (1, 0))
+            self.assertEqual((status["deferred"], status["missing"]), (1, 0))
+            self.fetch.assert_not_called()
+            # A cycle cap, unlike unavailable source evidence, needs no ten-minute backoff.
+            rows, status = self.collect(now=self.NOW + dt.timedelta(minutes=2))
+        self.detect.assert_called_once()
+        self.fetch.assert_called_once()
+        self.assertEqual([row["frp"] for row in rows], [63.19])
+        self.assertEqual((status["images_fetched"], status["images_reused"]), (0, 1))
+        self.assertEqual(status["pending"], 0)
+        progress = next(iter(self.state["facility_recovery"]["targets"].values()))
+        self.assertEqual(progress["images"], {})
+
+    def test_failed_strength_query_reuses_original_feature_metadata_after_backoff(self):
+        self.one_slot()
+        when = parse_time("2026-11-08T01:20:00Z")
+        original_fi = ["mtg_fd:frp", [49, 25, 50, 26], 400, 334, 186.5, 169, iso(when)]
+        self.detect.return_value = [self.detection(when, _fi=copy.deepcopy(original_fi))]
+
+        def unavailable(wms, det):
+            fi = det.pop("_fi")
+            fi[1][0] = -999  # A query adapter cannot mutate the saved original coordinates.
+
+        self.fetch.side_effect = unavailable
+        rows, status = self.collect()
+        self.assertEqual((rows, status["pending"]), ([], 1))
+        progress = next(iter(self.state["facility_recovery"]["targets"].values()))
+        self.assertEqual(progress["images"][iso(when)]["symbols"][0]["original_fi"], original_fi)
+        self.collect(now=self.NOW + dt.timedelta(minutes=9))
+        self.assertEqual(self.fetch.call_count, 1)
+
+        def available(wms, det):
+            self.assertEqual(det.pop("_fi"), original_fi)
+            det["frp"] = 80.28
+
+        self.fetch.side_effect = available
+        rows, status = self.collect(now=self.NOW + dt.timedelta(minutes=10))
+        self.detect.assert_called_once()
+        self.assertEqual([row["frp"] for row in rows], [80.28])
+        self.assertEqual(status["images_reused"], 1)
+        self.assertEqual(progress["images"], {})
+
+    def test_invalid_cached_timestamp_requires_another_verified_image(self):
+        self.one_slot()
+        self.cfg["recovery"]["max_features_per_image"] = 1
+        self.detect.side_effect = lambda wms, layer, tile, when: [
+            self.detection(when, None), self.detection(when, None, lat=self.LAT + 0.01)]
+        self.fetch.side_effect = lambda wms, det: det.update(frp=63.19)
+        self.collect()
+        progress = next(iter(self.state["facility_recovery"]["targets"].values()))
+        slot = "2026-11-08T01:20:00Z"
+        progress["images"][slot]["symbols"][1]["t"] = "2026-11-08T01:30:00Z"
+        rows, status = self.collect(now=self.NOW + dt.timedelta(minutes=2))
+        self.assertEqual(self.detect.call_count, 2)
+        self.assertEqual((status["images_fetched"], status["images_reused"]), (1, 0))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(status["pending"], 0)
+        self.assertEqual(progress["images"], {})
 
 
 if __name__ == "__main__":

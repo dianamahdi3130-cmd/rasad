@@ -18,10 +18,17 @@ A speck is kept only if:
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import math
+import os
+from pathlib import Path
+import re
+import tempfile
 import time
 
 import numpy as np
+from PIL import Image, PngImagePlugin
 
 from .geodb import land_mask_points, ring_points
 from .util import box_around, floor_time, iso, log, parse_time, px_to_latlon, sun_elevation
@@ -68,10 +75,131 @@ def robust_sigma(x):
 
 
 class Pictures:
-    """Fetches and keeps the pictures needed in one run (the same slot serves several checks)."""
+    """Share pictures in memory and optionally across short monitoring cycles.
 
-    def __init__(self, wms):
+    The disk cache contains complete, time-validated rasters only. Missing or
+    partially drawn pictures remain retryable, rather than becoming evidence.
+    """
+
+    CACHE_VERSION = 1
+    CACHE_TTL_S = 6 * 60 * 60
+    CACHE_MAX_BYTES = 256 * 1024 * 1024
+    _CACHE_NAME = re.compile(r"^[0-9a-f]{64}\.png$")
+
+    def __init__(self, wms, cache_dir=None):
         self.wms, self.cache = wms, {}
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else None
+        if self.cache_dir is not None:
+            try:
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+                self._prune_disk()
+            except OSError as exc:
+                log.debug("picture cache unavailable: %s", exc)
+                self.cache_dir = None
+
+    def _disk_key(self, base):
+        layer, bbox, width, height, requested = base
+        endpoint = getattr(self.wms, "url", "")
+        endpoint = endpoint if isinstance(endpoint, str) else ""
+        return json.dumps([self.CACHE_VERSION, endpoint, layer, list(map(float, bbox)),
+                           int(width), int(height), requested], separators=(",", ":"))
+
+    def _disk_path(self, base):
+        return self.cache_dir / (hashlib.sha256(self._disk_key(base).encode()).hexdigest() + ".png")
+
+    @staticmethod
+    def _valid_time(actual, requested):
+        # None means the server reported no substitute. Preserve that fact;
+        # never manufacture an independently reported acquisition timestamp.
+        return actual is None or abs((actual - parse_time(requested)).total_seconds()) <= 120
+
+    @staticmethod
+    def _complete(raw, width, height):
+        return (isinstance(raw, np.ndarray) and raw.shape == (height, width, 4)
+                and raw.dtype == np.uint8 and bool(np.all(raw[..., 3] >= 128)))
+
+    def _read_disk(self, base):
+        if self.cache_dir is None:
+            return None
+        path = self._disk_path(base)
+        try:
+            if path.is_symlink() or time.time() - path.stat().st_mtime > self.CACHE_TTL_S:
+                return None
+            with Image.open(path) as img:
+                info = img.info
+                if (img.format != "PNG" or img.mode != "RGBA" or img.size != (base[2], base[3])
+                        or info.get("rasad_cache_version") != str(self.CACHE_VERSION)
+                        or info.get("rasad_request") != self._disk_key(base)
+                        or info.get("rasad_requested") != base[4] or "rasad_actual" not in info):
+                    raise ValueError("picture cache metadata mismatch")
+                actual = parse_time(info["rasad_actual"]) if info["rasad_actual"] else None
+                if not self._valid_time(actual, base[4]):
+                    raise ValueError("picture cache time mismatch")
+                img.load()
+                raw = np.array(img)
+            if not self._complete(raw, base[2], base[3]):
+                raise ValueError("picture cache incomplete")
+            return raw
+        except FileNotFoundError:
+            return None
+        except Exception as exc:  # corrupted cache must not interrupt satellite monitoring
+            log.debug("cached picture unreadable: %s", exc)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
+
+    def _write_disk(self, base, raw, actual):
+        if (self.cache_dir is None or not self._complete(raw, base[2], base[3])
+                or not self._valid_time(actual, base[4])):
+            return
+        temporary = None
+        try:
+            info = PngImagePlugin.PngInfo()
+            info.add_text("rasad_cache_version", str(self.CACHE_VERSION))
+            info.add_text("rasad_request", self._disk_key(base))
+            info.add_text("rasad_requested", base[4])
+            info.add_text("rasad_actual", iso(actual) if actual is not None else "")
+            fd, temporary = tempfile.mkstemp(prefix=".rasad-picture-", suffix=".tmp", dir=self.cache_dir)
+            os.close(fd)
+            Image.fromarray(raw).save(temporary, format="PNG", pnginfo=info)
+            os.replace(temporary, self._disk_path(base))
+            self._prune_disk()
+        except OSError as exc:
+            log.debug("picture cache write failed: %s", exc)
+        finally:
+            if temporary is not None:
+                try:
+                    Path(temporary).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _prune_disk(self):
+        now = time.time()
+        files = []
+        for path in self.cache_dir.iterdir():
+            try:
+                owned = bool(self._CACHE_NAME.fullmatch(path.name))
+                temporary = path.name.startswith(".rasad-picture-") and path.suffix == ".tmp"
+                if path.is_symlink() or not (owned or temporary) or not path.is_file():
+                    continue
+                stat = path.stat()
+                if now - stat.st_mtime > self.CACHE_TTL_S:
+                    path.unlink(missing_ok=True)
+                elif owned:
+                    files.append((stat.st_mtime, stat.st_size, path))
+            except FileNotFoundError:
+                continue  # another prefetch thread may have just pruned the entry
+        total = sum(size for _, size, _ in files)
+        for _, size, path in sorted(files):
+            if total <= self.CACHE_MAX_BYTES:
+                break
+            try:
+                path.unlink(missing_ok=True)
+                total -= size
+            except FileNotFoundError:
+                pass
 
     def prefetch(self, requests_):
         """Ask for several pictures at once (the server is slow per picture, not per request)."""
@@ -94,12 +222,19 @@ class Pictures:
         if key in self.cache:
             return self.cache[key]
         if raw_key not in self.cache:
-            img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
-            if img is None:  # big pictures sometimes fail once: ask again
+            raw = self._read_disk(base)
+            if raw is None:
                 img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
-            if actual is not None and abs((actual - t).total_seconds()) > 120:
-                img = None  # the server gave another time: this slot is not published yet
-            self.cache[raw_key] = None if img is None else np.asarray(img)
+                if img is None:  # big pictures sometimes fail once: ask again
+                    img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
+                if not self._valid_time(actual, base[4]):
+                    img = None  # the server gave another time: this slot is not published yet
+                raw = None if img is None else np.asarray(img)
+                if raw is not None and raw.shape != (H, W, 4):
+                    raw = None  # pixels from another grid cannot be geolocated using this request
+                if raw is not None:
+                    self._write_disk(base, raw, actual)
+            self.cache[raw_key] = raw
         if key not in self.cache:
             self.cache[key] = _gray(self.cache[raw_key], channel)
         return self.cache[key]
@@ -344,7 +479,11 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                   "last_checked": max((v for k, v in done.items() if k.startswith("day:")), default=None),
                   "last_attempt": None}
     state["sea_day_status"] = day_status
-    pics = Pictures(wms)
+    state_path = cfg.get("_state_dir")
+    if cfg.get("_background_media") and isinstance(state_path, (str, os.PathLike)):
+        pics = Pictures(wms, cache_dir=Path(state_path).resolve().parent / ".rasad-pictures")
+    else:
+        pics = Pictures(wms)
     avail = avail or Availability(wms, state, now)
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []

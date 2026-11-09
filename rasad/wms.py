@@ -214,11 +214,16 @@ class Availability:
                       if k.startswith(layer + "|") and parse_time(k.rsplit("|", 1)[1]) >= since)
 
 
-def latest_time(wms, state, layer, cadence, pbox, max_steps=8):
-    """Newest time step of `layer` that really has data; remembers the answer in state."""
+def latest_time(wms, state, layer, cadence, pbox, max_steps=2):
+    """Find a real picture time with a small number of adequately timed probes.
+
+    A valid tiny clock picture can take about fifteen seconds at this source.
+    The phase budget bounds an outage without rejecting that response at eight
+    seconds, and an enclosing collection budget still takes precedence.
+    """
     from contextlib import nullcontext
     method = getattr(type(wms), "budget", None)
-    context = wms.budget(12, timeout_s=8) if callable(method) else nullcontext()
+    context = wms.budget(22, timeout_s=20) if callable(method) else nullcontext()
     with context:
         return _latest_time(wms, state, layer, cadence, pbox, max_steps)
 

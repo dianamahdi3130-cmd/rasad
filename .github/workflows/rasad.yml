@@ -16,7 +16,8 @@ permissions:
 
 concurrency:
   group: rasad
-  cancel-in-progress: false
+  # A code update must replace a watcher still running old code. Timer ticks queue normally.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   watch:

@@ -197,33 +197,54 @@ def _association_corroborated(inc, det):
     return False
 
 
-def find_incident(incidents, det, merge_km, merge_hours, rules=None):
+def find_incident(incidents, det, merge_km, merge_hours, rules=None, acquisition=None):
     t = parse_time(det["t"])
     best, best_d = None, merge_km
     association, association_distance = None, float("inf")
     rules = rules or {}
     max_gap = float(rules.get("max_polar_gap_hours", 3))
     relocation = float(rules.get("polar_relocation_km", 2))
+    members = acquisition if acquisition and det.get("kind") == "polar" else None
+    current_lat, current_lon = float(det["lat"]), float(det["lon"])
+    if members:
+        current_lat = sum(float(row["lat"]) for row in members) / len(members)
+        anchor = float(members[0]["lon"])
+        current_lon = anchor + sum((float(row["lon"]) - anchor + 180) % 360 - 180
+                                   for row in members) / len(members)
+        current_lon = (current_lon + 180) % 360 - 180
     det.pop("_association", None)
     for inc in incidents:
         if abs((t - parse_time(inc["last"])).total_seconds()) > merge_hours * 3600 \
                 and abs((t - parse_time(inc["first"])).total_seconds()) > merge_hours * 3600:
             continue
-        d = haversine_km(det["lat"], det["lon"], inc["lat"], inc["lon"])
+        d = haversine_km(current_lat, current_lon, inc["lat"], inc["lon"])
         if d > merge_km:
             continue
         observations = _polar_observations(inc) if det.get("kind") == "polar" else []
         if observations:
             nearest_time = min(observations, key=lambda row: abs((t - parse_time(row["t"])).total_seconds()))
             gap_h = abs((t - parse_time(nearest_time["t"])).total_seconds()) / 3600
-            cluster = [row for row in observations if abs((parse_time(row["t"]) -
-                       parse_time(nearest_time["t"])).total_seconds()) <= max_gap * 3600]
+            if members:
+                # Compare complete acquisition centroids, rather than a centroid
+                # that changes while rows of the incoming pass are being added.
+                cluster = [row for row in observations if row["t"] == nearest_time["t"]
+                           and row.get("src") == nearest_time.get("src")
+                           and row.get("satellite") == nearest_time.get("satellite")]
+            else:
+                cluster = [row for row in observations if abs((parse_time(row["t"]) -
+                           parse_time(nearest_time["t"])).total_seconds()) <= max_gap * 3600]
             lat = sum(row["lat"] for row in cluster) / len(cluster)
-            lon = sum(row["lon"] for row in cluster) / len(cluster)
-            shift = haversine_km(det["lat"], det["lon"], lat, lon)
-            overlap = any(haversine_km(det["lat"], det["lon"], row["lat"], row["lon"]) <=
-                          min(merge_km, _footprint_radius(det) + _footprint_radius(row))
-                          for row in observations)
+            if members:
+                prior_anchor = cluster[0]["lon"]
+                lon = prior_anchor + sum((row["lon"] - prior_anchor + 180) % 360 - 180
+                                         for row in cluster) / len(cluster)
+                lon = (lon + 180) % 360 - 180
+            else:
+                lon = sum(row["lon"] for row in cluster) / len(cluster)
+            shift = haversine_km(current_lat, current_lon, lat, lon)
+            overlap = any(haversine_km(float(current["lat"]), float(current["lon"]), row["lat"], row["lon"]) <=
+                          min(merge_km, _footprint_radius(current) + _footprint_radius(row))
+                          for current in (members or [det]) for row in observations)
             if not overlap or (gap_h > max_gap and shift > relocation):
                 if d < association_distance:
                     association_distance = d
@@ -464,6 +485,8 @@ def finalize(inc, cfg):
     inc["headline"] = headline(inc, cfg)
     if inc.get("recovered_historical"):
         inc["headline"] = "رصد سابق مسترجع: " + inc["headline"]
+    if inc.get("correction_note"):
+        inc["reason"] = inc["correction_note"] + " " + inc["reason"]
     inc["priority"] = "high" if alert_worthy(inc, cfg) else "low"
     inc["start_text"] = local_text(parse_time(inc["first"]), cfg)
     inc["last_text"] = local_text(parse_time(inc["last"]), cfg)

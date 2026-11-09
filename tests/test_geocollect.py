@@ -93,6 +93,36 @@ class GeoCollectTests(unittest.TestCase):
         self.collect()
         self.assertEqual([call.args[1]["id"] for call in self.detect.call_args_list], ["a", "b"])
 
+    def test_warm_runs_refresh_one_clock_and_alternate_sources(self):
+        self.collect()
+        self.assertEqual([call.args[2] for call in self.latest.call_args_list], ["a:clock", "b:fire"])
+        self.latest.reset_mock()
+
+        _, status, _ = self.collect()
+        self.latest.assert_called_once()
+        self.assertEqual(self.latest.call_args.args[2], "b:fire")
+        self.assertFalse(status["b"]["clock_cached"])
+        self.assertTrue(status["a"]["clock_cached"])
+        self.assertEqual(status["a"]["latest"], iso(self.NEWEST))
+
+        self.latest.reset_mock()
+        _, status, _ = self.collect()
+        self.latest.assert_called_once()
+        self.assertEqual(self.latest.call_args.args[2], "a:clock")
+        self.assertTrue(status["b"]["clock_cached"])
+        self.assertFalse(status["a"]["clock_cached"])
+
+    def test_missing_stale_or_future_cached_clock_is_probed_not_invented(self):
+        for value in (None, "bad-time", iso(self.NOW - dt.timedelta(hours=4)),
+                      iso(self.NOW + dt.timedelta(minutes=10))):
+            with self.subTest(value=value):
+                self.state = {"latest": {"a:clock": iso(self.NEWEST), "b:fire": value}}
+                self.latest.reset_mock()
+                _, status, _ = self.collect()
+                self.assertEqual(self.latest.call_count, 2)
+                self.assertFalse(status["b"]["clock_cached"])
+                self.assertEqual(status["b"]["latest"], iso(self.NEWEST))
+
     def test_missing_tile_stays_pending_and_can_succeed_later(self):
         self.cfg["eumetview"].update(scan_max_images=1, lookback_slots=1, catchup_hours=0)
         self.cfg["eumetview"]["fire_layers"] = self.cfg["eumetview"]["fire_layers"][:1]

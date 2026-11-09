@@ -17,6 +17,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue
+from . import acquisitions, repairs
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -25,7 +26,7 @@ from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 14  # bump when the importance rules change, so stored incidents are judged again
+RULES = 15  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 
@@ -55,6 +56,7 @@ DEFAULTS = {
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
+    "repairs": {"enabled": False, "cases": []},
     "telegram": {"bot_token": "", "chat_id": "", "api_base": "https://api.telegram.org"},
     "eumetview": {
         "wms_url": "https://view.eumetsat.int/geoserver/wms",
@@ -65,7 +67,7 @@ DEFAULTS = {
         # after an outage at the source the pictures come out late: slots of the last hours that
         # were never read are read then (a little per run)
         "catchup_hours": 2, "catchup_budget_s": 75,
-        "scan_budget_s": 65, "scan_max_images": 12, "scan_workers": 4, "scan_timeout_s": 15,
+        "scan_budget_s": 65, "scan_max_images": 12, "scan_workers": 4, "scan_timeout_s": 20,
         "strength_budget_s": 20,
         "fire_layers": [
             {"id": "mtg_frp", "name": "mtg_fd:frp", "family": "mtg", "cadence_min": 10,
@@ -451,6 +453,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     session = make_session()
     wms = WMS(cfg["eumetview"]["wms_url"], session)
     S = State(cfg)
+    repairs.apply_reviewed(cfg, S, now)
     if cfg.get("_background_media"):
         mediaqueue.consume_results(cfg, S, now)
     geo = Geo(cfg, session, wms, S.state)
@@ -506,7 +509,7 @@ def run_cycle(cfg, send=True, alert_now=False):
                                                   slots_per_run=min(int(SW["slots_per_run"]), 2)))
             seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
             budget = getattr(type(wms), "budget", None)
-            with wms.budget(seconds, timeout_s=12) if callable(budget) else nullcontext():
+            with wms.budget(seconds, timeout_s=20) if callable(budget) else nullcontext():
                 spots = seawatch.watch(watch_cfg, wms, S.state, now, Memory(S.memory), geo, avail)
             ok = True
         except Exception as e:  # noqa: BLE001
@@ -582,6 +585,13 @@ def run_cycle(cfg, send=True, alert_now=False):
     avail = mem.days_known(today, int(M["window_days"]))  # days of real history, not days the bot ran
     learning = avail == 0 and not alert_now
     merge_km, merge_h = float(I["merge_km"]), float(I["merge_hours"])
+    # Decide the association once for all connected pixels of one pass. A CSV's
+    # row order must not split a pass or let its last pixel join another incident.
+    grouped = acquisitions.groups(
+        [d for d in dets if any(in_bbox(r["bbox"], d["lat"], d["lon"]) for r in regions)], merge_km)
+    membership = {id(det): group for group in grouped for det in group}
+    dets = [det for group in grouped for det in group]
+    group_matches = {}
     open_incs = [i for i in S.incidents if now - parse_time(i["last"]) <= dt.timedelta(hours=merge_h)]
     touched, frp_budget = set(), 40
     strength_deadline = time.monotonic() + float(E.get("strength_budget_s", 20))
@@ -639,7 +649,15 @@ def run_cycle(cfg, send=True, alert_now=False):
         routine = known and not unusual
         if not experimental_day:
             mem.record(d["lat"], d["lon"], day, frp)
-        inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h, rules=I)
+        group = membership[id(d)]
+        group_id = id(group)
+        if d["kind"] == "polar":
+            if group_id not in group_matches:
+                group_matches[group_id] = acquisitions.find_group(
+                    open_incs, group, 2.0 if routine else merge_km, merge_h, rules=I)
+            inc = group_matches[group_id]
+        else:
+            inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h, rules=I)
         if d.get("_no_alert") and inc is not None and inc.get("alerted_verdict") is not None:
             continue  # recovery fills missing incidents; it cannot rewrite an already-sent event
         if inc is None and (routine or learning):
@@ -656,6 +674,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
             S.incidents.append(inc)
             open_incs.append(inc)
+            if d["kind"] == "polar":
+                group_matches[group_id] = inc
         if d.get("_no_alert"):
             inc["recovered_historical"] = True
         elif not d.get("_recovered") and now - parse_time(d["t"]) <= dt.timedelta(hours=8):
@@ -931,7 +951,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
-          "recovered_historical", "association_uncertain", "association"]
+          "recovered_historical", "association_uncertain", "association", "correction_note"]
 
 
 def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=None):

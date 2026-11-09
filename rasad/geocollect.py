@@ -13,7 +13,7 @@ import datetime as dt
 import time
 
 from .sources import detect_geo_layer
-from .util import iso, log
+from .util import iso, log, parse_time
 from .wms import latest_time
 
 
@@ -60,7 +60,8 @@ def collect(cfg, wms, state, now, tiles, availability, *, detect=detect_geo_laye
     probe = [cx - 0.2, cy - 0.2, cx + 0.2, cy + 0.2]
     status = {layer["id"]: {"name": layer.get("label_ar", layer["id"]), "ok": False,
                              "latest": None, "checked": 0, "missing": 0,
-                             "pending": 0, "pending_recent": 0, "scan_complete": False}
+                             "pending": 0, "pending_recent": 0, "scan_complete": False,
+                             "clock_cached": False}
               for layer in layers}
     available = []
     detections, requested = [], 0
@@ -71,19 +72,35 @@ def collect(cfg, wms, state, now, tiles, availability, *, detect=detect_geo_laye
     def time_left():
         return time.monotonic() < deadline
 
+    def cached_clock(name):
+        try:
+            known = parse_time(state.get("latest", {}).get(name))
+            return known if dt.timedelta(0) <= now - known <= dt.timedelta(hours=3) else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
     with context:
-        for layer in layers:
+        for index, layer in enumerate(layers):
             if not time_left() or not max_images:
                 break
             cadence = int(layer["cadence_min"])
-            try:
-                newest = latest(wms, state, layer.get("clock_layer") or layer["name"], cadence, probe)
-            except Exception as exc:  # an unavailable clock must not abort the other source
-                log.warning("%s: source clock failed: %s", layer["id"], exc)
-                continue
+            clock_layer = layer.get("clock_layer") or layer["name"]
+            newest = cached_clock(clock_layer) if index else None
+            if newest is not None:
+                # Refresh one source clock per warm run, alternating with the
+                # same source cursor used for fair image coverage. The other
+                # source keeps its last verified time, never an invented slot.
+                status[layer["id"]]["clock_cached"] = True
+            else:
+                try:
+                    newest = latest(wms, state, clock_layer, cadence, probe)
+                except Exception as exc:  # an unavailable clock must not abort the other source
+                    log.warning("%s: source clock failed: %s", layer["id"], exc)
+                    continue
             fresh = newest is not None and dt.timedelta(0) <= now - newest <= dt.timedelta(hours=3)
             status[layer["id"]].update(ok=fresh, latest=iso(newest) if newest else None)
             if fresh:
+                state.setdefault("latest", {})[clock_layer] = iso(newest)
                 span = max(n_recent, int(round(catchup * 60 / cadence)))
                 available.append((layer, newest, cadence, span))
             else:

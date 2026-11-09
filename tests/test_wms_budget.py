@@ -73,7 +73,7 @@ class WMSBudgetTests(unittest.TestCase):
         with patch.object(mod, "utcnow", return_value=self.WHEN):
             self.assertEqual(mod.latest_time(self.wms, state, "x", 10, [0, 0, 1, 1]), known)
         self.assertEqual(state["latest"]["x"], iso(known))
-        self.assertLessEqual(sum(timeouts), 12)
+        self.assertLessEqual(sum(timeouts), 22)
         self.assertLessEqual(len(timeouts), 2)
 
     def test_unknown_clock_outage_does_not_probe_thirty_images(self):
@@ -84,7 +84,7 @@ class WMSBudgetTests(unittest.TestCase):
         self.session.get.side_effect = unavailable
         with patch.object(mod, "utcnow", return_value=self.WHEN):
             self.assertIsNone(mod.latest_time(self.wms, {}, "x", 10, [0, 0, 1, 1]))
-        self.assertLessEqual(self.clock.value - 100, 12)
+        self.assertLessEqual(self.clock.value - 100, 22)
         self.assertLessEqual(self.session.get.call_count, 2)
 
     def test_served_time_from_warning_is_kept_instead_of_requested_time(self):
@@ -99,6 +99,35 @@ class WMSBudgetTests(unittest.TestCase):
         self.assertEqual(state["latest"]["x"], iso(actual))
         self.session.get.assert_called_once()
         self.assertEqual(self.session.get.call_args.kwargs["params"]["REQUEST"], "GetMap")
+
+    def test_valid_clock_taking_fourteen_seconds_is_accepted(self):
+        buffer = io.BytesIO()
+        Image.new("RGBA", (24, 24), (1, 2, 3, 255)).save(buffer, "PNG")
+        actual = self.WHEN - dt.timedelta(minutes=10)
+
+        def slow_valid(*args, **kwargs):
+            self.assertGreaterEqual(kwargs["timeout"], 14.35)
+            self.clock.value += 14.35
+            return Mock(status_code=200, content=buffer.getvalue(), headers={
+                "Content-Type": "image/png", "Warning": "nearest time=" + iso(actual)})
+
+        self.session.get.side_effect = slow_valid
+        state = {}
+        with patch.object(mod, "utcnow", return_value=self.WHEN):
+            self.assertEqual(mod.latest_time(self.wms, state, "x", 10, [0, 0, 1, 1]), actual)
+        self.assertEqual(state["latest"]["x"], iso(actual))
+        self.session.get.assert_called_once()
+
+    def test_enclosing_collection_budget_still_limits_a_slow_clock(self):
+        def unavailable(*args, **kwargs):
+            self.clock.value += kwargs["timeout"]
+            raise requests.Timeout("temporary source outage")
+
+        self.session.get.side_effect = unavailable
+        with self.wms.budget(6, timeout_s=20), patch.object(mod, "utcnow", return_value=self.WHEN):
+            self.assertIsNone(mod.latest_time(self.wms, {}, "x", 10, [0, 0, 1, 1]))
+        self.assertLessEqual(self.clock.value - 100, 6)
+        self.session.get.assert_called_once()
 
 
 if __name__ == "__main__":

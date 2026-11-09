@@ -7,6 +7,7 @@ Recovered observations are marked for historical publication without breaking-ne
 from __future__ import annotations
 
 import datetime as dt
+import copy
 import hashlib
 import json
 import math
@@ -120,6 +121,7 @@ def collect(cfg, wms, state, memory, geo, now, detect=detect_geo_layer, fetch=fe
     R = cfg.get("recovery", {})
     status = {"enabled": bool(R.get("enabled", False)), "checked": 0, "missing": 0,
               "deferred": 0,
+              "images_fetched": 0, "images_reused": 0,
               "detections": 0, "pending": 0, "targets": 0, "invalid_targets": 0,
               "historical": True, "latest": None}
     if not status["enabled"]:
@@ -158,6 +160,7 @@ def collect(cfg, wms, state, memory, geo, now, detect=detect_geo_layer, fetch=fe
         attempts = progress.setdefault("retry", {})
         progress.setdefault("features", {})
         progress.setdefault("feature_attempts", {})
+        progress.setdefault("images", {})
         pending = [t for t in _slots(target, layers[target["layer"]], now) if iso(t) not in done]
         status["pending"] += len(pending)
         for t in pending:
@@ -184,15 +187,55 @@ def collect(cfg, wms, state, memory, geo, now, detect=detect_geo_layer, fetch=fe
             status["checked"] += 1
             progress["updated"] = iso(now)
             progress["retry"][iso(when)] = iso(now)
-            detections = detect(wms, L, tile, when)
-            if detections is None:
-                status["missing"] += 1
-                continue
+            slot = iso(when)
+            images = progress["images"]
+
+            def valid_symbol(det):
+                try:
+                    if (not isinstance(det, dict) or det.get("src") != L["id"]
+                            or abs((parse_time(det["t"]) - when).total_seconds()) > 120):
+                        return False
+                    fi = det.get("original_fi", det.get("_fi"))
+                    # Real query metadata includes its own time. It must not
+                    # silently ask for another slot while retaining this label.
+                    return not (isinstance(fi, (list, tuple)) and len(fi) == 7
+                                and abs((parse_time(fi[-1]) - when).total_seconds()) > 120)
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    return False
+
+            cached = images.get(slot)
+            if (isinstance(cached, dict) and cached.get("verified_t") == slot
+                    and isinstance(cached.get("symbols"), list)
+                    and all(valid_symbol(d) for d in cached["symbols"])):
+                # Only metadata is stored, not the PNG. A slow verified image
+                # must not consume the next cycle again before its FRP query.
+                nearby = copy.deepcopy(cached["symbols"])
+                nearby = [d for d in nearby if haversine_km(
+                    d["lat"], d["lon"], target["lat"], target["lon"]) <= half]
+                for det in nearby:
+                    fi = det.pop("original_fi", None)
+                    if fi is not None:
+                        det["_fi"] = fi
+                status["images_reused"] += 1
+            else:
+                images.pop(slot, None)
+                status["images_fetched"] += 1
+                detections = detect(wms, L, tile, when)
+                if detections is None or not all(valid_symbol(d) for d in detections):
+                    status["missing"] += 1
+                    continue  # an absent or substituted image can never become a cached blank
+                # A small target window can contain neighbouring flares. Keep
+                # their original feature-info coordinates for subsequent passes.
+                nearby = [d for d in detections if haversine_km(
+                    d["lat"], d["lon"], target["lat"], target["lon"]) <= half]
+                nearby.sort(key=lambda d: haversine_km(
+                    d["lat"], d["lon"], target["lat"], target["lon"]))
+                symbols = copy.deepcopy(nearby)
+                for det in symbols:
+                    det["original_fi"] = det.pop("_fi", None)
+                images[slot] = {"verified_t": slot, "symbols": symbols}
             # A small target window can contain neighbouring flares. Bound
             # strength requests and inspect the nearest symbols first.
-            nearby = [d for d in detections if haversine_km(d["lat"], d["lon"], target["lat"], target["lon"]) <= half]
-            nearby.sort(key=lambda d: haversine_km(d["lat"], d["lon"], target["lat"], target["lon"]))
-            slot = iso(when)
             features = progress["features"]
             checked_features = set(features.get(slot, []))
 
@@ -240,6 +283,7 @@ def collect(cfg, wms, state, memory, geo, now, detect=detect_geo_layer, fetch=fe
                 progress["retry"].pop(iso(when), None)
                 features.pop(slot, None)
                 progress["feature_attempts"].pop(slot, None)
+                images.pop(slot, None)
                 status["pending"] -= 1
             else:
                 # A busy image may contain more symbols than this short pass
@@ -248,6 +292,10 @@ def collect(cfg, wms, state, memory, geo, now, detect=detect_geo_layer, fetch=fe
                 features[slot] = sorted(checked_features)
                 status["missing"] += int(missing_evidence)
                 status["deferred"] += int(not missing_evidence)
+                if not missing_evidence:
+                    # Work deferred solely by this cycle's cap can resume on
+                    # the next cycle; actual unavailable evidence keeps backoff.
+                    progress["retry"].pop(slot, None)
     uniq = {}
     for det in out:
         uniq[(det["src"], det["t"], det["lat"], det["lon"])] = det
