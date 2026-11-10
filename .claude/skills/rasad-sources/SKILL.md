@@ -34,6 +34,16 @@ positions to ~0.5 km; 10 days of history teach the usual heat (`Memory`) on the 
 Overpass (`overpass-api.de`, then `overpass.kumi.systems`) for facilities, weekly, in the
 background worker (`maintain-geo`); Nominatim reverse geocoding with a budget per check.
 
+## Before/after pictures: Sentinel-2 (no key, read by the app itself)
+Index: Earth Search STAC `earth-search.aws.element84.com/v1`, collections `sentinel-2-c1-l2a`
+(recent, files on `e84-earth-search-sentinel-data`) and `sentinel-2-l2a` (older years, files on
+`sentinel-cogs`). Both send CORS headers, so `web/imagery.js` reads them in the browser. A pass
+every 2–5 days around 07:20 UTC, 10 m colour, 20 m infrared and scene classes (`SCL`). Reflectance
+= number × 0.0001 − 0.1 in the first collection; the second says its own scale and offset in the
+item (`raster:bands`). File tiles are 10.24 km wide (1024 px at 10 m, 512 px at 20 m), so a box
+costs 1 to 4 tiles per band. To try a place from a session with network: `node -e` with
+`require("./web/imagery.js").createEngine()` (`listPasses`, `assessPass`, `loadScene`).
+
 ## Why was a fire missed? (in this order)
 1. Get the place and the time in UTC (Baghdad = UTC+3). A channel post's time is when it was
    posted, not when the satellite saw it.

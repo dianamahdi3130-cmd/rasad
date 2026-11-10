@@ -12,12 +12,13 @@ from pathlib import Path
 import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
-                    nearby_confirmed, new_incident, day_requires_confirmation, association_requires_confirmation)
+                    nearby_confirmed, new_incident, day_requires_confirmation, association_requires_confirmation,
+                    delay_note, video_note)
 from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue
-from . import acquisitions, repairs
+from . import acquisitions, repairs, satpic
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -102,6 +103,9 @@ DEFAULTS = {
              "speck_max_extent_km": 8, "speck_above_sea": 8,
              # New measurements may arrive before their pictures: retry refreshed clips later.
              "refresh_retry_min": 10},
+    # The before/after Sentinel-2 picture sent under an alert once a clear pass comes (satpic.py).
+    "satpic": {"enabled": True, "max_days": 12, "retry_hours": 3, "half_km": 2, "approx_half_km": 3,
+               "lookback_days": 75, "job_budget_s": 170, "sea": False},
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
         "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
@@ -964,8 +968,13 @@ def run_cycle(cfg, send=True, alert_now=False):
         if ready and inc.get("clip"):
             media = Path(cfg["_site_dir"]) / inc["clip"]
         message = alert_message(inc, cfg)
+        late = delay_note(inc, now)
+        if late:
+            message += "\n" + late
         if media is None and cfg["clip"].get("enabled", True):
-            message += "\n🎞 الفيديو قيد التجهيز؛ سيُرسل عند توفر صور واضحة للرصد."
+            message += "\n" + video_note(inc)
+        if cfg["satpic"].get("enabled", True) and (inc.get("place") != "sea" or cfg["satpic"].get("sea")):
+            message += "\n🛰 صورة «قبل وبعد» للموقع تُرسل هنا إذا التقط القمر الأوروبي \u2068Sentinel-2\u2069\u200f صورة صافية له في الأيام القادمة."
         sent = post(message, media)
         if sent:
             S.sent = True
@@ -1017,6 +1026,24 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["clip_video_pending"] = False
             _remember_post(inc, now)
 
+    # The before/after satellite picture: asked for after the alert, posted once as a reply when
+    # the worker has it (a clear pass comes within days). No network here.
+    cfg["satpic"]["_since"] = S.state.setdefault("satpic_since", iso(now - dt.timedelta(days=3)))
+    pictures_left = 1                    # one per check: several ready at once go out minutes apart
+    for inc in S.incidents:
+        if not satpic.wanted(inc, cfg, now):
+            continue
+        satpic.request(cfg, inc, now)
+        ready = satpic.collect(cfg, inc, now) if pictures_left else None
+        if not ready:
+            continue
+        picture, result = ready
+        pictures_left -= 1
+        if post(satpic.caption(inc, result, cfg), picture, reply_to=inc.get("tg_msg")):
+            S.sent = True
+            inc["satpic"] = dict(satpic.facts(inc, result), sent_at=iso(now))
+            log.info("SATELLITE PICTURE %s: %s -> %s", inc["id"], inc["satpic"]["before"], inc["satpic"]["after"])
+
     # sea incidents found before the look-back existed, or not touched in this run
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
         if look_budget <= 0:
@@ -1046,7 +1073,8 @@ def run_cycle(cfg, send=True, alert_now=False):
 
     # 5) tidy up and publish
     keep = dt.timedelta(days=int(I["keep_days"]))
-    S.incidents = [i for i in S.incidents if now - parse_time(i["last"]) <= keep]
+    # an alerted fire still waiting for its before/after satellite picture is kept until it comes
+    S.incidents = [i for i in S.incidents if now - parse_time(i["last"]) <= keep or satpic.wanted(i, cfg, now)]
     mem.prune(today, int(M["window_days"]) + 5)
     S.state["slots"] = {k: v for k, v in slots.items()
                         if now - parse_time(k.rsplit("|", 1)[1]) <= dt.timedelta(hours=6)}
@@ -1073,7 +1101,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
-          "recovered_historical", "association_uncertain", "association", "correction_note"]
+          "recovered_historical", "association_uncertain", "association", "correction_note", "satpic"]
 
 
 def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=None):

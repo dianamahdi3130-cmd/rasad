@@ -106,6 +106,18 @@ def main(argv=None):
     p.add_argument("--interval", type=float, default=2, help="seconds between checks for queued clips")
     p.add_argument("--max-minutes", type=float, default=340, help="worker lifetime in minutes")
     p.add_argument("--once", action="store_true", help="process at most one queued clip")
+    p = sub.add_parser("satpic-worker", help="make the before/after satellite pictures for alerted fires")
+    p.add_argument("--interval", type=float, default=60, help="seconds between looks at the queue")
+    p.add_argument("--max-minutes", type=float, default=340, help="worker lifetime in minutes")
+    p.add_argument("--once", action="store_true", help="do at most one picture")
+    p = sub.add_parser("satpic", help="the before/after satellite picture for any place and period (by hand)")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--start", required=True, help="when the fire started, UTC")
+    p.add_argument("--end", help="its last sighting, UTC (default: the start)")
+    p.add_argument("--half-km", type=float, default=2.0)
+    p.add_argument("--title", default="")
+    p.add_argument("--out", default="satpic.jpg")
     p = sub.add_parser("maintain-geo", help="refresh the facility map separately from satellite checks")
     p.add_argument("--budget", type=float, default=45, help="seconds for this maintenance pass")
     p = sub.add_parser("loop", help="monitor continuously on this computer")
@@ -159,6 +171,20 @@ def main(argv=None):
 
     if args.cmd == "media-worker":
         media_worker(cfg, args.interval, args.max_minutes, args.once)
+        return
+    if args.cmd == "satpic-worker":
+        from .satpic import run_worker
+        run_worker(cfg, args.interval, args.max_minutes, args.once)
+        return
+    if args.cmd == "satpic":
+        from .satpic import preview
+        start = parse_time(args.start)
+        res, text = preview(cfg, args.lat, args.lon, start, parse_time(args.end) if args.end else start, args.out,
+                            headline=args.title, half_km=args.half_km)
+        print(res)
+        if text:
+            import re as _re
+            print(_re.sub(r"<[^>]+>", "", text))
         return
     if args.cmd == "maintain-geo":
         if geo_needed(cfg):

@@ -13,7 +13,8 @@ and `worker/` or `web/` redeploys the private app. So ship once, tested.
 1. `python -m pytest -q` and `for f in tests/*.js; do node "$f"; done` — everything passes.
    A new behaviour gets its own test (the tests are fast; no network).
 2. Version bumps, if the change needs them:
-   - `web/` changed → new `CACHE` name in `web/sw.js` (otherwise phones keep the old app).
+   - `web/` changed → new `CACHE` name in `web/sw.js` (otherwise phones keep the old app), and
+     the same number in `?v=` of `imagery.js` and `beforeafter.js` in `index.html` and `sw.js`.
    - importance or alert rules → `RULES`; clip look → `CLIP_STYLE`; sea finder's closer look →
      `SEA_CHECK`; stored incidents need tidying again → `TIDY` (all in `rasad/engine.py`).
 3. `git diff --stat` holds only what you meant to change (no `data/`, `_state/`, `probe-out/`).

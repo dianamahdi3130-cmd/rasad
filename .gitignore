@@ -8,6 +8,8 @@ _site/
 .site_pushed
 .state_urgent
 .rasad-media/
+.rasad-satpic/
+.rasad-satpic-worker.log
 .rasad-pictures/
 .rasad-media-worker.log
 .rasad-geo-worker.log
