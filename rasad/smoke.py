@@ -31,7 +31,8 @@ DEFAULTS = {
     "vis_layer": "mtg_fd:vis06_hrfi", "ir_layer": "mtg_fd:ir105_hrfi", "cadence_min": 10,
     "half_km": 40.0, "km_per_px": 0.5,
     "ref_minutes": [20, 30, 40],      # pictures before the heat was first seen: the scene without smoke
-    "frames": 5,                      # pictures looked at, ending with the newest
+    "publish_lag_min": 15,            # a picture is on the server about this long after it was taken
+    "frames": 5,                      # pictures looked at, ending with the newest one published
     "min_frames": 3,                  # the plume must show in this many of them
     "background_km": 10.0,            # larger structures (haze, sun angle) are removed
     "k_sigma": 4.0, "min_contrast": 5.0,
@@ -171,7 +172,7 @@ def check(cfg, pics, lat, lon, first, now):
     from .util import box_around
     P = {**DEFAULTS, **(cfg.get("smoke") or {})}
     step = dt.timedelta(minutes=int(P["cadence_min"]))
-    newest = floor_time(now, P["cadence_min"])
+    newest = floor_time(now - dt.timedelta(minutes=float(P["publish_lag_min"])), P["cadence_min"])
     times = [newest - step * k for k in range(int(P["frames"]) - 1, -1, -1)]
     times = [t for t in times if t >= floor_time(first, P["cadence_min"])]
     out = {"seen": False, "frames": 0, "checked": 0, "why": "", "version": VERSION, "at": iso(newest)}

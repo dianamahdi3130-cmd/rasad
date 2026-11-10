@@ -212,11 +212,11 @@ class SilentRecordingTests(unittest.TestCase):
         self.assertEqual(smoke.work_one(self.cfg, self.now, pics), self.incident["id"])
         times = sorted({t for layer, t in pics.asked})
         self.assertEqual(times[0], T("2026-11-10T07:20:00Z"), "the scene 40 minutes before the heat")
-        self.assertEqual(times[-1], T("2026-11-10T08:40:00Z"), "up to the newest picture")
+        self.assertEqual(times[-1], T("2026-11-10T08:20:00Z"), "up to the newest picture already published (08:42 now)")
         self.assertTrue(smoke.collect(self.cfg, self.incident, self.now))
         found = self.incident["smoke"]
         self.assertTrue(found["seen"])
-        self.assertEqual(found["at"], "2026-11-10T08:40:00Z")
+        self.assertEqual(found["at"], "2026-11-10T08:20:00Z")
         self.assertEqual(found["direction"], "شمال شرق")
         self.assertGreaterEqual(found["frames"], 3)
         self.assertIsNone(smoke.work_one(self.cfg, self.now + dt.timedelta(minutes=10), FakePictures()), "seen once: not checked again")
