@@ -50,6 +50,9 @@ def wanted(inc, cfg, now):
         return False
     if inc.get("place") == "sea" and not S.get("sea", False):
         return False                       # a ship moves away: nothing to compare at that spot
+    # switched on in a running monitor: only fires alerted shortly before that, not the whole week
+    if S.get("_since") and str(inc.get("alerted_at") or "") < S["_since"]:
+        return False
     return now - parse_time(inc["last"]) <= dt.timedelta(days=float(S.get("max_days", 12)))
 
 

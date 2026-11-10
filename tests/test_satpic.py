@@ -292,6 +292,10 @@ class PictureTests(unittest.TestCase):
         self.assertFalse(satpic.wanted(dict(self.inc, recovered_historical=True), self.cfg, now))
         self.assertFalse(satpic.wanted(dict(self.inc, satpic={"sent_at": "2026-10-30T00:00:00Z"}), self.cfg, now))
         self.assertFalse(satpic.wanted(self.inc, self.cfg, T("2026-11-12T00:00:00Z")), "after 12 days it stops waiting")
+        # switched on in a running monitor: fires alerted before the starting point are left alone
+        self.cfg["satpic"]["_since"] = "2026-10-28T00:00:00Z"
+        self.assertFalse(satpic.wanted(dict(self.inc, alerted_at="2026-10-27T23:00:00Z"), self.cfg, now))
+        self.assertTrue(satpic.wanted(dict(self.inc, alerted_at="2026-10-28T12:10:00Z"), self.cfg, now))
         self.cfg["satpic"]["enabled"] = False
         self.assertFalse(satpic.wanted(self.inc, self.cfg, now))
 
@@ -420,7 +424,12 @@ class CycleTests(unittest.TestCase):
         self.incident.update(changes)
         save_json(self.cfg["_state_dir"] / "incidents.json", [self.incident])
 
+    def running_since(self, when):
+        save_json(self.cfg["_state_dir"] / "state.json", {"schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE,
+                                                          "sea_check": engine.SEA_CHECK, "satpic_since": when})
+
     def test_the_picture_is_posted_once_as_a_reply_and_remembered(self):
+        self.running_since("2026-10-30T00:00:00Z")
         self.stored(first="2026-11-06T10:00:00Z", last="2026-11-06T12:00:00Z", frp_series=[["2026-11-06T10:00:00Z", 80.0, "viirs"]],
                     alerted_at="2026-11-06T12:10:00Z", alert_updated_at="2026-11-06T12:10:00Z")
         engine.run_cycle(self.cfg, send=False)                      # asks for the picture; nothing to post yet
@@ -442,7 +451,32 @@ class CycleTests(unittest.TestCase):
         self.deliver.assert_called_once()
         self.assertEqual(state.incidents[0]["satpic"]["sent_at"], "2026-11-10T00:00:00Z")
 
+    def test_switching_the_feature_on_starts_three_days_back_and_two_ready_pictures_go_out_one_per_check(self):
+        second = dict(self.incident, id="20261107-0900_26.000_50.000", first="2026-11-07T09:00:00Z", last="2026-11-07T09:30:00Z",
+                      alerted_at="2026-11-07T12:00:00Z", tg_msg=88, _pos=[26.0, 50.0, "offline-map"])
+        first = dict(self.incident, first="2026-11-08T05:00:00Z", last="2026-11-08T06:00:00Z", alerted_at="2026-11-08T08:00:00Z")
+        old = dict(self.incident, id="20261105-0900_26.000_50.000", first="2026-11-05T09:00:00Z", last="2026-11-05T09:30:00Z",
+                   alerted_at="2026-11-05T12:00:00Z", tg_msg=66)
+        save_json(self.cfg["_state_dir"] / "incidents.json", [first, second, old])
+        state = engine.run_cycle(self.cfg, send=False)
+        self.assertEqual(state.state["satpic_since"], "2026-11-07T00:00:00Z")
+        jobs = sorted(p.name for p in (satpic.queue_dir(self.cfg) / "jobs").glob("*.json"))
+        self.assertEqual(len(jobs), 2, "the fire alerted five days ago gets no picture")
+        archive = FakeArchive(PASSES)
+        self.assertIsNotNone(satpic.work_one(self.cfg, self.now, session=archive))
+        self.assertIsNotNone(satpic.work_one(self.cfg, self.now, session=archive))
+        engine.run_cycle(self.cfg, send=False)
+        self.assertEqual(self.deliver.call_count, 1)
+        self.now = T("2026-11-10T00:03:00Z")
+        engine.run_cycle(self.cfg, send=False)
+        self.assertEqual(self.deliver.call_count, 2)
+        self.assertEqual({c.kwargs["reply_to"] for c in self.deliver.call_args_list}, {77, 88})
+        self.now = T("2026-11-10T00:06:00Z")
+        engine.run_cycle(self.cfg, send=False)
+        self.assertEqual(self.deliver.call_count, 2)
+
     def test_an_alerted_fire_older_than_a_week_is_kept_while_it_waits_for_its_picture(self):
+        self.running_since("2026-10-30T00:00:00Z")
         state = engine.run_cycle(self.cfg, send=False)              # ten days old: normally forgotten after seven
         self.deliver.assert_not_called()
         self.assertEqual(len(state.incidents), 1)

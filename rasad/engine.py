@@ -974,7 +974,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         if media is None and cfg["clip"].get("enabled", True):
             message += "\n" + video_note(inc)
         if cfg["satpic"].get("enabled", True) and (inc.get("place") != "sea" or cfg["satpic"].get("sea")):
-            message += "\n🛰 صورة «قبل وبعد» للموقع تُرسل هنا عند أول مرور صافٍ للقمر الأوروبي \u2068Sentinel-2\u2069\u200f (خلال أيام)."
+            message += "\n🛰 صورة «قبل وبعد» للموقع تُرسل هنا إذا التقط القمر الأوروبي \u2068Sentinel-2\u2069\u200f صورة صافية له في الأيام القادمة."
         sent = post(message, media)
         if sent:
             S.sent = True
@@ -1028,14 +1028,17 @@ def run_cycle(cfg, send=True, alert_now=False):
 
     # The before/after satellite picture: asked for after the alert, posted once as a reply when
     # the worker has it (a clear pass comes within days). No network here.
+    cfg["satpic"]["_since"] = S.state.setdefault("satpic_since", iso(now - dt.timedelta(days=3)))
+    pictures_left = 1                    # one per check: several ready at once go out minutes apart
     for inc in S.incidents:
         if not satpic.wanted(inc, cfg, now):
             continue
         satpic.request(cfg, inc, now)
-        ready = satpic.collect(cfg, inc, now)
+        ready = satpic.collect(cfg, inc, now) if pictures_left else None
         if not ready:
             continue
         picture, result = ready
+        pictures_left -= 1
         if post(satpic.caption(inc, result, cfg), picture, reply_to=inc.get("tg_msg")):
             S.sent = True
             inc["satpic"] = dict(satpic.facts(inc, result), sent_at=iso(now))
