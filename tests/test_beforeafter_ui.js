@@ -83,6 +83,20 @@ test("the default pair is settled as soon as the nearer passes are checked, neve
   assert.deepEqual(H.checkOrder(passes, event).map(p => p.date).slice(0, 2), ["2026-10-25", "2026-11-02"], "nearest to the event are checked first");
 });
 
+test("passes are listed around the event or the dates of a link, never the whole archive", () => {
+  const now = Date.parse("2026-11-10T12:00:00Z"), days = w => w.map(x => x.map(t => new Date(t).toISOString().slice(0, 10)));
+  assert.deepEqual(days(H.windowsFor(now, null, null)), [["2026-07-13", "2026-11-10"]], "no event: the last four months");
+  assert.deepEqual(days(H.windowsFor(now, {start: "2026-11-08T07:40:00Z", end: "2026-11-08T11:59:00Z"}, null)), [["2026-08-25", "2026-11-10"]], "not into the future");
+  assert.deepEqual(days(H.windowsFor(now, null, {before: "2020-07-24", after: "2020-08-08"})), [["2020-06-24", "2020-09-08"]], "two near dates: one stretch");
+  assert.deepEqual(days(H.windowsFor(now, null, {before: "2020-07-24", after: "2026-11-01"})), [["2020-06-24", "2020-08-24"], ["2026-10-02", "2026-11-10"]], "years apart: two short stretches");
+  assert.deepEqual(days(H.joinWindows([[now - 20 * DAY, now - 10 * DAY], [now - 140 * DAY, now - 20 * DAY]], now)), [["2026-06-23", "2026-10-31"]]);
+  // an event known by its day only (Baghdad time): that whole day is the event
+  const e = H.eventOfDay("2020-08-04");
+  assert.equal(e.start, "2020-08-03T21:00:00.000Z"); assert.equal(e.end, "2020-08-04T21:00:00.000Z");
+  assert.equal(H.eventOfDay("nonsense"), null);
+  assert.equal(H.distanceText(240.4), "240 م"); assert.equal(H.distanceText(2345), "2.35 كم");
+});
+
 test("flames already there before are told apart from new ones", () => {
   const after = [{lat: 30.61, lon: 47.33}, {lat: 30.65, lon: 47.36}], before = [{lat: 30.6101, lon: 47.3301}];
   assert.deepEqual(H.splitHot(after, before), {fresh: 1, old: 1});
@@ -235,6 +249,15 @@ test("the divider follows the finger, the views switch, and a cloudy choice is f
   p.act("blink");
   assert.equal(p.el("#baHandle").hidden, true, "no divider while the two pictures alternate");
   p.act("blink");
+  // measuring: two taps give a distance and the coordinates of the last point; the divider stays put
+  p.act("measure");
+  assert.match(p.el("#baMeasure").innerHTML, /اضغط نقطتين على الصورة/);
+  const tap = (x, y) => { for (const type of ["pointerdown", "pointerup"]) stage.fire(type, {type, pointerId: 2, clientX: x, clientY: y, target: {closest: () => null}}); };
+  tap(100, 100); tap(100, 295);            // 195 of 390 screen pixels = half of the 2 km box
+  assert.match(p.el("#baMeasure").innerHTML, /<b>1\.00 كم<\/b>/);
+  assert.match(p.el("#baMeasure").innerHTML, /data-act="copy" data-text="2[56]\.\d{5}, (49|50)\.\d{5}"/);
+  assert.equal(p.el("#baHandle").style.left, "75%");
+  p.act("measure");
   // "after" cannot be older than "before"
   p.act("step", {side: "after", dir: "-1"});
   assert.match(p.toasts.at(-1), /لا مرور أقدم/);
@@ -292,6 +315,9 @@ test("choosing a place: from the map, by coordinates, or from the saved list", a
   p.context.setRoute("ba");
   assert.match(p.el("#baSheet").innerHTML, /اختر موقعاً من الخريطة/);
   assert.match(p.el("#baSheet").innerHTML, /مطار الاختبار/);
+  // the saved places are a watch list: a pass newer than the last visit is announced
+  await p.until("the newest pass of the watched place", () => /صورة جديدة/.test(p.el("#baNew0").textContent));
+  assert.ok(p.el("#baNew0").textContent.includes(H.dateAr(Date.parse(ago(6) + "T07:22:32Z"))));
   // from the map
   p.act("pick");
   assert.ok(p.bodyClass.has("picking")); assert.equal(p.el("#pickBar").hidden, false); assert.equal(p.el("#baSheet").hidden, true);
@@ -312,6 +338,7 @@ test("choosing a place: from the map, by coordinates, or from the saved list", a
   await p.loaded();
   assert.equal(p.el("#baStar").textContent, "★ محفوظ");
   assert.equal(JSON.parse(p.storage.get("firms-places-recent"))[0].name, "مطار الاختبار");
+  assert.ok(JSON.parse(p.storage.get("firms-places"))[0].seen > Date.now() - 60000, "a watched place is marked as seen now");
   p.act("back");
   assert.equal(p.el("#baSheet").hidden, true);
 });

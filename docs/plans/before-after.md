@@ -1,6 +1,10 @@
 # Before / after imagery («قبل وبعد»)
 
-Status: direction agreed with the owner on 10 Nov 2026, nothing built yet. Build phase 1 first.
+Status: **phase 1 is built** (10 Nov 2026), in the browser: `web/imagery.js` (engine) and
+`web/beforeafter.js` (screen). The first decision below was settled by a real test: Earth Search
+and both picture buckets answer with `Access-Control-Allow-Origin: *`, range reads included, so
+there is no worker, no queue and no server work. See «What was built» at the end; the rest of
+this page is the design as agreed, kept for the reasons behind it.
 
 ## Goal
 Show what changed on the ground at **any place the owner picks**, with or without a fire: an
@@ -77,5 +81,38 @@ zone edges (42°E, 48°E, 54°E, 60°E); changed area on a synthetic array; the 
 app: map pick, button, slider, status text.
 
 ## Open questions for the owner
-Who may use it (manager only, or staff too); default box size; whether the channel gets a
-before/after picture for major events.
+Who may use it (today: everyone who can open the app); whether the channel gets a before/after
+picture for major events (not built: nothing here posts to the channel).
+
+## What was built (phase 1)
+- **Places**: «🛰 قبل وبعد» on the map → pick on the map, search a name (Nominatim), type or paste
+  coordinates, saved places (a watch list that shows each place's newest pass and marks one newer
+  than the last visit), recently opened. Every incident has the same button (box 4 km wide, 6 km
+  when the position is approximate).
+- **Passes**: a light index request (no asset lists, ~2 KB for four months) over both archives:
+  `sentinel-2-c1-l2a` first, `sentinel-2-l2a` for the years it does not hold yet. Listed around
+  the event (±75 days), around the dates of a link (±30 days), else the last four months; «تواريخ
+  أقدم/أحدث» add four months. Cloud is judged over the box itself from the `SCL` band (a few KB per
+  pass); pixels called cloud on most dates are bright ground and stop counting (`refineSky`).
+- **Default pair**: newest clear pass before the event's start and first clear pass after its last
+  sighting; without an event the newest clear pass and the clear one before it. A picked place can
+  be given the event's day. Settled as soon as the nearer passes are checked (`choose`).
+- **Reading**: own small COG reader (header, then only the tiles under the box, by range; zlib by
+  the browser's `DecompressionStream`, a plain decoder as fallback), own UTM maths (checked against
+  PROJ), output on a north-up web-map grid. No third-party library. First everything at 20 m
+  (fast), then the colour bands at 10 m; «توفير البيانات» stops at 20 m. One comparison is about
+  8 MB at 20 m and 15–25 MB at 10 m (a box on the corner of four file tiles costs the most):
+  the tiles are 10 km wide and cannot be read in part.
+- **Views**: natural colour, short-wave infrared (B12/B8A/B04), change layer (five bands, the later
+  date first brought to the earlier one's brightness; darker = red, brighter = cyan; lone pixels
+  dropped) with the area; flames at the moment of the picture (B12 far above B11 and B8A), told
+  apart from those already there before (gas flares). Cloud on one date only is left out with a
+  margin and the share compared is stated.
+- **Tools**: divider, two-finger zoom, double tap, blink, distance between two taps with the
+  coordinates, portrait picture without the logo, link that reopens the same place and dates.
+- Checked on real events: a burnt building in Sudan (8 Nov 2026), gas flares at Basra, the Beirut
+  port explosion of 2020 from the older archive.
+
+## Not built yet
+Phases 2 and 3 above; a before/after picture for the channel; a time-lapse through all clear
+passes; partial reading of a tile (would cut the download for boxes near a tile corner).

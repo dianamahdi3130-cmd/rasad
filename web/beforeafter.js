@@ -113,6 +113,29 @@ function scaleBar(metresPerPx, maxPx) {
   for (const s of steps) if (s / metresPerPx <= maxPx) m = s;
   return {metres: m, px: m / metresPerPx, label: m >= 1000 ? `${m / 1000} كم` : `${m} م`};
 }
+// The stretches of time to list passes for: around the event, around the dates of a link, or the
+// last four months. Overlapping stretches are joined; nothing reaches into the future.
+function windowsFor(now, event, want) {
+  const out = [];
+  if (event && event.start) out.push([Date.parse(event.start) - 75 * DAY, Date.parse(event.end || event.start) + 75 * DAY]);
+  for (const d of [want && want.before, want && want.after]) if (d) out.push([Date.parse(d) - 30 * DAY, Date.parse(d) + 31 * DAY]);
+  if (!out.length) out.push([now - LOOK_BACK, now]);
+  return joinWindows(out, now);
+}
+function joinWindows(list, now) {
+  const sorted = list.map(([a, b]) => [a, Math.min(b, now)]).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]), out = [];
+  for (const w of sorted) {
+    const last = out[out.length - 1];
+    if (last && w[0] <= last[1] + DAY) last[1] = Math.max(last[1], w[1]); else out.push(w.slice());
+  }
+  return out;
+}
+// an event known only by its day (Baghdad time): passes on that day count as neither before nor after
+function eventOfDay(day) {
+  const start = Date.parse(day + "T00:00:00+03:00");
+  return isFinite(start) ? {start: new Date(start).toISOString(), end: new Date(start + DAY).toISOString(), day} : null;
+}
+function distanceText(m) { return m < 1000 ? `${num(Math.round(m))} م` : `${num(m / 1000, 2)} كم`; }
 function failText(e) {
   const code = e && e.code;
   if (code === "offline") return "لا اتصال بالإنترنت.";
@@ -120,7 +143,8 @@ function failText(e) {
   if (code === "none") return "لا توجد صور لهذا الموقع في هذه المدة.";
   return "أرشيف الصور الأوروبي المفتوح لا يستجيب الآن. حاول بعد قليل.";
 }
-BA._ = {parsePlace, parseRoute, routeOf, skyText, areaText, settle, choose, checkOrder, splitHot, scaleBar, failText, dateAr, SIZES};
+BA._ = {parsePlace, parseRoute, routeOf, skyText, areaText, settle, choose, checkOrder, splitHot, scaleBar, failText, dateAr, SIZES,
+  windowsFor, joinWindows, eventOfDay, distanceText};
 if (typeof document === "undefined") return;       // Node: only the helpers above
 
 /* ------------------------------------------------------------------ state */
@@ -147,6 +171,7 @@ BA.route = function (h) {
   return true;
 };
 BA.hide = function () {
+  if (watching) { watching.abort(); watching = null; }
   if (V) { V.session.abort(); if (V.load) V.load.abort(); clearInterval(V.blinkTimer); V = null; }
   const s = sheet();
   if (s && !s.hidden) { s.hidden = true; s.innerHTML = ""; }
@@ -197,7 +222,7 @@ BA.cancelPick = function () { stopPick(); setRoute("ba"); };
 function placeRow(p, i, kind) {
   return `<div class="ba-place">
     <button class="t" type="button" data-act="open" data-lat="${p.lat}" data-lon="${p.lon}" data-half="${p.half || 2}" data-name="${esc(p.name || "")}">
-      <b>${bidi(p.name || `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`)}</b><small>${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</small></button>
+      <b>${bidi(p.name || `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`)}</b><small>${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</small>${kind === "saved" ? `<span class="new" id="baNew${i}"></span>` : ""}</button>
     ${kind === "saved" ? `<button class="btn" type="button" data-act="forget" data-i="${i}" aria-label="حذف الموقع">حذف</button>` : ""}
   </div>`;
 }
@@ -211,12 +236,29 @@ function showChooser(results, note) {
       <button class="btn primary ba-wide" type="button" data-act="pick">📍 اختر موقعاً من الخريطة</button>
       <form class="ba-search" id="baSearch"><input id="baQuery" type="search" enterkeyhint="search" placeholder="اسم مكان، أو إحداثيات مثل 26.23, 50.83" autocomplete="off"><button class="btn" type="submit">بحث</button></form>
       <div id="baResults">${note ? `<p class="note">${esc(note)}</p>` : ""}${(results || []).map((p, i) => placeRow(p, i, "found")).join("")}</div>
-      ${saved.length ? `<h3>المواقع المحفوظة</h3>${saved.map((p, i) => placeRow(p, i, "saved")).join("")}` : ""}
+      ${saved.length ? `<h3>المواقع المحفوظة (قائمة المراقبة)</h3>${saved.map((p, i) => placeRow(p, i, "saved")).join("")}` : ""}
       ${recent.length ? `<h3>فتحتها مؤخراً</h3>${recent.map((p, i) => placeRow(p, i, "recent")).join("")}` : ""}
       <div class="help"><b>ما الذي يظهر؟</b> كل نقطة في الصورة 10 أمتار على الأرض، ويمر القمر كل يومين إلى خمسة أيام. تظهر الأضرار الكبيرة (خزانات، حظائر طائرات، مساحات محترقة)، ولا يظهر ضرر مبنى صغير أو مركبة واحدة. الصور تُظهر التغيّر ولا تحدد سببه.</div>
     </div>`;
   s.hidden = false; s.scrollTop = 0;
   el("#baSearch").addEventListener("submit", e => { e.preventDefault(); search(el("#baQuery").value); });
+  watch(saved);
+}
+// The saved places are a watch list: each one shows the date of its newest pass, marked when it
+// came after the last time the place was opened here. One small request per place.
+let watching = null;
+async function watch(saved) {
+  if (watching) watching.abort();
+  const ctl = watching = new AbortController(), now = Date.now();
+  await Promise.all(saved.slice(0, 12).map(async (p, i) => {
+    try {
+      const passes = await engine.listPasses(I.makeGrid(p.lat, p.lon, p.half || 2), now - 16 * DAY, now, ctl.signal);
+      const box = el("#baNew" + i);
+      if (ctl.signal.aborted || !box || !passes.length) return;
+      box.textContent = (passes[0].time > (p.seen || 0) ? "● صورة جديدة: " : "أحدث مرور: ") + dateAr(passes[0].time);
+      box.className = "new" + (passes[0].time > (p.seen || 0) ? " fresh" : "");
+    } catch (e) { /* the row simply stays without a date */ }
+  }));
 }
 async function search(text) {
   const here = parsePlace(text);
@@ -245,14 +287,12 @@ function openViewer(o) {
   const lite = store.get(KEYS.lite, null);
   V = {
     lat: o.lat, lon: o.lon, half: o.half, title: o.title || "", sub: o.sub || "", event: o.event || null, incident: o.incident || null,
-    want, auto: !(want.before || want.after), from: now - LOOK_BACK, to: now,
+    want, auto: !(want.before || want.after), windows: windowsFor(now, o.event, want), measure: null,
     passes: [], before: null, after: null, scenes: new Map(), shown: {}, img: {}, change: null, hot: {before: [], after: []},
     mode: "color", split: 0.5, zoom: 1, cx: 0.5, cy: 0.5, blink: false, blinkOn: false, blinkTimer: 0,
     run: 0, gen: 0, session: new AbortController(), load: null, checked: false, busy: "", error: null,
     lite: lite == null ? !!(navigator.connection && navigator.connection.saveData) : !!lite,
   };
-  if (V.event) V.from = Math.min(V.from, Date.parse(V.event.start) - 75 * DAY);
-  for (const d of [want.before, want.after]) if (d) V.from = Math.min(V.from, Date.parse(d) - 3 * DAY);
   const s = sheet();
   s.innerHTML = `
     <div class="sheet-top wrap">
@@ -271,10 +311,12 @@ function openViewer(o) {
       </div></div>
       <div class="ba-side wrap">
         <div class="seg ba-modes" id="baModes" role="toolbar" aria-label="نوع العرض"></div>
+        <div class="ba-row" id="baMeasure"></div>
         <div id="baDates"></div>
         <details class="ba-all" id="baAll"><summary id="baAllSum">كل تواريخ المرور</summary><div id="baList"></div></details>
         <div class="ba-find" id="baFind"></div>
         <div class="ba-row"><span>عرض المربع</span><div class="seg" id="baSizes"></div></div>
+        <div class="ba-row" id="baEvent"></div>
         <div class="actions" id="baActions"></div>
         <div class="help" id="baHelp"></div>
       </div>
@@ -292,6 +334,8 @@ function remember() {
   const list = store.get(KEYS.recent, []).filter(p => !samePlace(p, me));
   list.unshift(me);
   store.set(KEYS.recent, list.slice(0, 6));
+  const saved = places(), mine = saved.find(p => samePlace(p, me));      // a watched place: seen now
+  if (mine) { mine.seen = Date.now(); store.set(KEYS.places, saved); }
 }
 // a name for a tapped point, from OpenStreetMap (the viewer does not wait for it)
 async function nameThePlace() {
@@ -317,13 +361,39 @@ function renderChrome() {
   el("#baActions").innerHTML = `
     <button class="btn primary" type="button" data-act="shot">📸 صورة</button>
     <button class="btn" type="button" data-act="share">مشاركة</button>
-    <button class="btn" type="button" data-act="blink" aria-pressed="${V.blink}">${V.blink ? "إيقاف الوميض" : "وميض"}</button>
     <a class="btn" href="https://www.google.com/maps?q=${V.lat},${V.lon}&t=k" target="_blank" rel="noopener">الموقع على الخريطة</a>
     <button class="btn" type="button" data-act="lite" aria-pressed="${V.lite}">${V.lite ? "توفير البيانات: مفعّل" : "توفير البيانات"}</button>`;
+  el("#baEvent").innerHTML = V.incident ? "" : `<label for="baDay">تاريخ الحدث (اختياري)</label>
+    <input type="date" id="baDay" value="${esc(V.event && V.event.day || "")}" max="${new Date().toISOString().slice(0, 10)}">
+    ${V.event ? `<button class="btn" type="button" data-act="noday">مسح</button>` : ""}`;
+  const day = el("#baDay");
+  if (day && day.addEventListener) day.addEventListener("change", () => setDay(day.value));
+  renderMeasure();
   el("#baHelp").innerHTML = `<b>كيف تُقرأ؟</b> اسحب الفاصل بين الصورتين، وكبّر بإصبعين. «تحت الحمراء» تُظهر الأرض المحترقة بلون بني داكن واللهب بلون برتقالي لامع. «التغيّر» يلوّن ما صار أغمق بالأحمر وما صار أفتح بالأزرق.<br>
     الصور من القمر الأوروبي Sentinel-2 (برنامج كوبرنيكوس)، كل نقطة 10 أمتار. الظلال والمدّ والزراعة والبناء تتغيّر طبيعياً، والصور لا تحدد السبب.
     <span id="baData"></span>`;
   renderData();
+}
+// the distance between two tapped points, and the coordinates of the last one
+function renderMeasure() {
+  const v = V, box = el("#baMeasure"), m = v.measure;
+  if (!box) return;
+  let text = "";
+  if (m && m.pts.length) {
+    const last = m.pts[m.pts.length - 1], [lat, lon] = I.gridPoint(v.grid, last.x, last.y), at = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    text = (m.pts.length === 2 ? `<b>${distanceText(Math.hypot(m.pts[1].x - m.pts[0].x, m.pts[1].y - m.pts[0].y) * v.grid.res)}</b>` : "اضغط النقطة الثانية")
+      + ` <button class="btn" type="button" data-act="copy" data-text="${at}" dir="ltr">${at}</button>`;
+  } else if (m) text = "اضغط نقطتين على الصورة";
+  box.innerHTML = `<button class="btn" type="button" data-act="measure" aria-pressed="${!!m}">📏 قياس</button>
+    <button class="btn" type="button" data-act="blink" aria-pressed="${v.blink}">${v.blink ? "إيقاف الوميض" : "وميض"}</button>
+    ${v.zoom > 1.01 ? `<button class="btn" type="button" data-act="fit">الصورة كاملة</button>` : ""}<span>${text}</span>`;
+}
+function setDay(day) {
+  const v = V, event = day ? eventOfDay(day) : null;
+  if (day && !event) return;
+  v.event = event; v.auto = true; v.want = {};
+  v.windows = windowsFor(Date.now(), event, null);
+  renderChrome(); start();
 }
 function renderData() {
   const d = el("#baData");
@@ -337,13 +407,17 @@ async function start() {
   v.session = new AbortController();
   v.grid = I.makeGrid(v.lat, v.lon, v.half);
   Object.assign(v, {passes: [], before: null, after: null, shown: {}, img: {}, change: null, hot: {before: [], after: []},
-    checked: false, error: null, zoom: 1, cx: 0.5, cy: 0.5});
+    checked: false, error: null, zoom: 1, cx: 0.5, cy: 0.5, measure: null});
+  renderMeasure();
   v.scenes.clear();
   veil("جارٍ البحث عن مرور القمر فوق الموقع…");
   renderDates(); renderList(); renderFind(); paint();
   let passes;
-  try { passes = await engine.listPasses(v.grid, v.from, v.to, v.session.signal); }
-  catch (e) { if (V === v && run === v.run && e.code !== "aborted") fail(e, "start"); return; }
+  try {
+    const lists = await Promise.all(v.windows.map(([a, b]) => engine.listPasses(v.grid, a, b, v.session.signal)));
+    const seen = new Set();
+    passes = lists.flat().filter(p => !seen.has(p.key) && seen.add(p.key)).sort((a, b) => b.time - a.time);
+  } catch (e) { if (V === v && run === v.run && e.code !== "aborted") fail(e, "start"); return; }
   if (V !== v || run !== v.run) return;
   v.passes = passes;
   if (!passes.length) { fail({code: "none"}, "older"); return; }
@@ -420,7 +494,8 @@ function renderList() {
       <span class="g g${p.failed ? 3 : I.grade(p)}"></span><span class="t">${passLine(p)}</span>
       <button class="btn" type="button" data-act="take" data-side="before" data-key="${esc(p.key)}" aria-pressed="${v.before === p}">قبل</button>
       <button class="btn" type="button" data-act="take" data-side="after" data-key="${esc(p.key)}" aria-pressed="${v.after === p}">بعد</button>
-    </div>`).join("") + (v.passes.length || v.error ? `<button class="btn ba-wide" type="button" data-act="older">تواريخ أقدم (4 أشهر أخرى)</button>` : "");
+    </div>`).join("") + (v.passes.length || v.error ? `<button class="btn ba-wide" type="button" data-act="older">تواريخ أقدم (4 أشهر أخرى)</button>` : "")
+    + (v.passes.length && v.windows[v.windows.length - 1][1] < Date.now() - DAY ? `<button class="btn ba-wide" type="button" data-act="newer">تواريخ أحدث (4 أشهر أخرى)</button>` : "");
 }
 
 /* ---------- the pictures ---------- */
@@ -546,6 +621,9 @@ function renderFind() {
     const what = !s ? `${ha.length === 1 ? "موقع واحد" : ha.length + " مواقع"}`
       : [s.fresh ? `${s.fresh} لم ${s.fresh === 1 ? "يكن ظاهراً" : "تكن ظاهرة"} قبل` : "", s.old ? `${s.old} ${s.old === 1 ? "كان ظاهراً" : "كانت ظاهرة"} قبل أيضاً (شعلة غاز دائمة على الأرجح)` : ""].filter(Boolean).join("، ");
     out.push(`<p><b>🔥 لهب أو حرارة شديدة لحظة التقاط صورة «بعد»:</b> ${what}.</p>`);
+    const list = (s ? ha.filter(h => !h.old) : ha).slice(0, 3);
+    if (list.length) out.push(`<div class="actions">${list.map(h => { const at = `${h.lat.toFixed(5)}, ${h.lon.toFixed(5)}`;
+      return `<button class="btn" type="button" data-act="copy" data-text="${at}" dir="ltr">${at}</button>`; }).join("")}</div>`);
     if (v.mode === "color") out.push(`<button class="btn" type="button" data-act="mode" data-mode="swir">أظهرها بالأشعة تحت الحمراء</button>`);
   } else if (b && !a && hb.length) {
     out.push(`<p><b>🔥 لهب أو حرارة شديدة في صورة «قبل»:</b> ${hb.length === 1 ? "موقع واحد" : hb.length + " مواقع"} (شعلات الغاز تظهر هكذا دائماً).</p>`);
@@ -608,6 +686,15 @@ function paint() {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(px + dx * 12 * dpr, py + dy * 12 * dpr); g.lineTo(px + dx * 22 * dpr, py + dy * 22 * dpr); }
     g.stroke();
   }
+  const m = v.measure;
+  if (m && m.pts.length) {
+    const P = m.pts.map(p => [ox + p.x * s, oy + p.y * s]);
+    for (const [w, col] of [[5 * dpr, "rgba(0,0,0,.6)"], [2.5 * dpr, "#ffd60a"]]) {
+      g.lineWidth = w; g.strokeStyle = col; g.fillStyle = col;
+      if (P.length === 2) { g.beginPath(); g.moveTo(P[0][0], P[0][1]); g.lineTo(P[1][0], P[1][1]); g.stroke(); }
+      for (const [x, y] of P) { g.beginPath(); g.arc(x, y, w * 1.6, 0, 6.2832); g.fill(); }
+    }
+  }
   // labels, divider, scale
   tagB.hidden = !b || f > 0.94; tagA.hidden = !a || f < 0.06;
   if (b) tagB.textContent = "قبل · " + dateAr(v.shown.before.pass.time);
@@ -631,9 +718,11 @@ function zoomAt(z, clientX, clientY) {
   const v = V, r = el("#baStage").getBoundingClientRect();
   const px = (clientX - r.left) / r.width - 0.5, py = (clientY - r.top) / r.height - 0.5;
   const ux = v.cx + px / v.zoom, uy = v.cy + py / v.zoom;
+  const was = v.zoom > 1.01;
   v.zoom = Math.min(10, Math.max(1, z));
   v.cx = ux - px / v.zoom; v.cy = uy - py / v.zoom;
   clampView(); paint();
+  if (was !== v.zoom > 1.01) renderMeasure();
 }
 function bindStage() {
   const st = el("#baStage"), pts = new Map();
@@ -648,7 +737,7 @@ function bindStage() {
       pinch = {d: Math.hypot(p.x - q.x, p.y - q.y) || 1, zoom: V.zoom}; drag = null;
     } else if (pts.size === 1) {
       const onHandle = !!e.target.closest("#baHandle"), both = V.img.before && V.img.after && !V.blink;
-      drag = {mode: both && (onHandle || V.zoom <= 1.01) ? "split" : "pan", moved: false};
+      drag = {mode: both && (onHandle || (V.zoom <= 1.01 && !V.measure)) ? "split" : "pan", moved: false, far: 0, handle: onHandle};
       if (drag.mode === "split" && !onHandle) splitTo(e);
     }
   });
@@ -661,7 +750,8 @@ function bindStage() {
       const [a, b] = [...pts.values()];
       zoomAt(pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2);
     } else if (drag) {
-      if (Math.abs(dx) + Math.abs(dy) > 0) drag.moved = true;
+      drag.far += Math.abs(dx) + Math.abs(dy);
+      if (drag.far > 6) drag.moved = true;
       if (drag.mode === "split") splitTo(e);
       else { const r = st.getBoundingClientRect(); V.cx -= dx / (r.width * V.zoom); V.cy -= dy / (r.height * V.zoom); clampView(); paint(); }
     }
@@ -671,7 +761,13 @@ function bindStage() {
     if (pts.size < 2) pinch = null;
     if (!pts.size) {
       const now = Date.now();
-      if (drag && e.type === "pointerup" && now - lastTap < 320 && Math.hypot(e.clientX - lastX, e.clientY - lastY) < 30) {
+      if (drag && V.measure && !drag.moved && !drag.handle && e.type === "pointerup") {          // a tap while measuring: a point
+        const r = st.getBoundingClientRect(), n = V.grid.size;
+        const x = (V.cx + ((e.clientX - r.left) / r.width - 0.5) / V.zoom) * n, y = (V.cy + ((e.clientY - r.top) / r.height - 0.5) / V.zoom) * n;
+        if (V.measure.pts.length >= 2) V.measure.pts = [];
+        V.measure.pts.push({x, y});
+        renderMeasure(); paint();
+      } else if (drag && e.type === "pointerup" && now - lastTap < 320 && Math.hypot(e.clientX - lastX, e.clientY - lastY) < 30) {
         zoomAt(V.zoom > 1.5 ? 1 : 3, e.clientX, e.clientY); lastTap = 0;      // double tap
       } else { lastTap = now; lastX = e.clientX; lastY = e.clientY; }
       drag = null;
@@ -688,7 +784,7 @@ function setBlink(on) {
   const v = V;
   v.blink = on; clearInterval(v.blinkTimer);
   if (on) v.blinkTimer = setInterval(() => { if (V !== v) return clearInterval(v.blinkTimer); v.blinkOn = !v.blinkOn; paint(); }, 800);
-  renderChrome(); paint();
+  renderMeasure(); paint();
 }
 
 /* ---------- the picture to save: portrait, no logo ---------- */
@@ -754,7 +850,7 @@ async function renderShot() {
       }
     }
     if (c.clouds || c.compared < 0.9) lines.push("غيوم في إحدى الصورتين: التقدير أقل ثقة.");
-    if (v.hot.after.length) lines.push(`لهب أو حرارة شديدة لحظة صورة «بعد»: ${v.hot.after.length === 1 ? "موقع واحد" : v.hot.after.length + " مواقع"}.`);
+    if (v.hot.after.length) lines.push(`لهب ظاهر في صورة «بعد»: ${v.hot.after.length === 1 ? "موقع واحد" : v.hot.after.length + " مواقع"}.`);
     lines.push("تُظهر الصور التغيّر ولا تحدد سببه.", "كل نقطة 10 أمتار على الأرض.");
     g.fillStyle = DIM; g.font = `500 24px ${UI}`; ty += 14;
     for (const l of lines) { g.fillText(fit(l, `500 %px ${UI}`, 24, P - 30), tx, ty); ty += 38; }
@@ -780,7 +876,7 @@ function star() {
   if (at >= 0) { list.splice(at, 1); store.set(KEYS.places, list); toast("حُذف من المواقع المحفوظة"); renderChrome(); return; }
   const name = (root.prompt("اسم الموقع", titleOf()) || "").trim();
   if (!name) return;
-  list.unshift({name: name.slice(0, 80), lat: +v.lat.toFixed(5), lon: +v.lon.toFixed(5), half: v.half});
+  list.unshift({name: name.slice(0, 80), lat: +v.lat.toFixed(5), lon: +v.lon.toFixed(5), half: v.half, seen: Date.now()});
   store.set(KEYS.places, list.slice(0, 60));
   if (!v.title) { v.title = name; syncRoute(); }
   toast("حُفظ الموقع"); renderChrome();
@@ -800,7 +896,17 @@ function onClick(e) {
   else if (act === "step") step(t.dataset.side, +t.dataset.dir);
   else if (act === "take") { const p = v.passes.find(x => x.key === t.dataset.key); if (p) setSide(t.dataset.side, v[t.dataset.side] === p ? null : p); }
   else if (act === "size") { const h = +t.dataset.half; if (h !== v.half) { v.half = h; v.want = {before: v.before && v.before.date, after: v.after && v.after.date}; if (!v.auto && !v.want.before && !v.want.after) v.auto = true; syncRoute(); renderChrome(); start(); } }
-  else if (act === "older") { v.from -= LOOK_BACK; v.want = {before: v.before && v.before.date, after: v.after && v.after.date}; if (!v.want.before && !v.want.after) v.auto = true; start(); }
+  else if (act === "older" || act === "newer") {
+    const first = v.windows[0][0], last = v.windows[v.windows.length - 1][1];
+    v.windows = joinWindows(v.windows.concat([act === "older" ? [first - LOOK_BACK, first] : [last, last + LOOK_BACK]]), Date.now());
+    v.want = {before: v.before && v.before.date, after: v.after && v.after.date};
+    if (!v.want.before && !v.want.after) v.auto = true;
+    start();
+  }
+  else if (act === "noday") setDay("");
+  else if (act === "measure") { v.measure = v.measure ? null : {pts: []}; renderMeasure(); paint(); }
+  else if (act === "fit") { v.zoom = 1; v.cx = v.cy = 0.5; renderMeasure(); paint(); }
+  else if (act === "copy") copy(t.dataset.text);
   else if (act === "retry") { v.error = null; if (t.dataset.what === "load") loadPair(); else start(); }
   else if (act === "blink") setBlink(!v.blink);
   else if (act === "lite") { v.lite = !v.lite; store.set(KEYS.lite, v.lite); renderChrome(); loadPair(); }

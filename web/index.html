@@ -296,6 +296,11 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
 .ba-find .lg{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13.5px;color:var(--muted)}
 .ba-find .lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-inline-end:5px}
 .ba-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.ba-row:empty{display:none}
+.ba-row b{color:var(--fg);font-size:15px}
+.ba-row .btn{padding:5px 10px;font-size:13px}
+.ba-row .btn[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.ba-row input[type=date]{font:inherit;font-size:15px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:5px 8px;color-scheme:inherit}
 .ba-pick{padding-block:12px calc(24px + env(safe-area-inset-bottom,0px))}
 .ba-pick h3{font:700 16px/1.5 var(--font-display);margin:18px 0 8px}
 .ba-search{display:flex;gap:8px;margin:12px 0}
@@ -305,6 +310,7 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
 .ba-place b{display:block;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ba-place small{color:var(--muted);font-size:12.5px;direction:ltr;unicode-bidi:isolate}
 .ba-place .btn{padding:4px 9px;font-size:12.5px}
+.ba-place .new{display:block;color:var(--muted);font-size:12.5px} .ba-place .new.fresh{color:var(--ok);font-weight:600}
 @media (min-width:900px){
   .sheet.ba{inset:0;width:auto;border:0}
   .ba-body{display:grid;grid-template-columns:minmax(0,1fr) 440px;align-items:start}

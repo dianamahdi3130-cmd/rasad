@@ -25,7 +25,8 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
 | `rasad/main.py` | CLI: `cycle`, `media-worker`, `maintain-geo`, `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `cloud-publish` |
-| `web/index.html` | the whole app in one file (Arabic RTL, Leaflet 1.9.4). `web/sw.js` holds the cache name |
+| `web/index.html` | the app's page, styles and main script (Arabic RTL, Leaflet 1.9.4). `web/sw.js` holds the cache name |
+| `web/imagery.js`, `web/beforeafter.js` | «قبل وبعد»: Sentinel-2 pictures of any place read in the phone itself (engine, no page code) and its screen. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
 | `worker/src/index.js` | private app on Cloudflare (Worker + Durable Object `Hub`): logins bound to a device, data, clips, admin, ingest |
 | `scripts/loop.sh`, `scripts/branches.sh` | the ~5.5-hour watching loop; saving to the data branches |
 | `.github/workflows/` | `rasad.yml` monitor, `probe.yml` diagnosis on real data, `deploy-worker.yml` private app |
@@ -33,12 +34,15 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `docs/` | `reviews/` checked cases; `plans/` agreed designs (start with `plans/before-after.md`) |
 
 Big files: read by line range or grep, never whole: `engine.py` (61 KB), `web/index.html` (66 KB),
-`brain.py`, `seawatch.py`, `twopanel.py` (≈35 KB each). App functions to grep in `index.html`:
-`load`, `render`, `drawMarkers`, `showFocus`, `openDetail`, `renderPicture`, `takePicture`,
-`startApp`, `openAdmin`.
+`brain.py`, `seawatch.py`, `twopanel.py` (≈35 KB each), `web/imagery.js`, `web/beforeafter.js`
+(≈50 KB each). App functions to grep in `index.html`: `load`, `render`, `drawMarkers`, `route`,
+`showFocus`, `openDetail`, `renderPicture`, `presentPicture`, `startApp`, `openAdmin`; in
+`beforeafter.js`: `openViewer`, `start`, `tick`, `loadPair`, `rebuild`, `paint`, `renderFind`;
+in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeOf`, `hotSpots`.
 
 ## Commands
 - Tests, ~3 seconds, all must pass: `python -m pytest -q` and `for f in tests/*.js; do node "$f"; done`
+- The JS tests use a made-up Sentinel-2 archive (`tests/support/archive.js`): no network.
 - A check without posting: `python -m rasad --state /tmp/st --site /tmp/si cycle --no-send`
   (needs network to EUMETView/NASA; often blocked in a development session).
 - Real-data diagnosis when the network is blocked: the probe workflow (skill `rasad-sources`).
@@ -67,10 +71,13 @@ Big files: read by line range or grep, never whole: `engine.py` (61 KB), `web/in
 - Every network call inside a check has a time budget (EUMETView is often slow). No unbounded waits.
 - Bump when you change: `RULES` (importance rules) · `CLIP_STYLE` (clip look) · `SEA_CHECK`
   (sea finder's closer look) · `TIDY` (re-tidy stored incidents), all in `engine.py`; the `CACHE`
-  name in `web/sw.js` whenever `web/` changes.
+  name in `web/sw.js` whenever `web/` changes, and with it the same number in `?v=` of
+  `imagery.js` and `beforeafter.js` (in `index.html` and in `sw.js`; a test checks they agree).
 - Text: «الخليج الفارسي» (never «الخليج العربي»); fire power written `MW` in Latin letters
   (`brain.mw_ar`); times in Baghdad time (UTC+3); Latin names wrapped by `brain.bidi_safe`.
   Channel rules in skill `rasad-telegram`.
+- Before/after pictures say «تغيّر مرصود», never a cause and never «ضرر مؤكد»; cloud on one of
+  the two dates is said, not counted as change. Every request to the archive has a time budget.
 - App: opens on the last 24 hours (3-day and week options); the photo button saves a portrait
   image without the logo; the private app admits only the manager and invited staff.
 
