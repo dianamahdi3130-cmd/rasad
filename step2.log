@@ -1,0 +1,26 @@
+08:17:32 INFO mtg_fd:frp: 12 images, 3 failed, fire symbols near the point in 0
+08:17:53 INFO msg_iodc:fire: 8 images, 0 failed, fire symbols near the point in 0
+08:17:53 INFO Meteosat-12 layers on the server: WMS, frp, frp_default, h40b, ir105_hrfi, li_afa, mtg_fd_ir105_hrfi_grayscale, mtg_fd_ir105_hrfi_style_01, mtg_fd_ir105_hrfi_style_02, mtg_h40b_default, mtg_li_afa, raster, rgb_cloudphase, rgb_cloudtype, rgb_dust, rgb_firetemperature, rgb_fog, rgb_geocolour, rgb_snow, rgb_truecolour, vis06_hrfi
+08:17:59 INFO msg_iodc:ir039: 7 pictures, 1 failed, 0 empty
+08:17:59 INFO    2026-11-10T06:30:00Z  darker   6.0 at 26.097,57.138 (44.4 km)   brighter  20.0 at 26.583,57.198 (30.5 km) <<<
+08:17:59 INFO    2026-11-10T06:45:00Z  darker   7.0 at 26.097,57.138 (44.4 km)   brighter  20.0 at 26.542,57.254 (33.8 km) <<<
+08:17:59 INFO    2026-11-10T07:00:00Z  darker   4.0 at 26.574,57.048 (18.1 km)   brighter  10.0 at 26.542,57.223 (30.9 km) <<<
+08:17:59 INFO    2026-11-10T07:15:00Z  darker   8.0 at 26.156,57.148 (39.3 km)   brighter   8.0 at 26.277,57.098 (25.5 km) <<<
+08:17:59 INFO    2026-11-10T07:30:00Z  darker   6.0 at 26.214,57.123 (32.5 km)   brighter   5.0 at 26.690,57.033 (28.6 km) <<<
+08:17:59 INFO    2026-11-10T07:45:00Z  darker  10.0 at 26.520,57.228 (30.7 km)   brighter   4.0 at 26.717,56.993 (30.4 km) <<<
+08:17:59 INFO    2026-11-10T08:00:00Z  darker  10.0 at 26.520,57.234 (31.2 km)   brighter   6.0 at 26.695,57.003 (28.2 km) <<<
+08:18:06 INFO mtg_fd:rgb_firetemperature: 10 pictures, 2 failed, 0 empty
+08:18:06 INFO    2026-11-10T06:30:00Z  darker  17.3 at 26.183,57.299 (47.3 km)   brighter  27.0 at 26.093,56.536 (55.8 km) <<<
+08:18:06 INFO    2026-11-10T06:40:00Z  darker  16.7 at 26.421,57.083 (15.6 km)   brighter  44.7 at 26.102,56.546 (54.4 km) <<<
+08:18:06 INFO    2026-11-10T06:50:00Z  darker  14.5 at 26.547,57.244 (33.0 km)   brighter  21.7 at 26.147,56.621 (45.6 km) <<<
+08:18:06 INFO    2026-11-10T07:10:00Z  darker  14.3 at 26.187,57.234 (42.1 km)   brighter  13.8 at 26.093,57.138 (44.8 km) <<<
+08:18:06 INFO    2026-11-10T07:20:00Z  darker  14.3 at 26.187,57.234 (42.1 km)   brighter  13.8 at 26.093,57.138 (44.8 km) <<<
+08:18:06 INFO    2026-11-10T07:30:00Z  darker  11.0 at 26.497,57.264 (33.6 km)   brighter   9.0 at 26.201,57.329 (48.5 km) <<<
+08:18:06 INFO    2026-11-10T07:40:00Z  darker   7.7 at 26.210,57.319 (47.1 km)   brighter  11.0 at 26.591,56.948 (15.8 km) <<<
+08:18:06 INFO    2026-11-10T07:50:00Z  darker   6.0 at 26.232,57.123 (30.9 km)   brighter  14.3 at 26.398,56.933 ( 5.7 km) <<<
+08:18:06 INFO    2026-11-10T08:00:00Z  darker   6.0 at 26.232,57.123 (30.9 km)   brighter  14.3 at 26.398,56.933 ( 5.7 km) <<<
+08:18:06 INFO    2026-11-10T08:10:00Z  darker   3.2 at 26.340,56.822 (16.3 km)   brighter  13.3 at 26.389,56.938 ( 6.8 km) <<<
+08:18:07 INFO    NASA: nothing within 40.0 km
+08:18:07 INFO strongest spot within 10 km: mtg_fd:rgb_firetemperature at 2026-11-10T07:50:00Z (strength 14.3)
+08:18:43 WARNING clip clip_spot failed: the fire does not show in these pictures
+08:19:17 WARNING clip clip failed: the fire does not show in these pictures
