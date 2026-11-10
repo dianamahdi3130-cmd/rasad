@@ -18,7 +18,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue
-from . import acquisitions, repairs, satpic
+from . import acquisitions, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -106,6 +106,8 @@ DEFAULTS = {
     # The before/after Sentinel-2 picture sent under an alert once a clear pass comes (satpic.py).
     "satpic": {"enabled": True, "max_days": 12, "retry_hours": 3, "half_km": 2, "approx_half_km": 3,
                "lookback_days": 75, "job_budget_s": 170, "sea": False},
+    # Smoke as a second witness, silent for now (smoke.py holds the rules and their numbers).
+    "smoke": {"enabled": True},
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
         "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
@@ -1044,6 +1046,16 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["satpic"] = dict(satpic.facts(inc, result), sent_at=iso(now))
             log.info("SATELLITE PICTURE %s: %s -> %s", inc["id"], inc["satpic"]["before"], inc["satpic"]["after"])
 
+    # Smoke, silent for now: a daytime fire is given to the worker, and what it finds is written
+    # on the incident for the app. Nothing here is posted and the verdict is not touched.
+    if cfg["smoke"].get("enabled", True):
+        for inc in S.incidents:
+            asked = smoke.wanted(inc, cfg, now)
+            if asked:
+                smoke.request(cfg, inc, now)
+            if asked or (inc.get("smoke") and not inc["smoke"].get("closed") and not inc["smoke"].get("seen")):
+                smoke.collect(cfg, inc, now)
+
     # sea incidents found before the look-back existed, or not touched in this run
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
         if look_budget <= 0:
@@ -1101,7 +1113,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
-          "recovered_historical", "association_uncertain", "association", "correction_note", "satpic"]
+          "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke"]
 
 
 def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=None):
@@ -1126,6 +1138,7 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
             item["clip_status_text"] = "الفيديو قيد التجهيز؛ سيظهر عند توفر صور صالحة"
         else:
             item["clip_status_text"] = "لا يتوفر فيديو لهذا الحدث حالياً"
+        item["smoke_text"] = smoke.text(item.get("smoke"))
     items.sort(key=lambda i: i["last"], reverse=True)
     # every important incident, but only the latest small ones, so the app stays light on a phone
     low = [i for i in items if i["priority"] != "high"][250:]

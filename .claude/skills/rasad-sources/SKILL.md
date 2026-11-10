@@ -15,6 +15,7 @@ check goes through `WMS.budget(...)`; a check reads at most `scan_max_images` (2
 | `msg_iodc:fire` | Meteosat over the Indian Ocean, fire symbols, **no MW** | 15 min |
 | `mtg_fd:rgb_firetemperature` | Rasad's own sea finder (night) and the day finder | 10 min |
 | `mtg_fd:ir105_hrfi` | picture clock and cloud check for the finders | 10 min |
+| `mtg_fd:vis06_hrfi` | visible, 500 m: the silent smoke check (`rasad/smoke.py`), daylight only | 10 min |
 | `msg_iodc:ir039`, `mtg_fd:rgb_geocolour` | the clip's thermal and colour panels | 15 / 10 min |
 | `osmgray:land_polygons` | land/sea mask in pictures | static |
 

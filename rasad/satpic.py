@@ -211,13 +211,25 @@ def _make(cfg, job, now, session, out):
 
 
 def run_worker(cfg, interval=60, max_minutes=340, once=False):
+    """The background worker: before/after pictures, and the silent smoke checks of daytime fires."""
+    from . import smoke
+    from .seawatch import Pictures
+    from .wms import WMS
     session, end = make_session(), time.monotonic() + max_minutes * 60
+    wms = WMS(cfg["eumetview"]["wms_url"], session)
     while time.monotonic() < end:
         try:
             done = work_one(cfg, session=session)
         except Exception as e:  # noqa: BLE001
             log.warning("satellite picture worker: %s", e)
             done = None
+        try:
+            if cfg["smoke"].get("enabled", True):
+                # a new holder per job keeps the memory small; the pictures themselves stay on disk
+                # for the next look at the same fire
+                done = smoke.work_one(cfg, utcnow(), Pictures(wms, smoke.queue_dir(cfg) / "pictures"), wms) or done
+        except Exception as e:  # noqa: BLE001
+            log.warning("smoke worker: %s", e)
         if once:
             return
         if not done:

@@ -9,6 +9,7 @@ _site/
 .state_urgent
 .rasad-media/
 .rasad-satpic/
+.rasad-smoke/
 .rasad-satpic-worker.log
 .rasad-pictures/
 .rasad-media-worker.log
