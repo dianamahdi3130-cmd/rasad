@@ -26,6 +26,11 @@ def _pending(slots, key, age, settle, late):
     return previous is None or not (late or previous >= settle or age < settle)
 
 
+def _unread(slots, key, age, settle, late):
+    """Never read at all (a gap in the watch), as opposed to a second, settled read."""
+    return slots.get(key) is None
+
+
 def collect(cfg, wms, state, now, tiles, availability, *, detect=detect_geo_layer, latest=latest_time):
     """Return ``(detections, source_status, number_of_images_requested)``.
 
@@ -117,53 +122,58 @@ def collect(cfg, wms, state, now, tiles, availability, *, detect=detect_geo_laye
                 log.warning("%s: tile request failed: %s", layer["id"], exc)
                 return True, None
 
+        # Every tile not read at all (newest slots first, then older gaps) comes before any second,
+        # settled read of a tile already read: a second read only catches a late addition, a
+        # first read can be a fire nobody has seen yet.
+        passes = [(_unread, max((row[3] for row in available), default=0)), (_pending, n_recent)]
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for offset in range(max((row[3] for row in available), default=0)):
-                late = offset >= n_recent
-                if not time_left() or requested >= max_images:
-                    break
-                if late and time.monotonic() - started >= catchup_seconds:
-                    break
-                # All sources' newest tiles precede every older slot. Availability
-                # probes are only sent when at least one tile still needs reading.
-                phase = []
-                for layer, newest, cadence, span in available:
-                    if offset >= span:
-                        continue
-                    when = newest - dt.timedelta(minutes=cadence * offset)
-                    age = (now - when).total_seconds() / 60
-                    jobs = [(layer, index, tile, when, age, _key(layer, tile, when))
-                            for index, tile in tile_order
-                            if _pending(slots, _key(layer, tile, when), age, settle, late)]
-                    if not jobs:
-                        continue
-                    if not time_left():
-                        break
-                    if offset and not availability.has(layer["name"], when):
-                        continue
-                    phase.append(jobs)
-                # Interleave source requests for each tile, rather than spending
-                # the entire cycle on the first layer in the configuration.
-                jobs = [queue[index] for index in range(max(map(len, phase), default=0))
-                        for queue in phase if index < len(queue)]
-                for begin in range(0, len(jobs), workers):
+            for wanted, offsets in passes:
+                for offset in range(offsets):
+                    late = offset >= n_recent
                     if not time_left() or requested >= max_images:
                         break
-                    batch = jobs[begin:begin + min(workers, max_images - requested)]
-                    results = list(pool.map(call, batch))
-                    for job, (attempted, result) in zip(batch, results):
-                        if not attempted:
+                    if late and time.monotonic() - started >= catchup_seconds:
+                        break
+                    # All sources' newest tiles precede every older slot. Availability
+                    # probes are only sent when at least one tile still needs reading.
+                    phase = []
+                    for layer, newest, cadence, span in available:
+                        if offset >= span:
                             continue
-                        layer, tile_index, tile, when, age, key = job
-                        requested += 1
-                        state["geo_scan_tile_cursor"] = (tile_index + 1) % len(tiles)
-                        row = status[layer["id"]]
-                        row["checked"] += 1
-                        if result is None:
-                            row["missing"] += 1
-                        else:
-                            detections.extend(result)
-                            slots[key] = age
+                        when = newest - dt.timedelta(minutes=cadence * offset)
+                        age = (now - when).total_seconds() / 60
+                        jobs = [(layer, index, tile, when, age, _key(layer, tile, when))
+                                for index, tile in tile_order
+                                if wanted(slots, _key(layer, tile, when), age, settle, late)]
+                        if not jobs:
+                            continue
+                        if not time_left():
+                            break
+                        if offset and not availability.has(layer["name"], when):
+                            continue
+                        phase.append(jobs)
+                    # Interleave source requests for each tile, rather than spending
+                    # the entire cycle on the first layer in the configuration.
+                    jobs = [queue[index] for index in range(max(map(len, phase), default=0))
+                            for queue in phase if index < len(queue)]
+                    for begin in range(0, len(jobs), workers):
+                        if not time_left() or requested >= max_images:
+                            break
+                        batch = jobs[begin:begin + min(workers, max_images - requested)]
+                        results = list(pool.map(call, batch))
+                        for job, (attempted, result) in zip(batch, results):
+                            if not attempted:
+                                continue
+                            layer, tile_index, tile, when, age, key = job
+                            requested += 1
+                            state["geo_scan_tile_cursor"] = (tile_index + 1) % len(tiles)
+                            row = status[layer["id"]]
+                            row["checked"] += 1
+                            if result is None:
+                                row["missing"] += 1
+                            else:
+                                detections.extend(result)
+                                slots[key] = age
 
     # The backlog remains visible and is derived from successful cache writes,
     # so exhausting the budget never turns unrequested images into empty images.
@@ -176,7 +186,8 @@ def collect(cfg, wms, state, now, tiles, availability, *, detect=detect_geo_laye
                         for tile in tiles)
             row["pending"] += count
             if offset < n_recent:
-                row["pending_recent"] += count
+                # only tiles of the newest pictures that were never read make a check partial
+                row["pending_recent"] += sum(slots.get(_key(layer, tile, when)) is None for tile in tiles)
         row["scan_complete"] = row["pending_recent"] == 0
     elapsed = max(0.0, time.monotonic() - started)
     exhausted = elapsed >= seconds or requested >= max_images

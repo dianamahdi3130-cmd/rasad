@@ -38,10 +38,15 @@ trap 'exit 130' INT
 
 # Workers write only staging media or the facility database. The scanner alone owns incidents.
 # GNU timeout forwards shutdown to the worker process group, including an active ffmpeg child.
-timeout --signal=TERM --kill-after=5s "$((MINUTES * 60))s" \
-  python -m rasad --state _state --site _site media-worker --interval 2 --max-minutes "$MINUTES" \
-  > .rasad-media-worker.log 2>&1 &
-media_pid=$!
+start_media_worker() {
+  local left=$(( (end - SECONDS) / 60 ))
+  [ "$left" -gt 0 ] || return 0
+  timeout --signal=TERM --kill-after=5s "$((left * 60))s" \
+    python -m rasad --state _state --site _site media-worker --interval 2 --max-minutes "$left" \
+    >> .rasad-media-worker.log 2>&1 &
+  media_pid=$!
+}
+start_media_worker
 
 while [ "$SECONDS" -lt "$end" ]; do
   t0=$SECONDS
@@ -67,6 +72,14 @@ while [ "$SECONDS" -lt "$end" ]; do
   fi
   echo "::endgroup::"
   echo "check $n took $((SECONDS - t0)) s"
+
+  # the video worker must keep running: without it alerts go out with "video in preparation" only
+  if [ -n "$media_pid" ] && ! kill -0 "$media_pid" 2>/dev/null; then
+    echo "the video worker stopped; starting it again (last lines of its log:)"
+    tail -n 5 .rasad-media-worker.log 2>/dev/null || true
+    wait "$media_pid" 2>/dev/null || true
+    start_media_worker
+  fi
 
   # Slow Overpass queries never delay publishing or the next satellite check.
   if [ $((SECONDS - last_geo)) -ge 600 ] && { [ -z "$geo_pid" ] || ! kill -0 "$geo_pid" 2>/dev/null; }; then

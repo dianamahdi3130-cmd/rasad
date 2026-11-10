@@ -21,14 +21,17 @@ from . import acquisitions, repairs
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
-from .util import (floor_time, in_bbox, iso, load_json, log, make_session, parse_time, save_json,
-                   utcnow)
+from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_session, parse_time,
+                   save_json, utcnow)
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
 RULES = 15  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
+TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
+# fire symbols whose strength (MW) the server can tell; the second European satellite's cannot
+STRENGTH_SOURCES = frozenset({"mtg_frp"})
 
 DEFAULTS = {
     "app_name": "رصد",
@@ -67,7 +70,7 @@ DEFAULTS = {
         # after an outage at the source the pictures come out late: slots of the last hours that
         # were never read are read then (a little per run)
         "catchup_hours": 2, "catchup_budget_s": 75,
-        "scan_budget_s": 65, "scan_max_images": 12, "scan_workers": 4, "scan_timeout_s": 20,
+        "scan_budget_s": 65, "scan_max_images": 20, "scan_workers": 4, "scan_timeout_s": 20,
         "strength_budget_s": 20,
         "fire_layers": [
             {"id": "mtg_frp", "name": "mtg_fd:frp", "family": "mtg", "cadence_min": 10,
@@ -203,6 +206,94 @@ class State:
         save_json(self.dir / "incidents.json", self.incidents, compact=True)
         if self.sent:  # tells the watch loop to store the memory on GitHub straight away
             (self.dir.parent / ".state_urgent").write_text("1")
+
+
+def _merge_records(keep, other):
+    """Fold the evidence of another record of the same fire into the one that is kept."""
+    keep["first"], keep["last"] = min(keep["first"], other["first"]), max(keep["last"], other["last"])
+    for key in ("srcs", "families"):
+        for value in other.get(key) or []:
+            if value not in keep.setdefault(key, []):
+                keep[key].append(value)
+    keep["geo_slots"] = sorted(set(keep.get("geo_slots") or []) | set(other.get("geo_slots") or []))[-60:]
+    if keep.get("own_night_slots") or other.get("own_night_slots"):
+        keep["own_night_slots"] = sorted(set(keep.get("own_night_slots") or [])
+                                         | set(other.get("own_night_slots") or []))[-60:]
+    for key, limit in (("observations", 120), ("polar", 20)):
+        rows = keep.setdefault(key, [])
+        for row in other.get(key) or []:
+            if row not in rows:
+                rows.append(row)
+        keep[key] = sorted(rows, key=lambda r: r["t"])[-limit:]
+    series = keep.setdefault("frp_series", [])
+    for row in other.get("frp_series") or []:
+        if row not in series:
+            series.append(row)
+    keep["frp_series"] = sorted(series)[-40:]
+    powers = [v for v in (keep.get("max_frp"), other.get("max_frp")) if v is not None]
+    keep["max_frp"] = max(powers) if powers else None
+    if other.get("best") == "polar" and keep.get("best") != "polar":
+        keep["lat"], keep["lon"], keep["best"] = other["lat"], other["lon"], "polar"
+    if keep.get("kind") != "unusual" and other.get("kind") == "unusual":
+        keep["kind"] = "unusual"
+    for key in ("known_days", "typical_frp", "area_days"):
+        if keep.get(key) is None and other.get(key) is not None:
+            keep[key] = other[key]
+    keep["n"] = len(keep["observations"]) or max(keep.get("n") or 1, other.get("n") or 1)
+
+
+def tidy_incidents(S, cfg, now):
+    """Repair the memory left by an earlier version: one fire stored many times under the same
+    id (a symbol waiting for its strength was judged again every check), and a recovered past
+    event split into one record per picture. Runs on every check for the first kind (cheap),
+    once for the second."""
+    alerted = ("alerted_at", "alerted_verdict", "tg_msg", "alerted_max_frp", "alert_updated_at")
+    groups = {}
+    for inc in S.incidents:
+        groups.setdefault(inc["id"], []).append(inc)
+    copies = sum(len(g) - 1 for g in groups.values())
+    if copies:
+        kept = []
+        for inc_id, group in groups.items():
+            # keep the record that went out to the channel, if one did (its post is answered later)
+            keep = next((i for i in group if i.get("alerted_at")), group[0])
+            for other in group:
+                if other is not keep:
+                    _merge_records(keep, other)
+            kept.append(keep)
+        order = {inc_id: k for k, inc_id in enumerate(groups)}
+        S.incidents = sorted(kept, key=lambda i: order[i["id"]])
+        log.warning("memory tidied: %d extra copies of %d incidents merged",
+                    copies, sum(1 for g in groups.values() if len(g) > 1))
+    if S.state.get("tidy") == TIDY:
+        return
+    for inc in S.incidents:   # counts inflated by the same symbol judged again every check
+        rows = inc.get("observations") or []
+        if rows and len(rows) < 120 and (inc.get("n") or 0) > len(rows):
+            inc["n"] = len(rows)
+    merge_km, merge_h = float(cfg["incidents"]["merge_km"]), float(cfg["incidents"]["merge_hours"])
+    window = dt.timedelta(hours=merge_h)
+    split = sorted((i for i in S.incidents if i.get("recovered_historical") and not i.get("alerted_at")),
+                   key=lambda i: i["first"])
+    gone = set()
+    for k, keep in enumerate(split):
+        if keep["id"] in gone:
+            continue
+        for other in split[k + 1:]:
+            if other["id"] in gone or other.get("kind") != keep.get("kind"):
+                continue
+            if parse_time(other["first"]) - parse_time(keep["last"]) > window:
+                continue
+            if haversine_km(keep["lat"], keep["lon"], other["lat"], other["lon"]) <= merge_km:
+                _merge_records(keep, other)
+                gone.add(other["id"])
+    if gone:
+        S.incidents = [i for i in S.incidents if i["id"] not in gone]
+        for inc in split:
+            if inc["id"] not in gone:
+                finalize(inc, cfg)
+        log.warning("memory tidied: %d recovered pieces joined to their event", len(gone))
+    S.state["tidy"] = TIDY
 
 
 def bootstrap(cfg, session, S, box):
@@ -453,6 +544,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     session = make_session()
     wms = WMS(cfg["eumetview"]["wms_url"], session)
     S = State(cfg)
+    tidy_incidents(S, cfg, now)
     repairs.apply_reviewed(cfg, S, now)
     if cfg.get("_background_media"):
         mediaqueue.consume_results(cfg, S, now)
@@ -565,12 +657,28 @@ def run_cycle(cfg, send=True, alert_now=False):
     if recovery_status["enabled"]:
         status["recovery"] = dict(recovery_status, name="استرجاع رصد سابق قرب المنشآت")
 
+    # European symbols whose strength could not be read yet are asked again here, a few per
+    # check. Only a symbol whose strength has now arrived goes back to the judgement (that is
+    # new information: a usual flare may turn out to burn far hotter). One still without
+    # strength is not judged again: it is already part of its incident.
     strength_pending = S.state.setdefault("strength_pending", {})
     for key, det in list(strength_pending.items()):
-        if now - parse_time(det["t"]) > dt.timedelta(hours=24):
+        if now - parse_time(det["t"]) > dt.timedelta(hours=24) or det.get("src") not in STRENGTH_SOURCES:
             del strength_pending[key]
-        else:
-            dets.append(dict(det))
+    retry_deadline = time.monotonic() + float(E.get("strength_retry_budget_s", 10))
+    retry_left = int(E.get("strength_retry_max", 15))
+    for key, det in sorted(strength_pending.items(), key=lambda kv: kv[1]["t"], reverse=True):
+        remaining = retry_deadline - time.monotonic()
+        if remaining <= 0 or retry_left <= 0:
+            break
+        retry_left -= 1
+        again = dict(det)
+        method = getattr(type(wms), "budget", None)
+        with wms.budget(remaining, timeout_s=8) if callable(method) else nullcontext():
+            fetch_frp(wms, again)
+        if again.get("frp") is not None:
+            del strength_pending[key]
+            dets.append(again)
 
     # drop duplicates of the same symbol found in two neighbouring tiles
     uniq = {}
@@ -592,7 +700,17 @@ def run_cycle(cfg, send=True, alert_now=False):
     membership = {id(det): group for group in grouped for det in group}
     dets = [det for group in grouped for det in group]
     group_matches = {}
-    open_incs = [i for i in S.incidents if now - parse_time(i["last"]) <= dt.timedelta(hours=merge_h)]
+    # A detection is matched against incidents near its own time. Most are fresh (the last
+    # hours), but a late picture, a recovered past slot or a strength read later can be up to
+    # days old: those look at the whole memory, so they join their incident instead of
+    # starting a copy of it.
+    fresh_from = now - dt.timedelta(hours=merge_h)
+    open_incs = [i for i in S.incidents if parse_time(i["last"]) >= fresh_from - dt.timedelta(hours=merge_h)]
+    by_id = {i["id"]: i for i in S.incidents}
+
+    def candidates(det):
+        return open_incs if parse_time(det["t"]) >= fresh_from else S.incidents
+
     touched, frp_budget = set(), 40
     strength_deadline = time.monotonic() + float(E.get("strength_budget_s", 20))
 
@@ -602,8 +720,8 @@ def run_cycle(cfg, send=True, alert_now=False):
     def read_strength(det):
         nonlocal frp_budget
         fi = det.get("_fi")
-        if not fi or det.get("frp") is not None:
-            return
+        if not fi or det.get("frp") is not None or det.get("src") not in STRENGTH_SOURCES:
+            return  # the second European satellite's fire symbols carry no strength at all
         remaining = strength_deadline - time.monotonic()
         if remaining > 0 and frp_budget > 0:
             frp_budget -= 1
@@ -654,10 +772,10 @@ def run_cycle(cfg, send=True, alert_now=False):
         if d["kind"] == "polar":
             if group_id not in group_matches:
                 group_matches[group_id] = acquisitions.find_group(
-                    open_incs, group, 2.0 if routine else merge_km, merge_h, rules=I)
+                    candidates(d), group, 2.0 if routine else merge_km, merge_h, rules=I)
             inc = group_matches[group_id]
         else:
-            inc = find_incident(open_incs, d, 2.0 if routine else merge_km, merge_h, rules=I)
+            inc = find_incident(candidates(d), d, 2.0 if routine else merge_km, merge_h, rules=I)
         if d.get("_no_alert") and inc is not None and inc.get("alerted_verdict") is not None:
             continue  # recovery fills missing incidents; it cannot rewrite an already-sent event
         if inc is None and (routine or learning):
@@ -668,12 +786,16 @@ def run_cycle(cfg, send=True, alert_now=False):
             read_strength(d)
         d.pop("_fi", None)
         if inc is None:
-            inc = new_incident(d, "unusual" if unusual else "new")
-            inc["known_days"], inc["typical_frp"] = n_days, typical
-            # days with heat within ~10 km: farmland burnt every season and flare fields are busy
-            inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
-            S.incidents.append(inc)
-            open_incs.append(inc)
+            fresh = new_incident(d, "unusual" if unusual else "new")
+            inc = by_id.get(fresh["id"])   # never a second record under the same id
+            if inc is None:
+                inc = fresh
+                inc["known_days"], inc["typical_frp"] = n_days, typical
+                # days with heat within ~10 km: farmland burnt every season and flare fields are busy
+                inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
+                S.incidents.append(inc)
+                open_incs.append(inc)
+                by_id[inc["id"]] = inc
             if d["kind"] == "polar":
                 group_matches[group_id] = inc
         if d.get("_no_alert"):

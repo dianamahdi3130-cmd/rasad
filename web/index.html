@@ -420,6 +420,11 @@ async function getJSON(name, bust){
   }
   return (await fetch("data/" + name + bust, {cache:"no-store"})).json();
 }
+// one entry per incident, even if the data ever carries the same incident twice
+function uniqueItems(items){
+  const seen = new Set();
+  return (Array.isArray(items) ? items : []).filter(it => it && !seen.has(it.id) && seen.add(it.id));
+}
 async function load(){
   try{
     const bust = "?t=" + Date.now();
@@ -427,10 +432,10 @@ async function load(){
       const r = await fetch("api/data" + bust, {cache:"no-store", credentials:"same-origin"});
       if (r.status === 401) { showGate(); return; }
       const d = await r.json();
-      S.meta = d.meta || {}; S.items = d.items || [];
+      S.meta = d.meta || {}; S.items = uniqueItems(d.items);
     } else {
       const [m, d] = await Promise.all([getJSON("meta.json", bust), getJSON("incidents.json", bust)]);
-      S.meta = m; S.items = d.items || [];
+      S.meta = m; S.items = uniqueItems(d.items);
     }
     renderChips(); render(); renderStatus();
     if (!S.loaded) route();

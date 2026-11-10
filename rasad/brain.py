@@ -79,13 +79,31 @@ def new_incident(det, kind):
     return inc
 
 
+def _same_observation(row, det):
+    return (row.get("src"), row.get("t"), row.get("lat"), row.get("lon")) == \
+        (det.get("src"), det.get("t"), det.get("lat"), det.get("lon"))
+
+
 def add_to_incident(inc, det):
+    # The same symbol can come back (its strength was read later): it adds its strength, but it
+    # is not a new sighting, so nothing is counted twice.
+    known = next((row for row in inc.get("observations") or [] if _same_observation(row, det)), None)
+    if known is not None:
+        if det.get("frp") is not None and known.get("frp") is None:
+            known["frp"] = det["frp"]
+            inc["max_frp"] = max(inc.get("max_frp") or 0.0, det["frp"])
+            series = inc.setdefault("frp_series", [])
+            row = [det["t"], round(float(det["frp"]), 1), det["family"]]
+            if row not in series:
+                series.append(row)
+                inc["frp_series"] = sorted(series)[-40:]
+        return
     if association_requires_confirmation(inc) and _association_corroborated(inc, det):
         inc["association_uncertain"] = False
         inc["association_resolved_at"] = det["t"]
     inc["first"] = min(inc["first"], det["t"])
     inc["last"] = max(inc["last"], det["t"])
-    inc["n"] += 1
+    inc["n"] = inc.get("n", 0) + 1
     srcs = inc.setdefault("srcs", [])
     if "own_night_slots" not in inc and set(srcs) == {"mtg_spot"}:
         # Older state stored only the combined geo times. Before another source joins,
@@ -213,9 +231,11 @@ def find_incident(incidents, det, merge_km, merge_hours, rules=None, acquisition
                                    for row in members) / len(members)
         current_lon = (current_lon + 180) % 360 - 180
     det.pop("_association", None)
+    window = dt.timedelta(hours=merge_hours)
     for inc in incidents:
-        if abs((t - parse_time(inc["last"])).total_seconds()) > merge_hours * 3600 \
-                and abs((t - parse_time(inc["first"])).total_seconds()) > merge_hours * 3600:
+        # within the incident's own span, or close to either end of it (a detection in the
+        # middle of a long fire belongs to it too, however far it is from both ends)
+        if t < parse_time(inc["first"]) - window or t > parse_time(inc["last"]) + window:
             continue
         d = haversine_km(current_lat, current_lon, inc["lat"], inc["lon"])
         if d > merge_km:

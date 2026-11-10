@@ -16,8 +16,10 @@ permissions:
 
 concurrency:
   group: rasad
-  # A code update must replace a watcher still running old code. Timer ticks queue normally.
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  # Never cut a check in half: an alert sent but not yet saved would go out a second time. The
+  # watching loop itself stops after its current check when new code reaches main (scripts/loop.sh),
+  # so the queued run takes over with the new code within a few minutes.
+  cancel-in-progress: false
 
 jobs:
   watch:
