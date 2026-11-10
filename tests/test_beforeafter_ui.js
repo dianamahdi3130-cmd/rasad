@@ -117,6 +117,14 @@ test("the app loads both scripts, with one version shared by the page and the of
   for (const file of ["imagery.js", "beforeafter.js"]) assert.ok(!web(file).includes("الخليج العربي"));
 });
 
+test("an incident opened from a link is not pulled back to the overview by a map animation", () => {
+  // Leaflet finishes a running zoom animation over a later setView: the overview must not animate
+  const draw = web("index.html").split("function drawMarkers()")[1].split("\n}\n")[0];
+  const fits = [...draw.matchAll(/fitBounds\(.*\);/g)].map(m => m[0]);
+  assert.equal(fits.length, 2);
+  for (const f of fits) assert.match(f, /animate:false/);
+});
+
 function appPage(items, ba) {
   const html = web("index.html");
   const inline = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(s => s.includes("const S ="));

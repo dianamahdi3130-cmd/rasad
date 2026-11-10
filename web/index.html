@@ -628,8 +628,9 @@ function drawMarkers(){
   if (!one && S.fitFor !== S.region){    // move the map only when the region changes
     S.fitFor = S.region;
     const reg = (S.meta?.regions || []).find(r => r.id === S.region);
-    if (reg) S.map.fitBounds([[reg.bbox[1], reg.bbox[0]], [reg.bbox[3], reg.bbox[2]]]);
-    else if (pts.length) S.map.fitBounds(pts, {maxZoom:8, padding:[30,30]});
+    // no animation: an incident opened by a link right after this must not be overridden when it ends
+    if (reg) S.map.fitBounds([[reg.bbox[1], reg.bbox[0]], [reg.bbox[3], reg.bbox[2]]], {animate:false});
+    else if (pts.length) S.map.fitBounds(pts, {maxZoom:8, padding:[30,30], animate:false});
   }
 }
 
