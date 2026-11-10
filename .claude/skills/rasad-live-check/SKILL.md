@@ -33,6 +33,9 @@ and usually one `pending` (the next one, queued every 10 minutes; older pending 
 - **versions … ← differs** right after a merge means a one-time migration will run in the next check.
 - **symbols waiting for their strength**: European fire symbols whose MW could not be read yet.
   A few per check are asked again; they are dropped after 24 hours.
+- **smoke (silent)**: daytime fires the smoke check looked at, and those where it saw a plume
+  (listed with their ids). Silent period: nothing of this is posted. Compare the listed ones with
+  what really burnt before letting smoke raise a verdict (`rasad/smoke.py`).
 - **memory: sealed** or **no live branch**: the private app is on. Then judge health from the
   runs and their logs; the data itself is only on Cloudflare.
 

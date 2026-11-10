@@ -22,6 +22,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert) and experimental day finder (never alerts alone) |
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker |
 | `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after picture posted under an alert when a clear pass comes: queue, worker, picture, caption |
+| `rasad/smoke.py` | smoke as a second witness, **silent for now**: by day, a streak in the 500 m visible pictures counts only when new, anchored at the heat, one-directional in 3+ pictures and not cold. Recorded on the incident for the app; never posted, never part of a verdict |
 | `rasad/notify.py`, `rasad/updates.py` | Telegram sending (HTML, replies under the first post); intensity updates |
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
@@ -51,8 +52,8 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 
 ## How it runs (do not break it)
 - `rasad.yml` runs `scripts/loop.sh` for ~5.5 hours: a check every 150 s plus a media worker, a
-  satellite-picture worker and a facility-map worker. Workers only write staging files
-  (`.rasad-media/`, `.rasad-satpic/`); the check alone posts and owns the incidents. cron-job.org starts the workflow every 10 minutes so the next run is
+  satellite-picture worker (it also runs the silent smoke checks) and a facility-map worker. Workers only write staging files
+  (`.rasad-media/`, `.rasad-satpic/`, `.rasad-smoke/`); the check alone posts and owns the incidents. cron-job.org starts the workflow every 10 minutes so the next run is
   always queued. `cancel-in-progress: false`: a check is never cut in half (an alert could go twice).
 - A push to `main` touching `web/`, `rasad/`, `scripts/`, `config.yaml`, `requirements.txt` or
   `rasad.yml` makes the loop stop after its current check and the queued run start with the new
@@ -70,6 +71,9 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
   alone is at most «مرجّح». The day finder never alerts on its own.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when
   a clear Sentinel-2 pass comes (within `satpic.max_days`); the fire is kept in memory until then.
+- Smoke findings are silent: `inc["smoke"]` is shown in the app as «دخان محتمل (تجريبي)» and
+  counted by the live check; nothing may post it or let it change a verdict until its record over
+  real fires has been reviewed with the owner (`docs/reviews/smoke_and_satellites_20261110.md`).
 - Recovered past events appear in the app but are never posted as news. An alert is never sent
   twice (the memory is saved at once after anything is sent).
 - Every network call inside a check has a time budget (EUMETView is often slow). No unbounded waits.

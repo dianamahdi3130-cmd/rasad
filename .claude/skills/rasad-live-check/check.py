@@ -134,6 +134,14 @@ def overview():
               f" · to refresh {sum(1 for i in items if i.get('clip_needs_refresh'))}"
               f" · with a note {sum(1 for i in items if i.get('clip_note'))}"
               f" · none {sum(1 for i in items if not i.get('clip'))}")
+        smoke = [i for i in items if i.get("smoke")]
+        sat = [i for i in items if (i.get("satpic") or {}).get("after")]
+        print(f"  smoke (silent): checked {len(smoke)} · seen {sum(1 for i in smoke if i['smoke'].get('seen'))}"
+              f" · a streak in too few pictures {sum(1 for i in smoke if not i['smoke'].get('seen') and i['smoke'].get('frames'))}"
+              f" · before/after pictures sent {len(sat)}")
+        for i in [i for i in smoke if i["smoke"].get("seen")][:6]:
+            print(f"    smoke seen {when(i['smoke'].get('at'))}  {i['smoke'].get('length_km')} km  "
+                  f"{i.get('verdict')}  {str(i.get('headline'))[:50]}  [{i.get('id')}]")
         print("  newest:")
         for i in sorted(items, key=lambda i: i.get("first") or "", reverse=True)[:5]:
             print(f"    {when(i.get('first'))}  {i.get('verdict')}  {mw(i.get('max_frp'))}  "
