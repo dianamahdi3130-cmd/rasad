@@ -113,6 +113,16 @@ picture for major events (not built: nothing here posts to the channel).
 - Checked on real events: a burnt building in Sudan (8 Nov 2026), gas flares at Basra, the Beirut
   port explosion of 2020 from the older archive.
 
+## The channel's picture (built 10 Nov 2026, the owner asked for it)
+`rasad/s2.py` is the same engine in Python (numpy; same results on the Sudan case, 2.53 ha) and
+`rasad/satpic.py` the queue, worker, picture and caption. After an alert on land the check writes
+a job; the worker (started by `scripts/loop.sh`) looks every 3 hours for the first clear pass after
+the fire's last sighting, compares it with the newest clear pass before the fire and writes a
+portrait JPEG; the check posts it once as a reply to the alert, remembers it (`inc["satpic"]`) and
+the app opens the incident's comparison on the same two dates. No clear pass within 12 days: the
+request is closed quietly. By hand: `python -m rasad satpic --lat … --lon … --start …Z`.
+
 ## Not built yet
-Phases 2 and 3 above; a before/after picture for the channel; a time-lapse through all clear
-passes; partial reading of a tile (would cut the download for boxes near a tile corner).
+Phases 2 and 3 above (sub-metre commercial pictures need a paid order per event); a time-lapse
+through all clear passes; partial reading of a tile (would cut the download for boxes near a tile
+corner); the picture inside the private app's clip store.

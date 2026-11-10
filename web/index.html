@@ -389,8 +389,8 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="imagery.js?v=12"></script>
-<script src="beforeafter.js?v=12"></script>
+<script src="imagery.js?v=13"></script>
+<script src="beforeafter.js?v=13"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24};
@@ -754,6 +754,7 @@ function openDetail(id){
       <dt>الحجم</dt><dd>${it.size ? esc(it.size) + (it.max_frp != null ? ` (${esc(mwText(it.max_frp))})` : "") : "يُعرف بعد مرور قمر أمريكي"}</dd>
       ${series.length > 1 ? `<dt>الشدة عبر الوقت</dt><dd class="series">${series.map(r => `<span>${esc(clock(r[0]))} · ${esc(mwText(r[1]))}</span>`).join("")}</dd>` : ""}
       <dt>رصدته</dt><dd>${esc(it.sources_text ? "أقمار: " + it.sources_text : "—")}</dd>
+      ${it.satpic && it.satpic.after ? `<dt>قبل وبعد</dt><dd>صورة القمر Sentinel-2 بتاريخ <bdi dir="ltr">${esc(it.satpic.after)}</bdi>: ${it.satpic.quiet ? "لا تغيّر واضح بدقة 10 أمتار" : "تغيّر مرصود نحو " + esc(hasBA() ? BA._.areaText(it.satpic.area_ha) : it.satpic.area_ha + " هكتار")}</dd>` : ""}
       <dt>الإحداثيات</dt><dd><button class="btn" type="button" id="copyBtn" dir="ltr">${it.lat.toFixed(4)},${it.lon.toFixed(4)}</button></dd>
       <dt>الدقة</dt><dd>${it.best === "polar" ? "دقيقة (نحو نصف كيلومتر)" : "تقريبية (نحو 3 كم) حتى يمر قمر أمريكي"}</dd>
     </dl>

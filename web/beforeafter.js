@@ -164,7 +164,9 @@ BA.route = function (h) {
     const it = S.items.find(x => x.id === r.id);
     if (!it) { toast("هذا الحدث لم يعد في القائمة"); showChooser(); return true; }
     openViewer({lat: it.lat, lon: it.lon, half: it.best === "polar" ? 2 : 3, title: it.headline, sub: it.where || "",
-      event: {start: it.first, end: it.last}, incident: it});
+      event: {start: it.first, end: it.last}, incident: it,
+      // the pair the monitor already compared and posted to the channel, when there is one
+      want: it.satpic && it.satpic.after ? {before: it.satpic.before, after: it.satpic.after} : undefined});
   } else if (r.view === "viewer") {
     openViewer({lat: r.lat, lon: r.lon, half: r.half, title: r.name, want: {before: r.before, after: r.after}});
   } else showChooser();

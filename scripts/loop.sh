@@ -20,15 +20,16 @@ end=$((SECONDS + MINUTES * 60))
 n=0
 closed=""
 media_pid=""
+satpic_pid=""
 geo_pid=""
 last_geo=-600
 
 cleanup_workers() {
   local pid
-  for pid in "$media_pid" "$geo_pid"; do
+  for pid in "$media_pid" "$satpic_pid" "$geo_pid"; do
     [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
   done
-  for pid in "$media_pid" "$geo_pid"; do
+  for pid in "$media_pid" "$satpic_pid" "$geo_pid"; do
     [ -n "$pid" ] && wait "$pid" 2>/dev/null || true
   done
 }
@@ -47,6 +48,18 @@ start_media_worker() {
   media_pid=$!
 }
 start_media_worker
+
+# The before/after satellite pictures for alerted fires: reads the free Sentinel-2 archive in the
+# background, one job at a time, each with its own deadline. The scanner posts the result.
+start_satpic_worker() {
+  local left=$(( (end - SECONDS) / 60 ))
+  [ "$left" -gt 0 ] || return 0
+  timeout --signal=TERM --kill-after=5s "$((left * 60))s" \
+    python -m rasad --state _state --site _site satpic-worker --interval 60 --max-minutes "$left" \
+    >> .rasad-satpic-worker.log 2>&1 &
+  satpic_pid=$!
+}
+start_satpic_worker
 
 while [ "$SECONDS" -lt "$end" ]; do
   t0=$SECONDS
@@ -79,6 +92,12 @@ while [ "$SECONDS" -lt "$end" ]; do
     tail -n 5 .rasad-media-worker.log 2>/dev/null || true
     wait "$media_pid" 2>/dev/null || true
     start_media_worker
+  fi
+  if [ -n "$satpic_pid" ] && ! kill -0 "$satpic_pid" 2>/dev/null; then
+    echo "the satellite picture worker stopped; starting it again (last lines of its log:)"
+    tail -n 5 .rasad-satpic-worker.log 2>/dev/null || true
+    wait "$satpic_pid" 2>/dev/null || true
+    start_satpic_worker
   fi
 
   # Slow Overpass queries never delay publishing or the next satellite check.

@@ -294,6 +294,12 @@ test("an incident opens on the passes around it; a fire newer than the last pass
   assert.match(p.el("#baFind").innerHTML, /لم يمر القمر فوق الموقع بصورة صافية بعد الحدث/);
   assert.match(p.el("#baFind").innerHTML, /في البحر تتحرك السفينة/);
   assert.equal(p.el("#baHandle").hidden, true);
+  // a fire whose before/after picture the monitor already posted opens on that same pair
+  items[0].satpic = {before: ago(40), after: ago(6), area_ha: 1.2, quiet: false};
+  p.context.setRoute("ba:i:old");
+  await p.loaded();
+  assert.ok(p.el("#baDates").innerHTML.includes(H.dateAr(Date.parse(ago(40) + "T07:22:30Z"))));
+  assert.match(p.el("#baList").innerHTML, /data-side="after"[^>]*aria-pressed="true"/);
   p.context.setRoute("ba:i:gone");
   assert.match(p.toasts.at(-1), /لم يعد في القائمة/);
 });

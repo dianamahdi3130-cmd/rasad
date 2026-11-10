@@ -21,10 +21,11 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/geocollect.py` | which European pictures each check reads (never-read first, then settled second reads) |
 | `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert) and experimental day finder (never alerts alone) |
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker |
+| `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after picture posted under an alert when a clear pass comes: queue, worker, picture, caption |
 | `rasad/notify.py`, `rasad/updates.py` | Telegram sending (HTML, replies under the first post); intensity updates |
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
-| `rasad/main.py` | CLI: `cycle`, `media-worker`, `maintain-geo`, `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `cloud-publish` |
+| `rasad/main.py` | CLI: `cycle`, `media-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `cloud-publish` |
 | `web/index.html` | the app's page, styles and main script (Arabic RTL, Leaflet 1.9.4). `web/sw.js` holds the cache name |
 | `web/imagery.js`, `web/beforeafter.js` | «قبل وبعد»: Sentinel-2 pictures of any place read in the phone itself (engine, no page code) and its screen. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
 | `worker/src/index.js` | private app on Cloudflare (Worker + Durable Object `Hub`): logins bound to a device, data, clips, admin, ingest |
@@ -49,8 +50,9 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 - Health of the live monitor: skill `rasad-live-check` (`python3 .claude/skills/rasad-live-check/check.py`).
 
 ## How it runs (do not break it)
-- `rasad.yml` runs `scripts/loop.sh` for ~5.5 hours: a check every 150 s plus a media worker and
-  a facility-map worker. cron-job.org starts the workflow every 10 minutes so the next run is
+- `rasad.yml` runs `scripts/loop.sh` for ~5.5 hours: a check every 150 s plus a media worker, a
+  satellite-picture worker and a facility-map worker. Workers only write staging files
+  (`.rasad-media/`, `.rasad-satpic/`); the check alone posts and owns the incidents. cron-job.org starts the workflow every 10 minutes so the next run is
   always queued. `cancel-in-progress: false`: a check is never cut in half (an alert could go twice).
 - A push to `main` touching `web/`, `rasad/`, `scripts/`, `config.yaml`, `requirements.txt` or
   `rasad.yml` makes the loop stop after its current check and the queued run start with the new
@@ -66,6 +68,8 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 - Verdicts: «مؤكد» = two satellite families, or three consecutive pictures; «مرجّح» = two
   consecutive pictures or a clear NASA detection; «يحتاج تأكيداً» = one sighting. The sea finder
   alone is at most «مرجّح». The day finder never alerts on its own.
+- The before/after picture goes out once per alerted fire on land, as a reply to its alert, when
+  a clear Sentinel-2 pass comes (within `satpic.max_days`); the fire is kept in memory until then.
 - Recovered past events appear in the app but are never posted as news. An alert is never sent
   twice (the memory is saved at once after anything is sent).
 - Every network call inside a check has a time budget (EUMETView is often slow). No unbounded waits.
