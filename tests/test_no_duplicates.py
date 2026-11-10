@@ -182,3 +182,25 @@ class ScanOrderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VideoRetryTests(unittest.TestCase):
+    """A fire that never shows in the pictures must not be rendered again every 10 minutes."""
+
+    def test_failed_renders_wait_longer_each_time(self):
+        from rasad import mediaqueue
+        done = dt.datetime(2026, 11, 10, 7, tzinfo=dt.timezone.utc)
+        cfg = {"clip": {"initial_retry_min": 10}}
+        job = {"refresh": False}
+
+        def due(attempts, minutes):
+            result = {"ok": False, "attempts": attempts, "finished_at": iso(done)}
+            return mediaqueue._retry_due(cfg, job, result, done + dt.timedelta(minutes=minutes))
+
+        self.assertTrue(due(1, 10))
+        self.assertFalse(due(2, 15))
+        self.assertTrue(due(2, 20))
+        self.assertFalse(due(4, 60))
+        self.assertTrue(due(4, 80))
+        self.assertFalse(due(10, 170))
+        self.assertTrue(due(10, 180))   # never more than three hours apart

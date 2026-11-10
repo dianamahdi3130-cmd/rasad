@@ -91,6 +91,11 @@ def _retry_due(cfg, job, result, now):
         return False
     retry = float(cfg["clip"].get("refresh_retry_min", 10)) if job.get("refresh") else \
         float(cfg["clip"].get("initial_retry_min", 10))
+    # A fire that does not show in the pictures (small, or seen by NASA only) rarely shows later:
+    # wait twice as long after each failed try (10, 20, 40 ... minutes, at most 3 hours), so the
+    # worker's time goes to fires that can be shown instead of the same ten pictures every 10 min.
+    attempts = max(1, int(result.get("attempts") or 1))
+    retry = min(retry * 2 ** (attempts - 1), float(cfg["clip"].get("max_retry_min", 180)))
     try:
         return now - parse_time(result["finished_at"]) >= dt.timedelta(minutes=retry)
     except (TypeError, ValueError, KeyError):
@@ -202,7 +207,8 @@ def process_one(cfg, now=None):
                 ok = False
                 log.warning("background media failed: %s", e)
             finished = fixed_now or utcnow()
-            save_json(folder / "result.json", {"token": folder.name, "ok": ok,
+            attempts = 0 if ok else int(result.get("attempts") or 0) + 1
+            save_json(folder / "result.json", {"token": folder.name, "ok": ok, "attempts": attempts,
                       "finished_at": iso(finished), "fields": {k: inc.get(k) for k in _RESULT_FIELDS}}, compact=True)
             return True
         finally:

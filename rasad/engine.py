@@ -1085,7 +1085,8 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
                   for key, row in status.items() if key != "recovery")
     items = [{k: i.get(k) for k in PUBLIC} for i in S.incidents if i.get("headline")]
     for item in items:
-        if item.get("clip_video_pending") or item.get("clip_needs_refresh"):
+        if (item.get("clip_video_pending") or item.get("clip_needs_refresh")) \
+                and (item.get("clip") or not item.get("clip_note")):
             item["clip_status_text"] = "يجري تجهيز فيديو محدث وفق القياسات الجديدة"
         elif item.get("clip"):
             item["clip_status_text"] = ""
