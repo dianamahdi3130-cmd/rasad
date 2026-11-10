@@ -232,6 +232,86 @@ body.locked header,body.locked main,body.locked #focusBar,body.locked #focusCard
 .adm .log b{color:var(--fg);font-weight:600}
 .tagx{border-radius:6px;padding:1px 7px;font-size:12px;background:var(--surface-2);color:var(--muted)}
 .tagx.ok{color:var(--ok)} .tagx.off{color:var(--sure)} .tagx.wait{color:var(--likely)}
+
+/* before / after satellite pictures (beforeafter.js) */
+.bamap{position:absolute;z-index:500;top:10px;right:10px}
+body.focus .bamap{display:none}
+body.picking header,body.picking .panel,body.picking .bamap{display:none}
+body.picking main{display:block;height:auto}
+body.picking #mapWrap{position:fixed;inset:0;z-index:1500}
+body.picking #map{height:100%;min-height:0}
+body.picking .leaflet-container{cursor:crosshair}
+body.picking .basemap{top:calc(66px + env(safe-area-inset-top,0px))}
+#pickBar{position:fixed;z-index:1600;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;
+  padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:14px;
+  background:linear-gradient(to bottom,color-mix(in srgb,var(--bg) 90%,transparent) 60%,transparent)}
+#pickBar b{font:600 16px/1.4 var(--font-display)}
+body.locked #baSheet,body.locked #pickBar{display:none!important}
+.sheet.ba{z-index:2100}
+.ba-title{font:700 16px/1.4 var(--font-display);min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ba-stagewrap{background:#05080d}
+.ba-stage{position:relative;direction:ltr;width:100%;max-width:calc(100vh - 150px);margin:0 auto;aspect-ratio:1;background:#05080d;
+  overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.ba-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.ba-tag{position:absolute;top:8px;z-index:2;direction:rtl;background:rgba(5,8,13,.8);color:#fff;border-radius:8px;
+  padding:2px 9px;font-size:13px;font-weight:600;pointer-events:none;white-space:nowrap;border:1px solid rgba(255,255,255,.3)}
+.ba-tag.b{right:8px} .ba-tag.a{left:8px;border-color:var(--accent)}
+.ba-handle{position:absolute;top:0;bottom:0;width:44px;margin-left:-22px;z-index:3;cursor:ew-resize;touch-action:none;outline:none}
+.ba-handle::before{content:"";position:absolute;top:0;bottom:0;left:21px;width:2px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+.ba-handle i{position:absolute;top:50%;left:50%;width:38px;height:38px;margin:-19px;border-radius:50%;background:#fff;
+  box-shadow:0 2px 10px rgba(0,0,0,.55);display:grid;place-items:center;color:#111;font:700 15px/1 system-ui,sans-serif;font-style:normal}
+.ba-handle i::before{content:"‹ ›"}
+.ba-handle:focus-visible i{box-shadow:0 0 0 3px var(--accent)}
+.ba-scale{position:absolute;left:10px;bottom:10px;z-index:2;direction:rtl;color:#fff;font-size:12px;font-weight:600;
+  text-shadow:0 1px 3px #000;pointer-events:none;text-align:center}
+.ba-scale i{display:block;height:6px;margin-top:2px;border:2px solid #fff;border-top:0;box-shadow:0 1px 2px rgba(0,0,0,.6)}
+.ba-q{position:absolute;right:10px;bottom:10px;z-index:2;direction:rtl;background:rgba(5,8,13,.8);color:#c9d3e3;
+  border-radius:8px;padding:2px 8px;font-size:12px;pointer-events:none}
+.ba-veil{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  direction:rtl;text-align:center;padding:20px;color:#e8edf6;background:rgba(5,8,13,.78);font-size:14px;line-height:1.7}
+.ba-veil p{margin:0;max-width:420px}
+.ba-veil.soft{inset:auto 0 34px 0;flex-direction:row;background:none;pointer-events:none;padding:0 12px}
+.ba-veil.soft p{background:rgba(5,8,13,.82);border-radius:999px;padding:3px 12px;font-size:12.5px}
+.ba-veil.soft .spin{width:20px;height:20px;border-width:2px}
+.ba-side{padding-block:12px calc(24px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:12px}
+.ba-modes{display:flex} .ba-modes button{flex:1;padding-block:8px;font-size:14px}
+#baDates{display:flex;flex-direction:column;gap:8px}
+.ba-date{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.ba-date .k{font:700 15px/1 var(--font-display);min-width:34px} .ba-date.after .k{color:var(--accent)}
+.ba-date .d{min-width:0} .ba-date .d b{display:block;font-size:15px;font-weight:600} .ba-date .d small{color:var(--muted);font-size:12.5px}
+.ba-date .btn{padding:5px 9px;font-size:13px}
+.ba-all summary{cursor:pointer;color:var(--muted);font-size:14px;padding:4px 0}
+.ba-pass{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.ba-pass .g{width:10px;height:10px;border-radius:50%;flex:none;background:var(--line)}
+.ba-pass .g0{background:var(--ok)} .ba-pass .g1{background:var(--check)} .ba-pass .g2{background:var(--sure)}
+.ba-pass .t{flex:1;min-width:0} .ba-pass small{color:var(--muted)}
+.ba-pass .btn{padding:3px 10px;font-size:12.5px}
+.ba-pass .btn[aria-pressed="true"],.ba .actions .btn[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.ba-wide{width:100%;justify-content:center;margin-top:10px}
+.ba-find{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.ba-find .big{font:800 19px/1.5 var(--font-display)}
+.ba-find p{margin:0;color:var(--muted);font-size:14px} .ba-find p b{color:var(--fg)}
+.ba-find .warn{color:var(--likely)}
+.ba-find .lg{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:13.5px;color:var(--muted)}
+.ba-find .lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-inline-end:5px}
+.ba-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.ba-pick{padding-block:12px calc(24px + env(safe-area-inset-bottom,0px))}
+.ba-pick h3{font:700 16px/1.5 var(--font-display);margin:18px 0 8px}
+.ba-search{display:flex;gap:8px;margin:12px 0}
+.ba-search input{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.ba-place{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px 10px 4px 4px;margin-bottom:8px}
+.ba-place .t{flex:1;min-width:0;border:0;background:none;text-align:start;padding:6px 4px}
+.ba-place b{display:block;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ba-place small{color:var(--muted);font-size:12.5px;direction:ltr;unicode-bidi:isolate}
+.ba-place .btn{padding:4px 9px;font-size:12.5px}
+@media (min-width:900px){
+  .sheet.ba{inset:0;width:auto;border:0}
+  .ba-body{display:grid;grid-template-columns:minmax(0,1fr) 440px;align-items:start}
+  .ba-stagewrap{position:sticky;top:57px}
+  .ba-stage{max-width:calc(100vh - 57px)}
+  .ba-pick{max-width:640px;margin:0 auto}
+}
 </style>
 </head>
 <body>
@@ -251,6 +331,7 @@ body.locked header,body.locked main,body.locked #focusBar,body.locked #focusCard
   <div id="mapWrap">
     <div id="map" role="region" aria-label="الخريطة"></div>
     <button class="btn basemap" id="basemapBtn" type="button">قمر صناعي</button>
+    <button class="btn bamap" id="baBtn" type="button" hidden>🛰 قبل وبعد</button>
   </div>
   <section class="panel wrap">
     <div class="banner" id="learning" hidden><b>يتعلّم التطبيق المنطقة.</b> في اليوم الأول يسجّل الحرارة المعتادة (شعلات الغاز والمصانع) حتى لا ينبّهك عنها لاحقاً.</div>
@@ -293,10 +374,17 @@ body.locked header,body.locked main,body.locked #focusBar,body.locked #focusCard
   </div>
   <div class="wrap" id="detail"></div>
 </section>
+<div class="wrap" id="pickBar" hidden>
+  <button class="btn" id="pickCancel" type="button">إلغاء</button>
+  <b>اضغط على الموقع في الخريطة</b>
+</div>
+<section class="sheet ba" id="baSheet" hidden aria-modal="true" role="dialog" aria-label="قبل وبعد: صور الأقمار"></section>
 <section class="shot" id="shot" hidden aria-modal="true" role="dialog" aria-label="صورة الحدث"></section>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="imagery.js?v=12"></script>
+<script src="beforeafter.js?v=12"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24};
@@ -539,7 +627,8 @@ function drawMarkers(){
   }
 }
 
-/* ---------- routes: #ID = the incident on the full map, #ID:i = its details ---------- */
+/* ---------- routes: #ID = the incident on the full map, #ID:i = its details, #ba… = before/after ---------- */
+const hasBA = () => !!(window.BA && BA.available);
 function setRoute(hash, push=true){
   const url = location.pathname + (hash ? "#" + encodeURIComponent(hash) : "");
   if (push) history.pushState(null, "", url); else history.replaceState(null, "", url);
@@ -550,6 +639,10 @@ function route(){
   let h = decodeURIComponent(location.hash.slice(1));
   const q = new URLSearchParams(location.search).get("e");   // links from Telegram
   if (!h && q) { h = q; history.replaceState(null, "", location.pathname + "#" + encodeURIComponent(q)); }
+  if (hasBA()){
+    if (BA.route(h)) { $("#sheet").hidden = true; return; }     // before/after pictures, over whatever was open
+    BA.leave();
+  } else if (h === "ba" || h.startsWith("ba:")) h = "";
   const [id, part] = h.split(":");
   if (id && S.items.some(x => x.id === id)){
     showFocus(id, S.sel !== id);
@@ -581,9 +674,11 @@ function showFocus(id, move=true){
     </div>
     <div class="actions">
       <button class="btn primary" type="button" id="infoBtn">${it.clip ? "التفاصيل والفيديو" : "التفاصيل"}</button>
+      ${hasBA() ? `<button class="btn" type="button" id="fBA">🛰 قبل وبعد</button>` : ""}
       <button class="btn" type="button" id="fShot">📸 صورة</button>
       <button class="btn" type="button" id="fShare">مشاركة</button>
     </div>`;
+  if (hasBA()) $("#fBA").onclick = () => BA.go("ba:i:" + id);
   $("#infoBtn").onclick = () => setRoute(id + ":i");
   $("#fShot").onclick = () => takePicture(it);
   $("#fShare").onclick = () => share(it);
@@ -658,6 +753,7 @@ function openDetail(id){
     <div class="actions">
       <button class="btn primary" type="button" id="shareBtn">مشاركة</button>
       <button class="btn" type="button" id="shotBtn">📸 صورة</button>
+      ${hasBA() ? `<button class="btn" type="button" id="dBA">🛰 قبل وبعد</button>` : ""}
       ${links(it).map(([u,t]) => `<a class="btn" href="${u}" target="_blank" rel="noopener">${t}</a>`).join("")}
     </div>
     <div class="help"><b>«مؤكد»</b> يعني أن قمرين مختلفين رأياه أو ظهر في 3 صور متتالية. باقي الأحداث رصدات لم تتأكد بعد، ولونها على الخريطة برتقالي أو أصفر.<br>
@@ -667,6 +763,7 @@ function openDetail(id){
   $("#copyBtn").onclick = () => copy(`${it.lat.toFixed(5)},${it.lon.toFixed(5)}`);
   $("#shareBtn").onclick = () => share(it);
   $("#shotBtn").onclick = () => takePicture(it);
+  if (hasBA()) $("#dBA").onclick = () => BA.go("ba:i:" + id);
 }
 
 /* ---------- the incident picture (when there is no satellite clip, or to post a still) ---------- */
@@ -841,21 +938,23 @@ async function renderPicture(it){
   cv.remove();
   return blob;
 }
-async function takePicture(it){
+function takePicture(it){ return presentPicture(() => renderPicture(it), `ALFAQAAR-${it.id}.png`, it.headline); }
+// preview a picture made by `make()` (a PNG blob), then save it to the phone's photos
+async function presentPicture(make, name, title, wait = "جارٍ تجهيز صورة الحدث…"){
   const box = $("#shot");
-  box.innerHTML = `<div class="spin" aria-hidden="true"></div><p>جارٍ تجهيز صورة الحدث…</p>`;
+  box.innerHTML = `<div class="spin" aria-hidden="true"></div><p>${esc(wait)}</p>`;
   box.hidden = false;
   let blob = null;
-  try { blob = await renderPicture(it); } catch (e) { blob = null; }
+  try { blob = await make(); } catch (e) { blob = null; }
   if (!blob){
     box.innerHTML = `<p>تعذّر تجهيز الصورة. حاول مرة أخرى.</p><div class="actions"><button class="btn" type="button" id="shotClose">إغلاق</button></div>`;
     $("#shotClose").onclick = () => box.hidden = true;
     return;
   }
-  const name = `ALFAQAAR-${it.id}.png`, file = new File([blob], name, {type:"image/png"});
+  const file = new File([blob], name, {type:"image/png"});
   const url = URL.createObjectURL(blob);
   const canShare = !!(navigator.canShare && navigator.canShare({files:[file]}));
-  box.innerHTML = `<img src="${url}" alt="صورة الحدث">
+  box.innerHTML = `<img src="${url}" alt="${esc(title)}">
     <div class="actions">
       <button class="btn primary" type="button" id="shotSave">${canShare ? "حفظ في الصور" : "تنزيل الصورة"}</button>
       <button class="btn" type="button" id="shotClose">إغلاق</button>
@@ -864,7 +963,7 @@ async function takePicture(it){
   $("#shotClose").onclick = () => { box.hidden = true; URL.revokeObjectURL(url); };
   $("#shotSave").onclick = async () => {
     if (canShare){
-      try { await navigator.share({files:[file], title:it.headline}); return; }
+      try { await navigator.share({files:[file], title}); return; }
       catch (e) { if (e.name === "AbortError") return; }
     }
     const a = document.createElement("a"); a.href = url; a.download = name;
@@ -897,6 +996,7 @@ addEventListener("popstate", route);
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
   if (!$("#shot").hidden) { $("#shot").hidden = true; return; }
+  if (hasBA() && BA.busy()) { BA.escape(); return; }
   if (!$("#sheet").hidden) setRoute(S.sel || ""); else if (S.sel) setRoute("");
 });
 addEventListener("resize", () => { if (S.sel) document.documentElement.style.setProperty("--card-h", $("#focusCard").offsetHeight + "px"); });
@@ -930,6 +1030,7 @@ function startApp(){
   if (started) { load(); return; }
   started = true;
   initMap(); load();
+  if (hasBA()) BA.init();
   setInterval(load, 60000);
   setInterval(renderStatus, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });

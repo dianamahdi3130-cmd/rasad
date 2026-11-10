@@ -1,6 +1,7 @@
 // Rasad service worker: the app opens offline; incidents are always fetched fresh first.
-const CACHE = "firms-v11";
-const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const CACHE = "firms-v12";
+// the two scripts carry the same ?v= as in index.html, so a new version is never mixed with an old page
+const SHELL = ["./", "index.html", "imagery.js?v=12", "beforeafter.js?v=12", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
