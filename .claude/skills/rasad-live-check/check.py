@@ -111,6 +111,8 @@ def source_line(key, s):
         bits.append("[time budget used up]")
     if s.get("scan_complete") is False:
         bits.append("[scan incomplete]")
+    if s.get("daylight") is False:
+        bits.append("[night: resting]")
     return "    " + "  ".join(bits)
 
 

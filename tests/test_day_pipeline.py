@@ -80,6 +80,15 @@ class DayWatchPipelineTests(unittest.TestCase):
         self.assertEqual(state["sea_day_status"]["last_checked"],
                          iso(self.NOW + dt.timedelta(minutes=10)))
 
+    def test_status_says_whether_a_daylit_picture_is_waiting(self):
+        cfg = self.config()
+        state = self.state(cfg)
+        _, day, _, _ = self.run_watch(cfg, state, sun=-20.0, at_night=True)
+        day.assert_not_called()
+        self.assertIs(state["sea_day_status"]["daylight"], False)
+        self.run_watch(cfg, state, sun=25.0)
+        self.assertIs(state["sea_day_status"]["daylight"], True)
+
     def test_day_and_night_times_cannot_confirm_each_other(self):
         cfg = self.config(slots=2)
         state = self.state(cfg)
