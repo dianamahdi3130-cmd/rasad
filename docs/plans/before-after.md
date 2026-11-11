@@ -135,6 +135,13 @@ request is closed quietly. By hand: `python -m rasad satpic --lat … --lon … 
   least `min_patch_ha` (0.5 ha). The first clear pass is the starting point. Ports change with
   every ship: raise `min_patch_ha` there, or expect a post with most passes.
 
+- **A search field at the top of the app** (the owner did not find the one inside the chooser):
+  any place by name or coordinates; each result opens the comparison or shows on the map with a
+  pin. A bar offers to reload when the site has a newer version than the open page (`APP_V`).
+- **The comparison as a film** («🎬 فيديو»): about ten seconds, 720 × 900, recorded in the phone
+  with `MediaRecorder` (MP4 where the browser can, else WebM): «قبل», the divider sweeps to «بعد»,
+  the change is marked, and back. `filmPlan` is the script; a browser that cannot record says so.
+
 ## Not built yet
 Phases 2 and 3 above (sub-metre commercial pictures need a paid order per event); a time-lapse
 through all clear passes; partial reading of a tile (would cut the download for boxes near a tile

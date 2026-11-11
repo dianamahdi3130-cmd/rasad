@@ -39,7 +39,8 @@ Big files: read by line range or grep, never whole: `engine.py` (61 KB), `web/in
 `brain.py`, `seawatch.py`, `twopanel.py` (≈35 KB each), `web/imagery.js`, `web/beforeafter.js`
 (≈50 KB each). App functions to grep in `index.html`: `load`, `render`, `drawMarkers`, `route`,
 `showFocus`, `openDetail`, `renderPicture`, `presentPicture`, `startApp`, `openAdmin`; in
-`beforeafter.js`: `openViewer`, `start`, `tick`, `loadPair`, `rebuild`, `paint`, `renderFind`;
+`beforeafter.js`: `openViewer`, `start`, `tick`, `loadPair`, `rebuild`, `paint`, `renderFind`,
+`renderShot` (picture), `filmPlan`/`takeFilm` (video), `BA.find` (the top search field);
 in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeOf`, `hotSpots`.
 
 ## Commands

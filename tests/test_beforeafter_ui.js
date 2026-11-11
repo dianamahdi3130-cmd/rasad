@@ -97,6 +97,24 @@ test("passes are listed around the event or the dates of a link, never the whole
   assert.equal(H.distanceText(240.4), "240 م"); assert.equal(H.distanceText(2345), "2.35 كم");
 });
 
+test("the film's script: before, the divider sweeps to after, the change is marked, and back to before", () => {
+  const film = H.filmPlan(true), short = H.filmPlan(false);
+  assert.ok(film.duration > 9 && film.duration < 11, "about ten seconds");
+  assert.ok(short.duration < film.duration - 3, "without a change to show, that part is left out");
+  assert.deepEqual(film.at(0), {phase: "before", split: 0, change: 0});
+  assert.deepEqual(film.at(1.0), {phase: "before", split: 0, change: 0}, "«قبل» is held first");
+  const sweep = [1.5, 2.0, 2.4, 2.8, 3.3].map(t => film.at(t).split);
+  assert.ok(sweep.every((s, i) => i === 0 || s > sweep[i - 1]), "the divider only moves forward");
+  assert.equal(film.at(2.4).split, 0.5, "half way at the middle of the sweep");
+  assert.deepEqual(film.at(4.0), {phase: "after", split: 1, change: 0});
+  assert.equal(film.at(6.5).change, 1, "the change is drawn fully while it is held");
+  assert.ok(film.at(5.0).change > 0 && film.at(5.0).change < 1, "and fades in");
+  assert.deepEqual(film.at(film.duration), {phase: "end", split: 0, change: 0}, "it ends where it began: it loops without a jump");
+  assert.deepEqual(film.at(99), film.at(film.duration));
+  for (let t = 0; t <= short.duration; t += 0.1) assert.equal(short.at(t).change, 0);
+  assert.equal(H.filmType(), null, "no recorder here: the app then says so instead of failing");
+});
+
 test("flames already there before are told apart from new ones", () => {
   const after = [{lat: 30.61, lon: 47.33}, {lat: 30.65, lon: 47.36}], before = [{lat: 30.6101, lon: 47.3301}];
   assert.deepEqual(H.splitHot(after, before), {fresh: 1, old: 1});
@@ -277,6 +295,13 @@ test("the divider follows the finger, the views switch, and a cloudy choice is f
   assert.equal(p.el("#baHandle").attrs["aria-valuenow"], "75");
   p.act("mode", {mode: "change"});
   assert.match(p.el("#baModes").innerHTML, /data-mode="change" aria-pressed="true"/);
+  // the film button is there; a browser that cannot record says so and points to the picture
+  assert.match(p.el("#baActions").innerHTML, /data-act="film">🎬 فيديو</);
+  p.act("film");
+  assert.match(p.el("#shot").innerHTML, /لا يسجّل الفيديو/);
+  assert.equal(p.el("#shot").hidden, false);
+  p.el("#shotClose").onclick();
+  assert.equal(p.el("#shot").hidden, true);
   p.act("blink");
   assert.equal(p.el("#baHandle").hidden, true, "no divider while the two pictures alternate");
   p.act("blink");

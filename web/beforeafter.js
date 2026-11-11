@@ -140,6 +140,33 @@ function eventOfDay(day) {
   return isFinite(start) ? {start: new Date(start).toISOString(), end: new Date(start + DAY).toISOString(), day} : null;
 }
 function distanceText(m) { return m < 1000 ? `${num(Math.round(m))} م` : `${num(m / 1000, 2)} كم`; }
+// The film of a comparison, as a script: at second t, how much of the picture shows «بعد»
+// (0 = all before, 1 = all after) and how strongly the change layer is drawn. It starts and ends
+// on «قبل», so it loops without a jump. Without a change to show, that part is left out.
+function filmPlan(withChange) {
+  const ease = x => x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
+  const steps = [["before", 1.4], ["sweep", 2.0], ["after", 1.4]];
+  if (withChange) steps.push(["mark", 0.8], ["marked", 2.0], ["unmark", 0.6]);
+  steps.push(["back", 1.2], ["end", 0.4]);
+  const duration = steps.reduce((sum, s) => sum + s[1], 0);
+  function at(t) {
+    let left = Math.min(Math.max(t, 0), duration), phase = "end", share = 1;
+    for (const [name, length] of steps) {
+      if (left <= length) { phase = name; share = length ? left / length : 1; break; }
+      left -= length;
+    }
+    const split = phase === "before" || phase === "end" ? 0 : phase === "sweep" ? ease(share) : phase === "back" ? 1 - ease(share) : 1;
+    const change = phase === "mark" ? ease(share) : phase === "marked" ? 1 : phase === "unmark" ? 1 - ease(share) : 0;
+    return {phase, split, change};
+  }
+  return {duration, at};
+}
+// what the phone can record: MP4 where it can (it plays everywhere), else WebM
+function filmType() {
+  if (typeof MediaRecorder !== "function") return null;
+  const kinds = ["video/mp4;codecs=avc1.42E01E", "video/mp4", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  return kinds.find(k => { try { return MediaRecorder.isTypeSupported(k); } catch (e) { return false; } }) || null;
+}
 function failText(e) {
   const code = e && e.code;
   if (code === "offline") return "لا اتصال بالإنترنت.";
@@ -148,7 +175,7 @@ function failText(e) {
   return "أرشيف الصور الأوروبي المفتوح لا يستجيب الآن. حاول بعد قليل.";
 }
 BA._ = {parsePlace, parseRoute, routeOf, skyText, areaText, settle, choose, checkOrder, splitHot, scaleBar, failText, dateAr, SIZES, sensorText,
-  windowsFor, joinWindows, eventOfDay, distanceText};
+  windowsFor, joinWindows, eventOfDay, distanceText, filmPlan, filmType};
 if (typeof document === "undefined") return;       // Node: only the helpers above
 
 /* ------------------------------------------------------------------ state */
@@ -367,6 +394,7 @@ function renderChrome() {
   el("#baSizes").innerHTML = SIZES.map(h => `<button type="button" data-act="size" data-half="${h}" aria-pressed="${V.half === h}">${h * 2} كم</button>`).join("");
   el("#baActions").innerHTML = `
     <button class="btn primary" type="button" data-act="shot">📸 صورة</button>
+    <button class="btn" type="button" data-act="film">🎬 فيديو</button>
     <button class="btn" type="button" data-act="share">مشاركة</button>
     <a class="btn" href="https://www.google.com/maps?q=${V.lat},${V.lon}&t=k" target="_blank" rel="noopener">الموقع على الخريطة</a>
     <button class="btn" type="button" data-act="lite" aria-pressed="${V.lite}">${V.lite ? "توفير البيانات: مفعّل" : "توفير البيانات"}</button>`;
@@ -820,7 +848,7 @@ async function renderShot() {
   g.fillStyle = WHITE;
   g.fillText(fit(titleOf(), `800 %px ${DISPLAY}`, 46, W - 56), W - 28, 112);
   g.fillStyle = DIM; g.font = `500 25px ${UI}`;
-  g.fillText(`${v.lat.toFixed(4)}, ${v.lon.toFixed(4)} · مربع ${v.half * 2}×${v.half * 2} كم${v.sub && v.title ? " · " + fit(v.sub, `500 %px ${UI}`, 25, 520) : ""}`, W - 28, 156);
+  g.fillText(`\u2066${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}\u2069 · مربع ${v.half * 2}×${v.half * 2} كم${v.sub && v.title ? " · " + fit(v.sub, `500 %px ${UI}`, 25, 520) : ""}`, W - 28, 156);
   const kind = v.mode === "swir" ? "swir" : "color", Y = 184;
   const panel = (img, x, y, size, label, accent, extra) => {
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
@@ -871,6 +899,127 @@ async function renderShot() {
   g.textAlign = "center"; g.fillStyle = "#56627a"; g.font = `500 19px ${UI}`;
   g.fillText("Contains modified Copernicus Sentinel data " + new Date().getUTCFullYear(), W / 2, H - 22);
   return new Promise(res => { try { cv.toBlob(res, "image/png"); } catch (e) { res(null); } });
+}
+/* ---------- the film to save: before, the divider sweeping across, after, what changed ---------- */
+// one frame of the film on a 720 x 900 canvas (portrait, like the picture; no logo)
+function drawFilm(g, look, state) {
+  const v = V, W = 720, H = 900, M = 12, P = W - 2 * M, Y = 118;
+  const b = v.img.before, a = v.img.after, kind = v.mode === "swir" ? "swir" : "color";
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = "#06090e"; g.fillRect(0, 0, W, H);
+  g.direction = "rtl"; g.textAlign = "right"; g.textBaseline = "alphabetic";
+  g.fillStyle = "#40d6ec"; g.font = `600 19px ${look.ui}`;
+  g.fillText("قبل وبعد · صور القمر الأوروبي Sentinel-2", W - 20, 34);
+  g.fillStyle = "#f0f4fa"; g.font = `800 ${look.titleSize}px ${look.display}`;
+  g.fillText(look.title, W - 20, 76);
+  g.fillStyle = "#93a0b8"; g.font = `500 17px ${look.ui}`;
+  g.fillText(`\u2066${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}\u2069 · مربع ${v.half * 2}×${v.half * 2} كم`, W - 20, 104);
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  g.drawImage(b[kind], M, Y, P, P);
+  const X = Math.round(state.split * P);
+  if (X > 0) {
+    g.save(); g.beginPath(); g.rect(M, Y, X, P); g.clip();
+    g.drawImage(a[kind], M, Y, P, P);
+    if (state.change > 0 && v.img.change) {
+      g.globalAlpha = state.change;
+      g.fillStyle = "rgba(5,8,13,.3)"; g.fillRect(M, Y, P, P);
+      g.imageSmoothingEnabled = false; g.drawImage(v.img.change, M, Y, P, P);
+      g.globalAlpha = 1;
+    }
+    g.restore();
+  }
+  if (X > 0 && X < P) {                                       // the divider and its knob
+    g.fillStyle = "#fff"; g.fillRect(M + X - 1.5, Y, 3, P);
+    g.beginPath(); g.arc(M + X, Y + P / 2, 17, 0, 6.2832); g.fill();
+    g.fillStyle = "#111"; g.font = "700 15px system-ui, sans-serif"; g.textAlign = "center"; g.direction = "ltr";
+    g.fillText("‹ ›", M + X, Y + P / 2 + 5);
+    g.direction = "rtl"; g.textAlign = "right";
+  }
+  const tag = (text, right, accent) => {
+    g.font = `700 19px ${look.ui}`;
+    const w = g.measureText(text).width + 22, x = right ? M + P - w - 8 : M + 8;
+    g.fillStyle = "rgba(5,8,13,.82)"; g.fillRect(x, Y + 8, w, 34);
+    g.fillStyle = accent; g.fillRect(right ? x + w - 4 : x, Y + 8, 4, 34);
+    g.fillStyle = "#f0f4fa"; g.fillText(text, x + w - 11, Y + 32);
+  };
+  if (state.split < 0.86) tag(look.before, true, "#f0f4fa");
+  if (state.split > 0.14) tag(look.after, false, "#ff7a1a");
+  g.fillStyle = "#f0f4fa"; g.font = `700 22px ${look.display}`;
+  g.fillText(state.change > 0.5 ? look.found : state.split > 0.5 ? "بعد" : "قبل", W - 20, Y + P + 36);
+  g.textAlign = "left"; g.direction = "ltr"; g.fillStyle = "#56627a"; g.font = `500 13px ${look.ui}`;
+  g.fillText("Contains modified Copernicus Sentinel data " + new Date().getUTCFullYear(), 20, H - 14);
+}
+// record the film in real time into a video file; the canvas on screen shows what is being recorded
+async function recordFilm(canvas, type, onProgress, cancelled) {
+  const v = V, g = canvas.getContext("2d"), css = getComputedStyle(document.documentElement);
+  const ui = css.getPropertyValue("--font-ui") || "sans-serif", display = css.getPropertyValue("--font-display") || ui;
+  try { if (document.fonts) await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]); } catch (e) { /* default fonts */ }
+  const c = v.change, quiet = !c || (c.areaHa < 0.3 && c.share < 0.0008);
+  let title = titleOf(), titleSize = 32;
+  for (; titleSize > 20; titleSize -= 2) { g.font = `800 ${titleSize}px ${display}`; if (g.measureText(title).width <= 680) break; }
+  while (title.length > 8 && g.measureText(title + "…").width > 680) title = title.slice(0, -1);
+  if (title !== titleOf()) title += "…";
+  const look = {ui, display, title, titleSize, before: "قبل · " + dateAr(v.shown.before.pass.time), after: "بعد · " + dateAr(v.shown.after.pass.time),
+    found: quiet ? "" : "تغيّر مرصود: نحو " + areaText(c.areaHa)};
+  const plan = filmPlan(!quiet);
+  drawFilm(g, look, plan.at(0));
+  const stream = canvas.captureStream(25), chunks = [];
+  const recorder = new MediaRecorder(stream, {mimeType: type, videoBitsPerSecond: 3500000});
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((res, rej) => { recorder.onstop = res; recorder.onerror = () => rej(new Error("recorder")); });
+  recorder.start(200);
+  const started = performance.now();
+  await new Promise(res => {
+    const frame = () => {
+      const t = (performance.now() - started) / 1000;
+      if (V !== v || cancelled() || t >= plan.duration + 0.12) return res();
+      drawFilm(g, look, plan.at(t));
+      onProgress(Math.min(1, t / plan.duration));
+      setTimeout(frame, 40);                         // 25 pictures a second, also when the page is not in front
+    };
+    frame();
+  });
+  if (recorder.state !== "inactive") recorder.stop();
+  await stopped;
+  stream.getTracks().forEach(track => track.stop());
+  return V !== v || cancelled() || !chunks.length ? null : new Blob(chunks, {type: type.split(";")[0]});
+}
+async function takeFilm() {
+  const v = V, box = el("#shot"), type = filmType();
+  const close = () => { box.hidden = true; box.innerHTML = ""; };
+  if (!v.img.before || !v.img.after) { toast("الفيديو يحتاج صورتي «قبل» و«بعد» معاً"); return; }
+  if (!type || !document.createElement("canvas").captureStream) {
+    box.innerHTML = `<p>هذا المتصفح لا يسجّل الفيديو. استخدم «📸 صورة» بدلاً منه.</p><div class="actions"><button class="btn" type="button" id="shotClose">إغلاق</button></div>`;
+    box.hidden = false; el("#shotClose").onclick = close;
+    return;
+  }
+  box.innerHTML = `<canvas id="filmCanvas" width="720" height="900" aria-label="الفيديو أثناء التسجيل"></canvas>
+    <p id="filmStatus" role="status">جارٍ تسجيل الفيديو…</p><div class="actions"><button class="btn" type="button" id="shotClose">إلغاء</button></div>`;
+  box.hidden = false;
+  let cancel = false;
+  el("#shotClose").onclick = () => { cancel = true; close(); };
+  let blob = null;
+  try { blob = await recordFilm(el("#filmCanvas"), type, share => { const s = el("#filmStatus"); if (s) s.textContent = `جارٍ تسجيل الفيديو… ${Math.round(share * 100)}%`; }, () => cancel || box.hidden); }
+  catch (e) { blob = null; }
+  if (cancel || box.hidden) return;
+  if (!blob) {
+    box.innerHTML = `<p>تعذّر تسجيل الفيديو. حاول مرة أخرى.</p><div class="actions"><button class="btn" type="button" id="shotClose">إغلاق</button></div>`;
+    el("#shotClose").onclick = close;
+    return;
+  }
+  const ext = blob.type.includes("mp4") ? "mp4" : "webm", name = `ALFAQAAR-before-after-${v.lat.toFixed(3)}_${v.lon.toFixed(3)}.${ext}`;
+  const file = new File([blob], name, {type: blob.type}), url = URL.createObjectURL(blob);
+  const canShare = !!(navigator.canShare && navigator.canShare({files: [file]}));
+  box.innerHTML = `<video src="${url}" controls playsinline muted loop autoplay></video>
+    <div class="actions"><button class="btn primary" type="button" id="shotSave">${canShare ? "حفظ أو إرسال الفيديو" : "تنزيل الفيديو"}</button>
+      <button class="btn" type="button" id="shotClose">إغلاق</button></div>
+    <p>${canShare ? "ستفتح نافذة المشاركة: اختر «حفظ الفيديو» أو أرسله مباشرة." : "يُحفظ الملف في التنزيلات."}${ext === "webm" ? " الصيغة WebM: تعمل في تلغرام وأندرويد والحاسوب." : ""}</p>`;
+  el("#shotClose").onclick = () => { close(); URL.revokeObjectURL(url); };
+  el("#shotSave").onclick = async () => {
+    if (canShare) { try { await navigator.share({files: [file], title: titleOf()}); return; } catch (e) { if (e.name === "AbortError") return; } }
+    const link = document.createElement("a"); link.href = url; link.download = name;
+    document.body.appendChild(link); link.click(); link.remove(); toast("حُفظ الفيديو");
+  };
 }
 async function share() {
   const v = V;
@@ -923,6 +1072,7 @@ function onClick(e) {
   else if (act === "lite") { v.lite = !v.lite; store.set(KEYS.lite, v.lite); renderChrome(); loadPair(); }
   else if (act === "share") share();
   else if (act === "star") star();
+  else if (act === "film") takeFilm();
   else if (act === "shot") presentPicture(renderShot, `ALFAQAAR-before-after-${v.lat.toFixed(3)}_${v.lon.toFixed(3)}.png`, titleOf(), "جارٍ تجهيز صورة المقارنة…");
 }
 // The search field at the top of the app: any place, with or without a fire. Coordinates open the
