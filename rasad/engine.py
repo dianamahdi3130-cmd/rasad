@@ -626,9 +626,11 @@ def run_cycle(cfg, send=True, alert_now=False):
             checked_at = day_status.get("last_checked")
             fresh_day = (checked_at and now - parse_time(checked_at) <=
                          dt.timedelta(minutes=float(SW["delay_min"]) + 3 * float(SW["cadence_min"])))
+            # At night (no daylit picture left to read) the finder rests and is not late.
+            resting = day_status.get("daylight") is False
             status["seawatch_day"] = {
                 **day_status, "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
-                "ok": bool(ok and fresh_day and not day_status.get("missing")),
+                "ok": bool(ok and (fresh_day or resting) and not day_status.get("missing")),
                 "latest": checked_at, "experimental": True,
             }
         log.info("sea watch: %d spot(s), %.0f s", len(spots), time.time() - t1)

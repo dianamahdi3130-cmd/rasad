@@ -508,6 +508,8 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                     day_boxes.append(box)
         if night_boxes or day_boxes:
             todo.append((t, night_boxes, day_boxes))
+    # At night the day finder has nothing to do: that is rest, not a fault.
+    day_status["daylight"] = any(day_boxes for _, _, day_boxes in todo)
     checked, waiting, lost = [], 0, 0
     for t, night_boxes, day_boxes in todo:
         if len(checked) >= per_run or time.time() - t_start > budget:

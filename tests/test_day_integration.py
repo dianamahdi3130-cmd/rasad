@@ -40,6 +40,7 @@ class DayIntegrationTests(unittest.TestCase):
         self.spots = [self.detection(minute=10), self.detection(minute=20),
                       self.detection(minute=30)]
         self.polar = []
+        self.daylight = None
         self.deliver = Mock(return_value=789)
         self.session = Mock()
         for method in ("get", "post", "put"):
@@ -75,6 +76,8 @@ class DayIntegrationTests(unittest.TestCase):
             "enabled": True, "experimental": True, "checked": 1, "missing": 0,
             "waiting": 0, "candidates": len(self.spots), "spots": len(self.spots),
             "last_checked": self.spots[-1]["t"] if self.spots else None}
+        if self.daylight is not None:
+            state["sea_day_status"]["daylight"] = self.daylight
         return copy.deepcopy(self.spots)
 
     def cycle(self):
@@ -103,6 +106,17 @@ class DayIntegrationTests(unittest.TestCase):
         self.assertTrue(status["enabled"])
         self.assertEqual(status["checked"], 1)
         self.assertEqual(status["latest"], "2026-11-08T05:30:00Z")
+
+    def test_day_finder_resting_at_night_is_not_reported_as_a_fault(self):
+        self.spots = []
+        status_of = lambda: load_json(self.cfg["_site_dir"] / "data" / "meta.json",
+                                      {})["sources"]["seawatch_day"]
+        for daylight, healthy in ((False, True), (True, False), (None, False)):
+            with self.subTest(daylight=daylight):
+                self.daylight = daylight
+                engine.run_cycle(self.cfg, send=True)
+                self.assertIs(status_of()["ok"], healthy)
+                self.deliver.assert_not_called()
 
     def test_day_only_never_trains_the_usual_heat_memory(self):
         state, _ = self.cycle()
