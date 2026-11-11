@@ -81,6 +81,10 @@ published yet answers 404. `VIIRS_SNPP_…` no longer answers (checked 11 Nov 20
 
 Known blind spots: pixels a few km wide (small or short fires), clouds, sun glint by day, fires
 inside the memory of usual flares, NASA's ~3-hour delay, hours when EUMETView serves no pictures.
+At sunrise the Fire Temperature picture fills with small sunlit clouds that look like hot spots
+(101 in one picture on 11 Nov 2026, `docs/reviews/hormuz_dawn_20261111.md`): a speck that moves
+kilometres between two pictures or is gone in the next one is a cloud. The day finder covers
+first light to last light (sun above -6°); before that change dawn and dusk had no sea finder.
 
 ## Hosts for a development environment (Custom network access)
 Real data: `view.eumetsat.int`, `firms.modaps.eosdis.nasa.gov`, `overpass-api.de`,

@@ -503,7 +503,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                 if f"day:{box['id']}|{iso(t)}" in done:
                     continue
                 w, s, e, n = box["bbox"]
-                if any(sun_elevation(lat, lon, t) >= float(D.get("min_sun_elev", 6))
+                if any(sun_elevation(lat, lon, t) >= float(D.get("min_sun_elev", -6))
                        for lat in (s, n) for lon in (w, e)):
                     day_boxes.append(box)
         if night_boxes or day_boxes:

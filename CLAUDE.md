@@ -19,7 +19,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/brain.py` | incidents: `find_incident`, `add_to_incident`, `verdict_of`, `headline`, `alert_message` (channel text), `Memory` (usual heat) |
 | `rasad/sources.py`, `rasad/wms.py` | EUMETView fire symbols (`detect_geo_layer`, `fetch_frp`), NASA FIRMS (`firms_fetch`); WMS client with time budgets, `Availability` |
 | `rasad/geocollect.py` | which European pictures each check reads (never-read first, then settled second reads) |
-| `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert) and experimental day finder (never alerts alone) |
+| `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert) and experimental day finder (first light to last light, sun above −6°; never alerts alone) |
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker |
 | `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after pictures for the channel: under an alert when a clear pass comes, and for the watched places of `config.yaml` → `watch.places` when a new clear pass shows a patch of change (queue, worker, picture, captions) |
 | `rasad/smoke.py` | smoke as a second witness, **silent for now**: by day, a streak in the 500 m visible pictures counts only when new, anchored at the heat, one-directional in 3+ pictures and not cold. Recorded on the incident for the app; never posted, never part of a verdict |
