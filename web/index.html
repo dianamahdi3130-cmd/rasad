@@ -69,6 +69,15 @@ header{position:sticky;top:0;z-index:1000;background:var(--bg);
 .dot{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:var(--muted)}
 .dot.ok{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
 .dot.warn{background:var(--likely)} .dot.bad{background:var(--sure)}
+/* any place by name or coordinates, fire or no fire */
+.finder{display:flex;gap:8px;padding-block:0 10px}
+.finder input{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.finder input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.update{display:flex;align-items:center;gap:10px;justify-content:center;background:var(--accent);color:#fff;font-size:14px;padding:6px 12px}
+.update button{border:1px solid #fff;background:transparent;color:#fff;border-radius:8px;padding:2px 10px;font-size:13px}
+.ba-pin{display:flex;flex-direction:column;gap:6px;direction:rtl;min-width:170px;font:14px var(--font-ui)}
+.ba-pin small{color:#667}
+.ba-pin .btn{justify-content:center}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-block:0 10px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:14px}
@@ -79,7 +88,7 @@ main{display:grid;grid-template-columns:1fr}
 #map{height:46vh;min-height:280px;background:var(--surface-2)}
 .panel{min-width:0}
 @media (min-width:900px){
-  main{grid-template-columns:minmax(360px,420px) 1fr;height:calc(100vh - 106px)}
+  main{grid-template-columns:minmax(360px,420px) 1fr;height:calc(100vh - var(--head,152px))}
   #map{height:100%;order:2}
   .panel{order:1;overflow-y:auto;border-inline-end:1px solid var(--line)}
 }
@@ -336,6 +345,11 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
     <div class="pill" id="status"><span class="dot"></span><span>جارٍ التحميل…</span></div>
     <button class="btn" id="adminBtn" type="button" hidden>الإدارة</button>
   </div>
+  <div class="update" id="update" hidden><span>يوجد تحديث للتطبيق</span><button type="button" id="updateBtn">حدّث الآن</button></div>
+  <form class="wrap finder" id="finder" role="search" hidden>
+    <input id="finderQ" type="search" enterkeyhint="search" autocomplete="off" aria-label="ابحث عن أي موقع" placeholder="ابحث عن أي موقع: اسم مكان أو إحداثيات">
+    <button class="btn" type="submit">بحث</button>
+  </form>
   <div class="wrap chips" id="chips" role="toolbar" aria-label="المناطق"></div>
 </header>
 
@@ -1075,6 +1089,22 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
   try { if (!localStorage.getItem("rasad-install-seen")) { $("#install").hidden = false; localStorage.setItem("rasad-install-seen", "1"); } } catch {}
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// An installed app stays open in the phone's memory for days and keeps the page it started with.
+// When the site has a newer version than this page, say so and offer to load it.
+const APP_V = 15;                    // the same number as CACHE in sw.js and ?v= of the two scripts
+function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
+async function checkUpdate(){
+  try {
+    const r = await fetch("sw.js?t=" + Date.now(), {cache:"no-store"});
+    if (r.ok && newerVersion(await r.text())) $("#update").hidden = false;
+  } catch {}
+}
+$("#updateBtn").onclick = async () => {
+  try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch {}
+  location.reload();
+};
+const fitHeader = () => document.documentElement.style.setProperty("--head", document.querySelector("header").offsetHeight + "px");
+addEventListener("resize", fitHeader);
 
 /* ---------- private access: staff accounts, each tied to one browser ---------- */
 const hexOf = a => [...a].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -1101,6 +1131,9 @@ function startApp(){
   started = true;
   initMap(); load();
   if (hasBA()) BA.init();
+  fitHeader(); checkUpdate();
+  setInterval(checkUpdate, 15 * 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
   setInterval(load, 60000);
   setInterval(renderStatus, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });

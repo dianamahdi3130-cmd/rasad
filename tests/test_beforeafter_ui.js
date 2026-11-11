@@ -112,6 +112,13 @@ test("the app loads both scripts, with one version shared by the page and the of
   assert.equal(tags[1][2], version);
   assert.ok(sw.includes(`"imagery.js?v=${version}"`) && sw.includes(`"beforeafter.js?v=${version}"`), "the offline cache holds the same versions");
   assert.ok(sw.includes(`const CACHE = "firms-v${version}"`), "and the cache name moves with them");
+  // the page knows its own version, to tell when the site has a newer one (an installed app stays open for days)
+  assert.ok(html.includes(`const APP_V = ${version};`), "APP_V in index.html is the same number");
+  const newer = new Function("APP_V", "return " + /function newerVersion\(swText\)\{[^\n]*\}/.exec(html)[0])(+version);
+  assert.equal(newer(sw), false, "this page is the current one");
+  assert.equal(newer(`const CACHE = "firms-v${+version + 1}";`), true);
+  assert.equal(newer("something else"), false);
+  for (const id of ["finder", "finderQ", "update", "updateBtn"]) assert.ok(html.includes(`id="${id}"`), id);
   assert.ok(html.indexOf("beforeafter.js") < html.indexOf("const S ="), "loaded before the app starts");
   for (const id of ["baBtn", "baSheet", "pickBar", "pickCancel"]) assert.ok(html.includes(`id="${id}"`), id);
   for (const file of ["imagery.js", "beforeafter.js"]) assert.ok(!web(file).includes("الخليج العربي"));
@@ -204,7 +211,8 @@ function page(archive, extra = {}) {
   const mapHandlers = {};
   const context = vm.createContext({
     console, setTimeout, clearTimeout, setInterval, clearInterval, AbortController, URL,
-    fetch: (url, init) => /nominatim/.test(url) ? Promise.reject(new Error("no names in tests")) : archive.fetch(url, init),
+    fetch: (url, init) => !/nominatim/.test(url) ? archive.fetch(url, init)
+      : extra.found ? Promise.resolve({ok: true, json: async () => extra.found}) : Promise.reject(new Error("no names in tests")),
     document: {querySelector: el, createElement: element, body: {classList: {add: c => bodyClass.add(c), remove: c => bodyClass.delete(c)}}},
     ImageData: class { constructor(data, w, h) { this.data = data; this.width = w; this.height = h; } },
     navigator: {}, devicePixelRatio: 2, addEventListener() {},
@@ -340,6 +348,28 @@ test("an incident opens on the passes around it; a fire newer than the last pass
   assert.match(p.el("#baList").innerHTML, /data-side="after"[^>]*aria-pressed="true"/);
   p.context.setRoute("ba:i:gone");
   assert.match(p.toasts.at(-1), /لم يعد في القائمة/);
+});
+
+test("the search field at the top finds any place: coordinates open it, a name lists what was found", async () => {
+  const archive = makeArchive({lat: 26, lon: 50, passes: PASSES()});
+  const found = [{lat: "30.549", lon: "47.662", display_name: "مطار البصرة الدولي, طريق المطار, ناحية الهارثة, قضاء البصرة, العراق"}];
+  const p = page(archive, {found});
+  assert.equal(p.el("#finder").hidden, false, "shown once the app has started");
+  const submit = text => { p.el("#finderQ").value = text; p.el("#finder").fire("submit", {preventDefault() {}}); };
+  submit("26.5, 50.1");
+  assert.equal(p.routes.at(-1), "ba:26.50000,50.10000,2", "coordinates go straight to the comparison");
+  submit("مطار البصرة");
+  assert.equal(p.routes.at(-1), "ba");
+  await p.until("the place that was found", () => /مطار البصرة الدولي/.test(p.el("#baSheet").innerHTML));
+  const sheet = p.el("#baSheet").innerHTML;
+  assert.match(sheet, /data-act="open" data-lat="30.549" data-lon="47.662"/);
+  assert.match(sheet, /data-name="مطار البصرة الدولي، طريق المطار، ناحية الهارثة"/, "a long address is cut to its first three parts");
+  assert.match(sheet, /data-act="show" data-lat="30.549" data-lon="47.662"[^>]*>على الخريطة</);
+  p.act("show", {lat: "30.549", lon: "47.662", name: "مطار البصرة الدولي"});
+  assert.equal(p.routes.at(-1), "", "back on the app's map (the pin needs the real map)");
+  assert.equal(p.el("#baSheet").hidden, true);
+  submit("   ");
+  assert.equal(p.routes.at(-1), "", "an empty search does nothing");
 });
 
 test("when the archive is down the screen says so and offers to try again", async () => {

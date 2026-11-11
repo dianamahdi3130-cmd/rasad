@@ -229,6 +229,7 @@ function placeRow(p, i, kind) {
   return `<div class="ba-place">
     <button class="t" type="button" data-act="open" data-lat="${p.lat}" data-lon="${p.lon}" data-half="${p.half || 2}" data-name="${esc(p.name || "")}">
       <b>${bidi(p.name || `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`)}</b><small>${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</small>${kind === "saved" ? `<span class="new" id="baNew${i}"></span>` : ""}</button>
+    <button class="btn" type="button" data-act="show" data-lat="${p.lat}" data-lon="${p.lon}" data-name="${esc(p.name || "")}">على الخريطة</button>
     ${kind === "saved" ? `<button class="btn" type="button" data-act="forget" data-i="${i}" aria-label="حذف الموقع">حذف</button>` : ""}
   </div>`;
 }
@@ -277,7 +278,7 @@ async function search(text) {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
     const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=ar&q=" + encodeURIComponent(q), {signal: ctl.signal});
     clearTimeout(timer);
-    if (r.ok) found = (await r.json()).map(x => ({lat: +x.lat, lon: +x.lon, name: String(x.display_name || "").split("،").slice(0, 3).join("،")}))
+    if (r.ok) found = (await r.json()).map(x => ({lat: +x.lat, lon: +x.lon, name: String(x.display_name || "").split(/[،,]\s*/).slice(0, 3).join("، ")}))
       .filter(p => isFinite(p.lat) && isFinite(p.lon) && Math.abs(p.lat) <= 75);
   } catch (e) { found = null; }
   if (!BA.isOpen() || V) return;
@@ -350,7 +351,7 @@ async function nameThePlace() {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&accept-language=ar&lat=${v.lat}&lon=${v.lon}`, {signal: ctl.signal});
     clearTimeout(timer);
-    const d = r.ok ? await r.json() : null, name = d && d.display_name ? String(d.display_name).split("،").slice(0, 2).join("،") : "";
+    const d = r.ok ? await r.json() : null, name = d && d.display_name ? String(d.display_name).split(/[،,]\s*/).slice(0, 2).join("، ") : "";
     if (V === v && name && !v.title) { v.sub = name; renderChrome(); }
   } catch (e) { /* the coordinates stay as the title */ }
 }
@@ -899,6 +900,7 @@ function onClick(e) {
   if (act === "back") return BA.back();
   if (act === "pick") return BA.startPick();
   if (act === "open") return setRoute(routeOf({lat: +t.dataset.lat, lon: +t.dataset.lon, half: +t.dataset.half || 2, name: t.dataset.name}));
+  if (act === "show") return BA.pin(+t.dataset.lat, +t.dataset.lon, t.dataset.name);
   if (act === "forget") { const list = places(); list.splice(+t.dataset.i, 1); store.set(KEYS.places, list); return showChooser(); }
   if (!v) return;
   if (act === "mode") { v.mode = t.dataset.mode; renderChrome(); renderFind(); paint(); }
@@ -923,10 +925,43 @@ function onClick(e) {
   else if (act === "star") star();
   else if (act === "shot") presentPicture(renderShot, `ALFAQAAR-before-after-${v.lat.toFixed(3)}_${v.lon.toFixed(3)}.png`, titleOf(), "جارٍ تجهيز صورة المقارنة…");
 }
+// The search field at the top of the app: any place, with or without a fire. Coordinates open the
+// comparison at once; a name lists what was found, each to compare or to see on the map.
+BA.find = function (text) {
+  const q = String(text || "").trim();
+  if (!q) return;
+  const cur = decodeURIComponent(location.hash.slice(1));
+  if (!cur.startsWith("ba")) from = cur;
+  setRoute("ba");
+  const box = el("#baQuery");
+  if (box) box.value = q;
+  search(q);
+};
+// show a place on the app's own map, with a pin that offers the comparison
+let pinLayer = null;
+BA.pin = function (lat, lon, name) {
+  from = "";
+  setRoute("");
+  if (!S.map || !root.L) return;
+  if (!pinLayer) pinLayer = root.L.layerGroup().addTo(S.map);
+  pinLayer.clearLayers();
+  const card = document.createElement("div");
+  card.className = "ba-pin";
+  card.innerHTML = `<b>${bidi(name || `${lat.toFixed(4)}, ${lon.toFixed(4)}`)}</b><small dir="ltr">${lat.toFixed(4)}, ${lon.toFixed(4)}</small>
+    <button class="btn primary" type="button">🛰 قبل وبعد</button>`;
+  card.querySelector("button").onclick = () => BA.go(routeOf({lat, lon, half: 2, name: name || ""}));
+  root.L.marker([lat, lon]).addTo(pinLayer).bindPopup(card, {closeButton: false}).openPopup();
+  S.map.setView([lat, lon], 13, {animate: false});
+};
 BA.init = function () {
   const s = sheet();
   if (!s || BA.ready) return;
   BA.ready = true;
+  const finder = el("#finder");
+  if (finder) {
+    finder.hidden = false;
+    finder.addEventListener("submit", e => { e.preventDefault(); const q = el("#finderQ"); BA.find(q.value); if (q.blur) q.blur(); });
+  }
   s.addEventListener("click", onClick);
   el("#baBtn").hidden = false;
   el("#baBtn").addEventListener("click", () => BA.go("ba"));
