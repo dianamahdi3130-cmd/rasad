@@ -152,6 +152,11 @@ video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display
 .leaflet-container{font:inherit;background:var(--surface-2)}
 .leaflet-control-attribution{font-size:10px}
 .basemap{position:absolute;z-index:500;top:10px;left:10px}
+/* NASA's daily picture of the region: which day, morning or afternoon */
+.dailybar{position:absolute;z-index:500;top:54px;left:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:calc(100% - 20px)}
+.dailybar .btn{padding:5px 9px;font-size:13px}
+.dailybar .day{background:color-mix(in srgb,var(--bg) 88%,transparent);border:1px solid var(--line);border-radius:10px;padding:4px 9px;font-size:13px;font-weight:600}
+.dailybar .btn[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 /* the strength label hangs from the circle on a short line */
 .lead{display:none;position:absolute;left:14px;top:1px;width:22px;height:2px;border-radius:2px;
   background:currentColor;transform:rotate(-38deg);transform-origin:0 50%;color:var(--check)}
@@ -181,6 +186,7 @@ body.focus #focusCard{display:block;position:fixed;z-index:1600;left:0;right:0;b
 #focusCard .actions{margin-top:12px}
 @media (min-width:900px){body.focus #focusCard{left:auto;right:16px;bottom:16px;width:430px;border:1px solid var(--line);border-radius:16px}}
 body.focus .basemap{top:calc(66px + env(safe-area-inset-top,0px))}
+body.focus .dailybar,body.picking .dailybar{top:calc(110px + env(safe-area-inset-top,0px))}
 body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
 @media (min-width:900px){body.focus .leaflet-bottom{bottom:0}}
 
@@ -337,6 +343,7 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
   <div id="mapWrap">
     <div id="map" role="region" aria-label="الخريطة"></div>
     <button class="btn basemap" id="basemapBtn" type="button">قمر صناعي</button>
+    <div class="dailybar" id="dailyBar" hidden></div>
     <button class="btn bamap" id="baBtn" type="button" hidden>🛰 قبل وبعد</button>
   </div>
   <section class="panel wrap">
@@ -389,8 +396,8 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="imagery.js?v=14"></script>
-<script src="beforeafter.js?v=14"></script>
+<script src="imagery.js?v=15"></script>
+<script src="beforeafter.js?v=15"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24};
@@ -450,15 +457,63 @@ function initMap(){
   zoomLabels();
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", setBase);
 }
+// NASA's picture of the whole region, one per satellite per day (GIBS, free, no key): 250 m per
+// point, so it shows the scene and large smoke, not single facilities. Terra passes in the
+// morning, NOAA-20 in the early afternoon; a day's picture is published a few hours later.
+const DAILY = {
+  am: ["MODIS_Terra_CorrectedReflectance_TrueColor", "صباحاً", 10],     // [layer, label, UTC hour by which the day's picture is published]
+  pm: ["VIIRS_NOAA20_CorrectedReflectance_TrueColor", "بعد الظهر", 14],
+};
+const dayOf = ms => new Date(ms).toISOString().slice(0, 10);
+function dailyDefault(now = Date.now()){            // the newest picture that should be there by now
+  const hour = new Date(now).getUTCHours();
+  if (hour >= DAILY.pm[2]) return {date: dayOf(now), pass: "pm"};
+  if (hour >= DAILY.am[2]) return {date: dayOf(now), pass: "am"};
+  return {date: dayOf(now - 864e5), pass: "pm"};
+}
+function dailyStep(d, dir, now = Date.now()){       // one day earlier or later, never into the future
+  const date = dayOf(Date.parse(d.date + "T12:00:00Z") + dir * 864e5);
+  return date > dayOf(now) || date < "2018-01-01" ? d : {date, pass: d.pass};
+}
+function dailyUrl(d){
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${DAILY[d.pass][0]}/default/${d.date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`;
+}
+function dailyLabel(d){
+  return new Date(d.date + "T12:00:00Z").toLocaleDateString("ar-IQ-u-nu-latn", {timeZone:"UTC", day:"numeric", month:"long"});
+}
+function renderDaily(){
+  const bar = $("#dailyBar"), d = S.daily;
+  bar.hidden = !d;
+  if (!d) return;
+  bar.innerHTML = `<button class="btn" type="button" data-daily="-1" aria-label="اليوم السابق">أقدم</button>
+    <span class="day">${esc(dailyLabel(d))}</span>
+    <button class="btn" type="button" data-daily="1" aria-label="اليوم التالي">أحدث</button>
+    ${Object.entries(DAILY).map(([k, v]) => `<button class="btn" type="button" data-pass="${k}" aria-pressed="${d.pass === k}">${v[1]}</button>`).join("")}`;
+}
 function setBase(){
   if (S.base) S.map.removeLayer(S.base);
   const light = matchMedia("(prefers-color-scheme: light)").matches;
-  const [base, labels, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
-  S.base = L.layerGroup([
-    L.tileLayer(base, {maxZoom:17, attribution:attr}),
-    L.tileLayer(labels, {maxZoom:17, opacity:.9})
-  ]).addTo(S.map);
-  $("#basemapBtn").textContent = S.sat ? "خريطة" : "قمر صناعي";
+  if (S.daily){
+    const picture = L.tileLayer(dailyUrl(S.daily), {maxZoom:17, maxNativeZoom:9, attribution:"NASA EOSDIS GIBS"});
+    let missing = 0;
+    picture.on("tileerror", () => { if (++missing === 4) toast("لم تُنشر صورة هذا اليوم بعد. جرّب «أقدم»."); });
+    S.base = L.layerGroup([picture, L.tileLayer(TILES.sat[1], {maxZoom:17, opacity:.9})]).addTo(S.map);
+  } else {
+    const [base, labels, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
+    S.base = L.layerGroup([
+      L.tileLayer(base, {maxZoom:17, attribution:attr}),
+      L.tileLayer(labels, {maxZoom:17, opacity:.9})
+    ]).addTo(S.map);
+  }
+  // the button names the next view: map -> satellite -> today's picture -> map
+  $("#basemapBtn").textContent = S.daily ? "خريطة" : S.sat ? "صورة اليوم" : "قمر صناعي";
+  renderDaily();
+}
+function nextBase(){
+  if (S.daily) { S.daily = null; S.sat = false; }
+  else if (S.sat) { S.sat = false; S.daily = dailyDefault(); }
+  else S.sat = true;
+  setBase();
 }
 function mwText(v){
   if (v == null || isNaN(v)) return "";
@@ -1000,7 +1055,13 @@ document.addEventListener("click", e => {
 });
 $("#closeBtn").onclick = () => S.sel ? setRoute(S.sel) : setRoute("");   // details -> the incident on the map
 $("#allBtn").onclick = () => setRoute("");                               // the map -> all incidents
-$("#basemapBtn").onclick = () => { S.sat = !S.sat; setBase(); };
+$("#basemapBtn").onclick = nextBase;
+$("#dailyBar").onclick = e => {
+  const step = e.target.closest("[data-daily]"), pass = e.target.closest("[data-pass]");
+  if (!S.daily || (!step && !pass)) return;
+  S.daily = step ? dailyStep(S.daily, +step.dataset.daily) : {date: S.daily.date, pass: pass.dataset.pass};
+  setBase();
+};
 addEventListener("popstate", route);
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;

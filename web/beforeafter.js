@@ -80,7 +80,9 @@ function settle(list) {
   return {pass: near.find(p => p.sky && I.grade(p) === 1) || null, done: true};
 }
 // The default pair while the passes are being checked one by one (`passes` newest first).
-function choose(passes, event) {
+function choose(all, event) {
+  // Sentinel-2 (10 m) for the default pair; Landsat (30 m) only where there is nothing else
+  const sharp = all.filter(p => p.sensor !== "landsat"), passes = sharp.length ? sharp : all;
   if (event && event.start) {
     const s = Date.parse(event.start), e = Date.parse(event.end || event.start);
     return {before: settle(passes.filter(p => p.time < s)), after: settle(passes.filter(p => p.time > e).reverse())};
@@ -91,10 +93,12 @@ function choose(passes, event) {
 }
 // the order in which passes are checked: nearest to the event first, else newest first
 function checkOrder(passes, event) {
-  if (!event || !event.start) return passes.slice();
+  const coarse = p => p.sensor === "landsat" ? 1 : 0;              // the default pair's candidates first
+  if (!event || !event.start) return passes.slice().sort((a, b) => coarse(a) - coarse(b));
   const mid = (Date.parse(event.start) + Date.parse(event.end || event.start)) / 2;
-  return passes.slice().sort((a, b) => Math.abs(a.time - mid) - Math.abs(b.time - mid));
+  return passes.slice().sort((a, b) => coarse(a) - coarse(b) || Math.abs(a.time - mid) - Math.abs(b.time - mid));
 }
+const sensorText = p => p.sensor === "landsat" ? " · Landsat 30 م" : "";
 // which of the hot points in the later picture were already there before (a gas flare, most likely)
 function splitHot(after, before) {
   let old = 0;
@@ -143,7 +147,7 @@ function failText(e) {
   if (code === "none") return "لا توجد صور لهذا الموقع في هذه المدة.";
   return "أرشيف الصور الأوروبي المفتوح لا يستجيب الآن. حاول بعد قليل.";
 }
-BA._ = {parsePlace, parseRoute, routeOf, skyText, areaText, settle, choose, checkOrder, splitHot, scaleBar, failText, dateAr, SIZES,
+BA._ = {parsePlace, parseRoute, routeOf, skyText, areaText, settle, choose, checkOrder, splitHot, scaleBar, failText, dateAr, SIZES, sensorText,
   windowsFor, joinWindows, eventOfDay, distanceText};
 if (typeof document === "undefined") return;       // Node: only the helpers above
 
@@ -372,7 +376,7 @@ function renderChrome() {
   if (day && day.addEventListener) day.addEventListener("change", () => setDay(day.value));
   renderMeasure();
   el("#baHelp").innerHTML = `<b>كيف تُقرأ؟</b> اسحب الفاصل بين الصورتين، وكبّر بإصبعين. «تحت الحمراء» تُظهر الأرض المحترقة بلون بني داكن واللهب بلون برتقالي لامع. «التغيّر» يلوّن ما صار أغمق بالأحمر وما صار أفتح بالأزرق.<br>
-    الصور من القمر الأوروبي Sentinel-2 (برنامج كوبرنيكوس)، كل نقطة 10 أمتار. الظلال والمدّ والزراعة والبناء تتغيّر طبيعياً، والصور لا تحدد السبب.
+    الصور من القمر الأوروبي Sentinel-2 (برنامج كوبرنيكوس)، كل نقطة 10 أمتار. في «كل تواريخ المرور» تواريخ إضافية من القمر الأمريكي Landsat (30 م، تصل متأخرة أسبوعين إلى ثلاثة). الظلال والمدّ والزراعة والبناء تتغيّر طبيعياً، والصور لا تحدد السبب.
     <span id="baData"></span>`;
   renderData();
 }
@@ -475,13 +479,13 @@ function syncRoute() {
   const hash = routeOf({lat: v.lat, lon: v.lon, half: v.half, before: v.before && v.before.date, after: v.after && v.after.date, name: v.title});
   try { history.replaceState(null, "", location.pathname + "#" + encodeURIComponent(hash)); } catch (e) { /* the link stays as it was */ }
 }
-function passLine(p) { return `${dateAr(p.time)} <small>· ${timeAr(p.time)} · ${esc(skyText(p))}</small>`; }
+function passLine(p) { return `${dateAr(p.time)} <small>· ${timeAr(p.time)} · ${esc(skyText(p))}${sensorText(p)}</small>`; }
 function renderDates() {
   const v = V, row = (side, label) => {
     const p = v[side];
     return `<div class="ba-date ${side}">
       <span class="k">${label}</span>
-      <span class="d">${p ? `<b>${dateAr(p.time)}</b><small>${timeAr(p.time)} · ${esc(skyText(p))}</small>`
+      <span class="d">${p ? `<b>${dateAr(p.time)}</b><small>${timeAr(p.time)} · ${esc(skyText(p))}${sensorText(p)}</small>`
         : `<b>—</b><small>${v.passes.length ? (side === "after" && v.event && v.checked ? "لم يمر القمر بصورة صافية بعد الحدث" : "لم تُحدَّد") : "…"}</small>`}</span>
       <button class="btn" type="button" data-act="step" data-side="${side}" data-dir="-1">أقدم</button>
       <button class="btn" type="button" data-act="step" data-side="${side}" data-dir="1">أحدث</button>
@@ -502,6 +506,7 @@ function renderList() {
 
 /* ---------- the pictures ---------- */
 async function scene(pass, quality, signal) {
+  if (pass.sensor === "landsat") quality = "full";            // 30 m either way: read once
   const v = V, key = pass.key + "|" + quality;
   if (v.scenes.has(key)) return v.scenes.get(key);
   const sc = await engine.loadScene(pass, v.grid, quality, signal);
@@ -605,11 +610,13 @@ function renderFind() {
   if (!b && !a) {
     out.push(`<p>${v.error ? "لا صور معروضة." : "تُجهَّز الصورتان: أحدث صورة صافية قبل الحدث وأول صورة صافية بعده."}</p>`);
   } else if (a && b) {
-    const c = v.change, coarse = Math.max(a.res, b.res) > v.grid.res + 1;
+    const c = v.change, other = a.pass.sensor === "landsat" || b.pass.sensor === "landsat";
+    const coarse = !other && Math.max(a.res, b.res) > v.grid.res + 1;
     const quiet = c.areaHa < 0.3 && c.share < 0.0008;
     out.push(`<div class="big">${quiet ? "لا تغيّر واضح بين الصورتين" : `تغيّر مرصود: نحو ${areaText(c.areaHa)}`}</div>`);
     if (!quiet) out.push(`<div class="lg"><span><i style="background:#ff3b30"></i>صار أغمق: ${areaText(c.darkHa)}</span><span><i style="background:#22d3ee"></i>صار أفتح: ${areaText(c.brightHa)}</span><span>${num(c.share * 100, c.share < 0.01 ? 2 : 1)}% من المربع</span></div>`);
     if (c.clouds || c.compared < 0.9) out.push(`<p class="warn">غيوم أو ظلالها في إحدى الصورتين: قورن ${Math.round(c.compared * 100)}% من المربع، والتقدير أقل ثقة. اختر تاريخاً أصفى إن وُجد.</p>`);
+    if (other) out.push(`<p>إحدى الصورتين من القمر الأمريكي Landsat (كل نقطة 30 م): التفاصيل أقل، والتقدير أقل ثقة.</p>`);
     if (coarse) out.push(`<p>تقدير أولي بدقة ${Math.round(Math.max(a.res, b.res))} م${v.lite ? "" : "، يُحدَّث عند اكتمال التحميل"}.</p>`);
     if (!quiet && v.mode !== "change") out.push(`<button class="btn" type="button" data-act="mode" data-mode="change">أظهر التغيّر على الصورة</button>`);
   } else if (b) {

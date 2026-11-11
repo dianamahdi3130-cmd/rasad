@@ -8,6 +8,10 @@ const I = require("../../web/imagery.js");
 const FILES = "https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com/sentinel-2-c1-l2a/";
 const OLD_FILES = "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/";
 const SEARCH = "https://earth-search.aws.element84.com/v1";
+// Landsat (30 m) as Microsoft's Planetary Computer serves it: its own index, a token, signed files
+const LANDSAT_API = "https://planetarycomputer.microsoft.com/api";
+const LANDSAT_FILES = "https://landsateuwest.blob.core.windows.net/test/";
+const LANDSAT_BANDS = {SR_B2: "blue", SR_B3: "green", SR_B4: "red", SR_B5: "nir08", SR_B6: "swir16", SR_B7: "swir22", QA_PIXEL: "qa"};
 const BANDS = {B02: "blue", B03: "green", B04: "red", B8A: "nir08", B11: "swir16", B12: "swir22", SCL: "scl"};
 const BASE = {blue: 0.20, green: 0.25, red: 0.30, nir08: 0.35, swir16: 0.40, swir22: 0.38};
 
@@ -69,6 +73,11 @@ function makeArchive(spec) {
   const zone = Math.floor((spec.lon + 180) / 6) + 1, [Ec, Nc] = I.UTM.forward(spec.lat, spec.lon, zone);
   const x0 = Math.round((Ec - 2560) / 20) * 20, y0 = Math.round((Nc + 2560) / 20) * 20;
   const passes = spec.passes.map((p, i) => {
+    if (p.sensor === "landsat") {
+      const id = "LC09_L2SP_163042_" + p.date.replace(/-/g, "");
+      return {...p, platform: "landsat-9", collection: "landsat-c2-l2", id, dir: LANDSAT_FILES + id + "/" + id + "_",
+        datetime: p.date + "T07:04:4" + (i % 10) + ".000000Z", scale: 2.75e-5, offset: -0.2};
+    }
     const tile = p.tile || "39RXX", sat = p.platform || "sentinel-2b", collection = p.collection || "sentinel-2-c1-l2a";
     const id = p.id || `${sat.slice(-2).toUpperCase().replace("2", "S2")}_T${tile}_${p.date.replace(/-/g, "")}T072146_L2A`;
     const dir = collection === "sentinel-2-c1-l2a"
@@ -82,6 +91,7 @@ function makeArchive(spec) {
     const west = E < Ec;
     if (p.footprint === "west" && !west) return null;
     if (band === "scl") return p.cloud === "all" || (p.cloud === "west" && west) ? 9 : 5;
+    if (band === "qa") return p.cloud === "all" || (p.cloud === "west" && west) ? 22280 : 21824;      // Landsat's quality bits: cloud / clear
     if (p.cloud === "all" || (p.cloud === "west" && west)) return 0.8;
     let v = BASE[band] + 2e-5 * (E - Ec) + 1e-5 * (N - Nc);
     if (p.burn && Math.abs(E - Ec - 300) < 50 && Math.abs(N - Nc - 200) < 50) v *= 0.4;
@@ -91,8 +101,18 @@ function makeArchive(spec) {
   const files = new Map();
   function fileFor(url) {
     if (files.has(url)) return files.get(url);
-    const p = passes.find(q => url.startsWith(q.dir)), band = p && BANDS[url.slice(p.dir.length).replace(".tif", "")];
+    const p = passes.find(q => url.startsWith(q.dir));
     let buf = null;
+    if (p && p.sensor === "landsat") {
+      const band = LANDSAT_BANDS[url.slice(p.dir.length).replace(".TIF", "")];
+      if (band) buf = makeCog({size: 171, tile: 128, res: 30, x0, y0, value: (x, y) => {
+        const v = ground(p, band, x0 + (x + 0.5) * 30, y0 - (y + 0.5) * 30);
+        return v == null ? (band === "qa" ? 1 : 0) : band === "qa" ? v : Math.round((v - p.offset) / p.scale);
+      }});
+      files.set(url, buf);
+      return buf;
+    }
+    const band = p && BANDS[url.slice(p.dir.length).replace(".tif", "")];
     if (p && band && !(p.missing || []).includes(band)) {
       const res = ["blue", "green", "red"].includes(band) ? 10 : 20;
       buf = makeCog({size: 5120 / res, tile: 256, res, x0, y0, bits: band === "scl" ? 8 : 16, value: (x, y) => {
@@ -110,7 +130,7 @@ function makeArchive(spec) {
   const feature = p => ({id: p.id, collection: p.collection, geometry: ring(-2560, p.footprint === "west" ? 0 : 2560),
     properties: {datetime: p.datetime, platform: p.platform, "eo:cloud_cover": p.cloud ? 80 : 1, "grid:code": "MGRS-" + p.tile,
       [p.collection === "sentinel-2-c1-l2a" ? "proj:code" : "proj:epsg"]: p.collection === "sentinel-2-c1-l2a" ? "EPSG:326" + zone : 32600 + zone}});
-  const archive = {passes, calls: [], fail: null, pageSize: 0, Ec, Nc, x0, y0, zone, ground};
+  const archive = {passes, calls: [], fail: null, pageSize: 0, Ec, Nc, x0, y0, zone, ground, tokens: 0};
   const answer = (status, body, headers = {}) => ({ok: status >= 200 && status < 300, status, headers: {get: k => headers[k.toLowerCase()] ?? null},
     body: {cancel() {}}, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length), text: async () => body.toString("utf8")});
   archive.fetch = (url, init = {}) => new Promise((resolve, reject) => {
@@ -128,6 +148,25 @@ function makeArchive(spec) {
       const start = q.next || 0, size = archive.pageSize || all.length || 1;
       const links = start + size < all.length ? [{rel: "next", method: "POST", merge: true, body: {next: start + size}}] : [];
       return resolve(answer(200, Buffer.from(JSON.stringify({type: "FeatureCollection", features: all.slice(start, start + size).map(feature), links}))));
+    }
+    if (url === LANDSAT_API + "/stac/v1/search") {
+      const q = JSON.parse(init.body), [from, to] = q.datetime.split("/").map(Date.parse);
+      const features = passes.filter(p => p.sensor === "landsat" && Date.parse(p.datetime) >= from && Date.parse(p.datetime) <= to).map(p => {
+        const f = feature(p), assets = {};
+        for (const [file, name] of Object.entries(LANDSAT_BANDS)) assets[name === "qa" ? "qa_pixel" : name] = {href: p.dir + file + ".TIF",
+          "raster:bands": name === "qa" ? [{nodata: 1}] : [{scale: p.scale, offset: p.offset, nodata: 0}]};
+        return {...f, assets, properties: {datetime: p.datetime, platform: p.platform, "eo:cloud_cover": p.cloud ? 80 : 1, "proj:epsg": 32600 + zone}};
+      });
+      return resolve(answer(200, Buffer.from(JSON.stringify({type: "FeatureCollection", features, links: []}))));
+    }
+    if (url === LANDSAT_API + "/sas/v1/token/landsat-c2-l2") {
+      archive.tokens++;
+      return resolve(answer(200, Buffer.from(JSON.stringify({token: "sig=test", "msft:expiry": new Date(Date.now() + 40 * 60e3).toISOString()}))));
+    }
+    if (url.startsWith(LANDSAT_FILES)) {                 // signed files: no token, no file
+      const [address, query] = url.split("?");
+      if (query !== "sig=test") return resolve(answer(409, Buffer.from("no")));
+      url = address;
     }
     const item = /\/collections\/([^/]+)\/items\/(.+)$/.exec(url);
     if (item) {
@@ -148,4 +187,4 @@ function makeArchive(spec) {
   return archive;
 }
 
-module.exports = {makeCog, makeArchive, SEARCH, FILES, BASE};
+module.exports = {makeCog, makeArchive, SEARCH, FILES, BASE, LANDSAT_API, LANDSAT_FILES};

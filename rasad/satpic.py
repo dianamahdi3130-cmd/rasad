@@ -224,6 +224,10 @@ def run_worker(cfg, interval=60, max_minutes=340, once=False):
             log.warning("satellite picture worker: %s", e)
             done = None
         try:
+            done = watch_work_one(cfg, session=session) or done
+        except Exception as e:  # noqa: BLE001
+            log.warning("watched places worker: %s", e)
+        try:
             if cfg["smoke"].get("enabled", True):
                 # a new holder per job keeps the memory small; the pictures themselves stay on disk
                 # for the next look at the same fire
@@ -234,6 +238,160 @@ def run_worker(cfg, interval=60, max_minutes=340, once=False):
             return
         if not done:
             time.sleep(max(1.0, float(interval)))
+
+
+# ---------------------------------------------------------------- watched places
+# Places the owner wants watched whether or not anything burns there (airports, bases, ports):
+# `watch.places` in config.yaml. For each one the worker looks every few hours for a new clear
+# pass; when it has one it compares it with the clear pass before it, and the check posts the
+# picture only if a patch of clear change shows. The first clear pass is the starting point.
+def watch_places(cfg):
+    out = []
+    for p in (cfg.get("watch") or {}).get("places") or []:
+        try:
+            lat, lon = float(p["lat"]), float(p["lon"])
+            name = str(p["name"]).strip()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if name and abs(lat) < 75 and abs(lon) <= 180:
+            out.append({"key": _key(f"{lat:.4f},{lon:.4f}"), "name": name, "lat": lat, "lon": lon,
+                        "half_km": float(p.get("half_km") or cfg["watch"].get("half_km", 2))})
+    return out
+
+
+def watch_request(cfg, state, now):
+    """The scanner's side: tell the worker which places to watch and what it already knows."""
+    if not (cfg.get("watch") or {}).get("enabled", True):
+        return []
+    places, known = watch_places(cfg), state.get("watch") or {}
+    folder = queue_dir(cfg) / "watch"
+    for place in places:
+        job = dict(place, done=(known.get(place["key"]) or {}).get("pass"))
+        path = folder / (place["key"] + ".job.json")
+        if {k: v for k, v in load_json(path, {}).items() if k in job} != job:
+            save_json(path, dict(job, created_at=iso(now)), compact=True)
+    for path in folder.glob("*.job.json") if folder.is_dir() else []:      # a place taken off the list
+        if path.name[:-9] not in {p["key"] for p in places}:
+            path.unlink(missing_ok=True)
+    return places
+
+
+def watch_results(cfg, state, now):
+    """Findings the monitor has not handled yet: (place, result, picture or None)."""
+    out, known = [], state.get("watch") or {}
+    folder = queue_dir(cfg) / "watch"
+    for place in watch_request(cfg, state, now):
+        res = load_json(folder / (place["key"] + ".result.json"), {})
+        done = (known.get(place["key"]) or {}).get("pass") or ""
+        if not res.get("new") or not res.get("pass") or res["pass"] <= done:
+            continue
+        picture = folder / str(res.get("picture") or "-")
+        out.append((place, res, picture if res.get("notable") and picture.is_file() and picture.parent == folder else None))
+    return out
+
+
+def watch_caption(place, res, cfg):
+    from urllib.parse import quote
+
+    from .brain import bidi_safe
+    after, before = parse_time(res["after_time"]), parse_time(res["before_time"])
+    clock = (after + dt.timedelta(hours=float(cfg["local_time"]["offset_hours"]))).strftime("%H:%M")
+    lines = [f"🛰 <b>تغيّر مرصود في موقع مراقَب: {esc(bidi_safe(place['name']))}</b>",
+             f"قبل: {day_ar(before, cfg)} · بعد: {day_ar(after, cfg)} الساعة {clock} ({esc(cfg['local_time']['name'])})",
+             f"أكبر بقعة متغيّرة نحو {area_text(res['patch_ha'])}، ومجموع التغيّر نحو {area_text(res['area_ha'])} "
+             "(بالأحمر ما صار أغمق، وبالأزرق ما صار أفتح)."]
+    if res.get("clouds") or res.get("compared", 1) < 0.9:
+        lines.append("غيوم في إحدى الصورتين: التقدير أقل ثقة.")
+    if res.get("hot_after") and not res.get("hot_before"):
+        lines.append("🔥 لهب أو حرارة شديدة ظاهرة لحظة التقاط صورة «بعد»، ولم تكن ظاهرة قبل.")
+    lines.append("قد يكون التغيّر طبيعياً (سفن، ظلال، أعمال بناء أو زراعة): الصورة لا تحدد السبب. كل نقطة 10 أمتار.")
+    lines.append(f"<code>{place['lat']:.4f}, {place['lon']:.4f}</code>")
+    if cfg.get("app_url"):
+        base = cfg["app_url"].split("#")[0].split("?")[0]
+        route = quote(f"ba:{place['lat']:.5f},{place['lon']:.5f},{place['half_km']:g},"
+                      f"{res['before_time'][:10].replace('-', '')},{res['after_time'][:10].replace('-', '')};{place['name']}", safe="")
+        lines.append(f'📱 <a href="{base}?e={route}#{route}">افتح المقارنة في التطبيق</a>')
+    return "\n".join(lines)
+
+
+def watch_work_one(cfg, now=None, session=None):
+    """The worker's side: look at the watched place that has waited longest. Returns its name or None."""
+    now = now or utcnow()
+    W = cfg.get("watch") or {}
+    folder = queue_dir(cfg) / "watch"
+    if not W.get("enabled", True) or not folder.is_dir():
+        return None
+    due = []
+    for path in sorted(folder.glob("*.job.json")):
+        job = load_json(path, {})
+        res = load_json(folder / (job.get("key", "-") + ".result.json"), {})
+        if not job.get("key"):
+            continue
+        if res.get("new") and (res.get("pass") or "") > (job.get("done") or ""):
+            continue                                  # a finding the monitor has not taken yet
+        tried = res.get("tried_at") or ""
+        if tried and now - parse_time(tried) < dt.timedelta(hours=float(W.get("check_hours", 3))):
+            continue
+        due.append((tried, job["key"], job))
+    if not due:
+        return None
+    _, key, job = min(due)
+    res = {"key": key, "tried_at": iso(now), "new": False}
+    try:
+        res.update(_watch(cfg, job, now, session, folder / (key + ".jpg")))
+    except s2.ArchiveError as e:
+        res["why"] = "archive: " + e.code
+        log.info("watched place %s: the archive did not answer (%s)", job["name"], e.code)
+    except Exception as e:  # noqa: BLE001
+        res["why"] = type(e).__name__
+        log.warning("watched place %s failed: %s", job["name"], e)
+    save_json(folder / (key + ".result.json"), res, compact=True)
+    return job["name"]
+
+
+def _watch(cfg, job, now, session, out):
+    from .wms import components
+    W = cfg["watch"]
+    archive = s2.Archive(session or make_session(), deadline=time.monotonic() + float(W.get("job_budget_s", 170)))
+    grid = s2.Grid(job["lat"], job["lon"], job["half_km"])
+    passes = archive.list_passes(grid, now - s2.days(float(W.get("lookback_days", 45))), now)
+    done = parse_time(job["done"]) if job.get("done") else None
+    newest = None
+    for p in passes:                                                       # newest first
+        if done and p["time"] <= done:
+            break
+        archive.assess(p, grid)
+        if s2.is_clear(p):
+            newest = p
+            break
+    if newest is None:
+        return {"why": "no new clear pass"}
+    res = {"new": True, "pass": iso(newest["time"]), "notable": False}
+    before = None
+    for p in (p for p in passes if p["time"] < newest["time"]):
+        archive.assess(p, grid)
+        if s2.is_clear(p):
+            before = p
+            break
+    if done is None or before is None:
+        return dict(res, why="the starting point: later passes are compared with this one")
+    A, B = archive.load_scene(newest, grid), archive.load_scene(before, grid)
+    change = s2.change_of(B, A, grid.res)
+    ha = grid.res * grid.res / 1e4
+    patches = components(change["mask"]) if change["mask"].any() else []
+    patch = max((len(c) for c in patches), default=0) * ha if patches else float(change["mask"].sum()) * ha
+    res.update(after_time=iso(newest["time"]), before_time=iso(before["time"]), patch_ha=round(patch, 2),
+               hot_after=s2.hot_count(A), hot_before=s2.hot_count(B), clouds=bool(change["clouds"]),
+               megabytes=round(archive.bytes / 1e6, 1),
+               **{k: float(change[k]) for k in ("area_ha", "dark_ha", "bright_ha", "share", "compared")})
+    res["notable"] = bool(patch >= float(W.get("min_patch_ha", 0.5)) and change["compared"] >= 0.8)
+    if res["notable"]:
+        render(cfg, {"headline": job["name"], "where": "", "lat": job["lat"], "lon": job["lon"], "half_km": job["half_km"]},
+               grid, B, A, change, res, out)
+        res["picture"] = out.name
+    log.info("watched place %s: %s -> %s, largest patch %.2f ha%s", job["name"], res["before_time"], res["after_time"], patch,
+             " (to be posted)" if res["notable"] else "")
+    return res
 
 
 # ---------------------------------------------------------------- the picture

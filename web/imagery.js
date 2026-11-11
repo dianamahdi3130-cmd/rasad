@@ -24,6 +24,12 @@ const C1_FILES = "https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.
 // asset name in the index -> file name in the archive
 const BAND_FILE = {red:"B04", green:"B03", blue:"B02", nir08:"B8A", swir16:"B11", swir22:"B12", scl:"SCL"};
 const REFLECTANCE = ["red", "green", "blue", "nir08", "swir16", "swir22"];
+// Landsat 8 and 9 (USGS, 30 m, every 8 days between them) add dates between Sentinel-2's passes.
+// Their files are on Microsoft's Planetary Computer: free, but each request carries a short-lived
+// token that the service hands out to anyone. They reach that archive two to three weeks late.
+const LANDSAT_URL = "https://planetarycomputer.microsoft.com/api";
+const LANDSAT = "landsat-c2-l2";
+const SIGNED_HOST = /^https:\/\/[a-z0-9]+\.blob\.core\.windows\.net\//;
 const D2R = Math.PI / 180, R_MERC = 6378137;
 
 class ImageryError extends Error {
@@ -247,6 +253,7 @@ async function decompress(bytes, size) {
 function createEngine(options = {}) {
   const doFetch = options.fetch || ((...a) => fetch(...a));
   const searchUrl = options.searchUrl || SEARCH_URL;
+  const landsatUrl = options.landsat === false ? null : (options.landsatUrl || LANDSAT_URL);
   const unpack = options.decompress || decompress;
   const stats = {bytes: 0, requests: 0};
   const BUDGET = {json: 25000, head: 20000, tile: 45000, ...(options.budgets || {})};   // ms, per request
@@ -291,8 +298,26 @@ function createEngine(options = {}) {
     }
     throw lastError;
   }
+  // the token for Landsat's files: asked for once, used until shortly before it runs out
+  let token = null, asking = null;
+  async function signed(url, signal) {
+    if (!SIGNED_HOST.test(url)) return url;
+    if (!token || token.until - Date.now() < 5 * 60e3) {
+      // many tiles start at once: they all wait for the one request (the service limits how often it is asked)
+      if (!asking) {
+        asking = getJSON(`${landsatUrl}/sas/v1/token/${LANDSAT}`, null, null).then(d => {
+          if (!d || !d.token) throw new ImageryError("source", "no token");
+          token = {value: d.token, until: Date.parse(d["msft:expiry"]) || Date.now() + 30 * 60e3};
+        }).finally(() => { asking = null; });
+      }
+      await asking;
+      if (signal && signal.aborted) throw new ImageryError("aborted");
+    }
+    return url + "?" + token.value;
+  }
   async function getRange(url, start, end, signal, budget = BUDGET.tile) {
-    return request(url, {headers: {Range: `bytes=${start}-${end}`}}, budget, signal, async res => {
+    const address = await signed(url, signal);
+    return request(address, {headers: {Range: `bytes=${start}-${end}`}}, budget, signal, async res => {
       if (res.status !== 206) {                          // never download a whole 200 MB file by accident
         try { if (res.body) res.body.cancel(); } catch (e) { /* nothing to cancel */ }
         throw new ImageryError("source", "range not served");
@@ -332,7 +357,9 @@ function createEngine(options = {}) {
     return entry.promise;
   }
   async function readHeader(url, signal) {
-    const chunks = [{start: 0, bytes: await getRange(url, 0, HEAD_BYTES - 1, signal, BUDGET.head)}];
+    // Landsat's files have many small tiles: their directory is longer
+    const first = SIGNED_HOST.test(url) ? 4 * HEAD_BYTES : HEAD_BYTES;
+    const chunks = [{start: 0, bytes: await getRange(url, 0, first - 1, signal, BUDGET.head)}];
     const view = async (off, len) => {             // a DataView on [off, off+len) of the file
       let c = chunks.find(c => off >= c.start && off + len <= c.start + c.bytes.length);
       if (!c) {
@@ -514,6 +541,37 @@ function createEngine(options = {}) {
   // The passes over the box between two times, newest first. One entry per satellite per day; when
   // several overlapping tiles hold the same pass, the one that covers the box best is kept.
   async function listPasses(grid, from, to, signal) {
+    // Landsat is an extra: if its index does not answer, the Sentinel-2 passes are still listed
+    const [own, extra] = await Promise.all([listSentinel(grid, from, to, signal),
+      landsatUrl ? listLandsat(grid, from, to, signal).catch(e => { if (e.code === "aborted") throw e; return []; }) : []]);
+    return own.concat(extra).sort((a, b) => b.time - a.time);
+  }
+  async function listLandsat(grid, from, to, signal) {
+    const body = {collections: [LANDSAT], bbox: [grid.west, grid.south, grid.east, grid.north],
+      datetime: iso(from) + "/" + iso(to), limit: 100, query: {platform: {in: ["landsat-8", "landsat-9"]}}};
+    const d = await getJSON(landsatUrl + "/stac/v1/search", body, signal);
+    if (!d || !Array.isArray(d.features)) throw new ImageryError("source", "bad answer");
+    const best = new Map();
+    for (const it of d.features) {
+      const p = it.properties || {}, a = it.assets || {};
+      let proj;
+      try { proj = projectionOf(p); } catch (e) { continue; }
+      if (!it.id || !p.datetime || !a.qa_pixel || REFLECTANCE.some(name => !a[name] || !/^https:/.test(a[name].href || ""))) continue;
+      const cover = coverage(it.geometry, grid);
+      if (cover <= 0) continue;
+      const assets = {qa: {href: a.qa_pixel.href}};
+      for (const name of REFLECTANCE) {
+        const band = (a[name]["raster:bands"] || [])[0] || {};
+        assets[name] = {href: a[name].href, scale: band.scale ?? 2.75e-5, offset: band.offset ?? -0.2};
+      }
+      const key = p.datetime.slice(0, 10) + "|" + (p.platform || "landsat");
+      const pass = {key, date: p.datetime.slice(0, 10), datetime: p.datetime, time: Date.parse(p.datetime), platform: p.platform || "landsat",
+        id: it.id, collection: LANDSAT, sensor: "landsat", grid: "", proj, cover, tileCloud: p["eo:cloud_cover"], sky: null, assets, assetsChecked: true};
+      if (!best.has(key) || best.get(key).cover < cover) best.set(key, pass);
+    }
+    return [...best.values()];
+  }
+  async function listSentinel(grid, from, to, signal) {
     const body = {collections: COLLECTIONS, bbox: [grid.west, grid.south, grid.east, grid.north],
       datetime: iso(from) + "/" + iso(to), limit: 500, fields: FIELDS};
     const items = [];
@@ -594,7 +652,8 @@ function createEngine(options = {}) {
   async function assessPass(pass, grid, signal) {
     if (pass.sky) return pass.sky;
     const g = skyGrid(grid);
-    const scl = await withAssets(pass, signal, a => sampleBand(a.scl.href, g, pass.proj, {res: 20}, signal));
+    const scl = pass.sensor === "landsat" ? qaClasses(await sampleBand(pass.assets.qa.href, g, pass.proj, {res: 30}, signal))
+      : await withAssets(pass, signal, a => sampleBand(a.scl.href, g, pass.proj, {res: 20}, signal));
     pass.scl = scl;
     return pass.sky = skyOf(scl);
   }
@@ -608,11 +667,13 @@ function createEngine(options = {}) {
   async function loadScene(pass, grid, quality, signal) {
     const res = quality === "fast" ? Math.max(20, grid.res) : grid.res;
     return withAssets(pass, signal, async a => {
+      const landsat = pass.sensor === "landsat";
       const jobs = REFLECTANCE.map(name => sampleBand(a[name].href, grid, pass.proj,
         {res, linear: true, scale: a[name].scale, offset: a[name].offset}, signal));
-      jobs.push(sampleBand(a.scl.href, grid, pass.proj, {res: 20}, signal));
+      jobs.push(landsat ? sampleBand(a.qa.href, grid, pass.proj, {res: 30}, signal).then(qaClasses)
+        : sampleBand(a.scl.href, grid, pass.proj, {res: 20}, signal));
       const got = await Promise.all(jobs);
-      const scene = {pass, grid, quality, res: Math.max(res, 10), scl: got[REFLECTANCE.length]};
+      const scene = {pass, grid, quality, res: Math.max(res, landsat ? 30 : 10), scl: got[REFLECTANCE.length]};
       REFLECTANCE.forEach((name, i) => scene[name] = got[i]);
       return scene;
     });
@@ -620,6 +681,17 @@ function createEngine(options = {}) {
 
   return {stats, listPasses, assessPass, loadScene, openCog, sampleBand, skyGrid,
     forget() { cogs.clear(); tiles.clear(); tileBytes = 0; }};
+}
+
+// Landsat's quality bits (the low eight: nothing, cloud margin, cirrus, cloud, cloud shadow, snow,
+// clear, water) as the scene classes the rest of this file works with.
+function qaClasses(qa) {
+  const out = new Uint8Array(qa.length);
+  for (let i = 0; i < qa.length; i++) {
+    const q = qa[i];
+    out[i] = q & 1 || !q ? 0 : q & 10 ? 9 : q & 16 ? 3 : q & 4 ? 10 : q & 128 ? 6 : 5;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ the sky */
@@ -885,5 +957,5 @@ function hotSpots(scene) {
 
 return {VERSION, ImageryError, UTM, projectionOf, makeGrid, gridPoint, gridPixel, gridUTM, inflate, decompress,
   createEngine, skyOf, refineSky, isClear, grade, pickPair, stretchOf, colorImage, swirImage, changeOf, changeImage,
-  hotSpots, COLOR_BANDS, SWIR_BANDS, CLEAR, quantiles};
+  hotSpots, qaClasses, COLOR_BANDS, SWIR_BANDS, CLEAR, quantiles};
 });

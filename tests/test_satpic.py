@@ -364,6 +364,79 @@ class PictureTests(unittest.TestCase):
         self.assertIsNotNone(satpic.collect(self.cfg, self.inc, T("2026-11-10T03:30:00Z")))
 
 
+class WatchedPlaceTests(unittest.TestCase):
+    """Places watched whether or not anything burns: a new clear pass is compared with the one
+    before it, and only a patch of clear change is posted."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        self.cfg = copy.deepcopy(engine.DEFAULTS)
+        self.cfg.update(_state_dir=self.root / "state", _site_dir=self.root / "site", app_url="https://app.test/")
+        self.cfg["watch"]["places"] = [{"name": "مطار الاختبار (Test Airport)", "lat": LAT, "lon": LON, "half_km": 1},
+                                       {"name": "", "lat": 1, "lon": 2}, {"name": "بلا إحداثيات"}]
+        self.state = {}
+        self.fake = FakeArchive(PASSES)
+
+    def look(self, now):
+        """One round of the scanner and the worker, as in the live loop."""
+        satpic.watch_request(self.cfg, self.state, T(now))
+        satpic.watch_work_one(self.cfg, T(now), session=self.fake)
+        return satpic.watch_results(self.cfg, self.state, T(now))
+
+    def remember(self, results):
+        for place, res, picture in results:
+            self.state.setdefault("watch", {})[place["key"]] = {"pass": res["pass"]}
+
+    def test_only_complete_places_are_watched(self):
+        places = satpic.watch_places(self.cfg)
+        self.assertEqual([(p["name"], p["half_km"]) for p in places], [("مطار الاختبار (Test Airport)", 1.0)])
+
+    def test_the_first_clear_pass_is_the_starting_point_then_a_changed_pass_is_posted_once(self):
+        # 3 November: the newest clear pass is 5 October (the two after it are cloudy): the starting point
+        results = self.look("2026-11-03T00:00:00Z")
+        self.assertEqual([(r["pass"][:10], r["notable"], pic) for _, r, pic in results], [("2026-10-05", False, None)])
+        self.remember(results)
+        self.assertEqual(self.look("2026-11-03T04:00:00Z"), [], "nothing new: silent")
+        calls = len(self.fake.calls)
+        satpic.watch_work_one(self.cfg, T("2026-11-03T05:00:00Z"), session=self.fake)
+        self.assertEqual(len(self.fake.calls), calls, "not looked at again before three hours have passed")
+        # 10 November: the pass of the 9th is clear and a hectare has darkened
+        results = self.look("2026-11-10T00:00:00Z")
+        self.assertEqual(len(results), 1)
+        place, res, picture = results[0]
+        self.assertTrue(res["notable"])
+        self.assertGreaterEqual(res["patch_ha"], 0.9)
+        self.assertEqual((res["before_time"][:10], res["after_time"][:10]), ("2026-10-05", "2026-11-09"))
+        with Image.open(picture) as im:
+            self.assertEqual(im.size, (1080, 1350))
+        text = satpic.watch_caption(place, res, self.cfg)
+        self.assertEqual(text.split("\n")[0], "🛰 <b>تغيّر مرصود في موقع مراقَب: مطار الاختبار (\u2068Test Airport\u2069\u200f)</b>")
+        self.assertIn("قبل: 5 تشرين الأول · بعد: 9 تشرين الثاني الساعة 10:22 (بغداد)", text)
+        self.assertIn(f"أكبر بقعة متغيّرة نحو {satpic.area_text(res['patch_ha'])}", text)
+        self.assertIn("🔥 لهب أو حرارة شديدة ظاهرة لحظة التقاط صورة «بعد»، ولم تكن ظاهرة قبل.", text)
+        self.assertIn("قد يكون التغيّر طبيعياً", text)
+        self.assertIn("<code>26.0000, 50.0000</code>", text)
+        self.assertIn('href="https://app.test/?e=ba%3A26.00000%2C50.00000%2C1%2C20261005%2C20261109%3B', text)
+        self.assertNotIn("مؤكد", text)
+        self.remember(results)
+        self.assertEqual(self.look("2026-11-10T04:00:00Z"), [], "handled: not offered again")
+
+    def test_a_new_pass_without_a_clear_patch_is_remembered_silently(self):
+        self.fake = FakeArchive([{"date": "2026-10-05"}, {"date": "2026-11-04"}, {"date": "2026-11-09"}])
+        self.remember(self.look("2026-11-06T00:00:00Z"))                   # starting point: 4 November
+        results = self.look("2026-11-10T00:00:00Z")
+        self.assertEqual([(r["pass"][:10], r["notable"], pic) for _, r, pic in results], [("2026-11-09", False, None)])
+        self.assertLess(results[0][1]["patch_ha"], 0.5)
+
+    def test_a_place_taken_off_the_list_is_no_longer_looked_at(self):
+        self.look("2026-11-03T00:00:00Z")
+        self.cfg["watch"]["places"] = []
+        self.assertEqual(self.look("2026-11-10T00:00:00Z"), [])
+        self.assertEqual(list((satpic.queue_dir(self.cfg) / "watch").glob("*.job.json")), [])
+
+
 class AlertTextTests(unittest.TestCase):
     def test_a_report_that_arrives_hours_late_says_why_and_does_not_promise_a_video(self):
         now = T("2026-11-10T12:19:00Z")
@@ -474,6 +547,33 @@ class CycleTests(unittest.TestCase):
         self.now = T("2026-11-10T00:06:00Z")
         engine.run_cycle(self.cfg, send=False)
         self.assertEqual(self.deliver.call_count, 2)
+
+    def test_a_watched_place_is_posted_as_its_own_post_once_and_remembered_in_the_state(self):
+        self.stored(status="new", first="2026-11-09T20:00:00Z", last="2026-11-09T20:00:00Z")      # an unrelated small fire
+        self.cfg["watch"]["places"] = [{"name": "ميناء الاختبار", "lat": LAT, "lon": LON, "half_km": 1}]
+        archive = FakeArchive(PASSES)
+        self.now = T("2026-11-03T00:00:00Z")
+        engine.run_cycle(self.cfg, send=False)                                # writes the job
+        satpic.watch_work_one(self.cfg, self.now, session=archive)            # the starting point (5 October)
+        state = engine.run_cycle(self.cfg, send=False)
+        self.deliver.assert_not_called()
+        key = satpic.watch_places(self.cfg)[0]["key"]
+        self.assertEqual(state.state["watch"][key]["pass"][:10], "2026-10-05")
+        self.now = T("2026-11-10T00:00:00Z")
+        engine.run_cycle(self.cfg, send=False)                                # tells the worker what is known
+        satpic.watch_work_one(self.cfg, self.now, session=archive)
+        state = engine.run_cycle(self.cfg, send=False)
+        self.deliver.assert_called_once()
+        args, kwargs = self.deliver.call_args
+        self.assertTrue(args[2].startswith("🛰 <b>تغيّر مرصود في موقع مراقَب: ميناء الاختبار</b>"))
+        self.assertEqual(Path(args[3]).suffix, ".jpg")
+        self.assertIsNone(kwargs.get("reply_to"))
+        self.assertEqual((state.state["watch"][key]["pass"][:10], state.state["watch"][key]["sent_at"]), ("2026-11-09", "2026-11-10T00:00:00Z"))
+        self.now = T("2026-11-10T04:00:00Z")
+        engine.run_cycle(self.cfg, send=False)
+        satpic.watch_work_one(self.cfg, self.now, session=archive)
+        engine.run_cycle(self.cfg, send=False)
+        self.deliver.assert_called_once()
 
     def test_an_alerted_fire_older_than_a_week_is_kept_while_it_waits_for_its_picture(self):
         self.running_since("2026-10-30T00:00:00Z")

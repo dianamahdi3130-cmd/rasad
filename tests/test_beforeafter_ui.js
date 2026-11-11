@@ -141,7 +141,8 @@ function appPage(items, ba) {
     URLSearchParams, BA: ba,
   });
   context.window = context;
-  vm.runInContext(inline.split("/* ---------- events ---------- */")[0] + "\nglobalThis.app = {S, route, setRoute, showFocus, openDetail};", context);
+  vm.runInContext(inline.split("/* ---------- events ---------- */")[0]
+    + "\nglobalThis.app = {S, route, setRoute, showFocus, openDetail, dailyDefault, dailyStep, dailyUrl, dailyLabel};", context);
   context.app.S.items = items;
   return {app: context.app, elements, context};
 }
@@ -164,6 +165,20 @@ test("an incident carries the «قبل وبعد» button, and its route goes to 
   assert.deepEqual(seen, ["ba:26.2,50.8,2"], "the viewer's routes are handed to it");
   app.setRoute(incident.id);
   assert.deepEqual(seen.slice(1), [incident.id, "leave"], "any other screen closes it");
+});
+
+test("NASA's daily picture: the newest one that is published by now, a day at a time, never the future", () => {
+  const {app} = appPage([], undefined), at = s => Date.parse(s);
+  assert.deepEqual({...app.dailyDefault(at("2026-11-11T15:00:00Z"))}, {date: "2026-11-11", pass: "pm"});
+  assert.deepEqual({...app.dailyDefault(at("2026-11-11T11:00:00Z"))}, {date: "2026-11-11", pass: "am"}, "before the afternoon pass is out: the morning one");
+  assert.deepEqual({...app.dailyDefault(at("2026-11-11T01:30:00Z"))}, {date: "2026-11-10", pass: "pm"}, "at night: yesterday afternoon");
+  const d = {date: "2026-11-10", pass: "pm"}, now = at("2026-11-11T01:30:00Z");
+  assert.deepEqual({...app.dailyStep(d, -1, now)}, {date: "2026-11-09", pass: "pm"});
+  assert.deepEqual({...app.dailyStep(d, 1, now)}, {date: "2026-11-11", pass: "pm"});
+  assert.deepEqual({...app.dailyStep({date: "2026-11-11", pass: "am"}, 1, now)}, {date: "2026-11-11", pass: "am"}, "not past today");
+  assert.equal(app.dailyUrl(d), "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/2026-11-10/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg");
+  assert.match(app.dailyUrl({date: "2026-11-10", pass: "am"}), /MODIS_Terra_CorrectedReflectance_TrueColor\/default\/2026-11-10\//);
+  assert.equal(app.dailyLabel(d), "10 تشرين الثاني");
 });
 
 test("without the imagery scripts the app works as before, with no button", () => {
@@ -275,6 +290,29 @@ test("the divider follows the finger, the views switch, and a cloudy choice is f
   await p.until("the cloudy pass shown", () => /class="warn"/.test(p.el("#baFind").innerHTML) && p.el("#baVeil").hidden);
   assert.match(p.el("#baFind").innerHTML, /غيوم أو ظلالها في إحدى الصورتين/);
   assert.ok(decodeURIComponent(p.context.location.hash).includes("," + cloudy.date.replace(/-/g, "") + ","), "the link now carries the chosen date");
+});
+
+test("Landsat dates are offered in the list, but the default pair stays on Sentinel-2", async () => {
+  const passes = [{date: ago(40)}, {date: ago(12), sensor: "landsat"}, {date: ago(6), burn: true}];
+  const archive = makeArchive({lat: 26, lon: 50, passes});
+  const p = page(archive);
+  p.context.setRoute("ba:26.00000,50.00000,1");
+  await p.loaded();
+  assert.ok(p.el("#baDates").innerHTML.includes(H.dateAr(Date.parse(ago(40) + "T07:22:30Z"))), "before: the Sentinel-2 pass, though Landsat's is nearer");
+  assert.doesNotMatch(p.el("#baDates").innerHTML, /Landsat/);
+  await p.until("the Landsat pass checked", () => /صافية · Landsat 30 م/.test(p.el("#baList").innerHTML));
+  assert.doesNotMatch(p.el("#baFind").innerHTML, /Landsat/);
+  const landsat = archive.passes[1];
+  p.act("take", {side: "before", key: landsat.date + "|" + landsat.platform});
+  await p.until("the Landsat picture shown", () => /القمر الأمريكي Landsat/.test(p.el("#baFind").innerHTML) && p.el("#baVeil").hidden);
+  assert.match(p.el("#baDates").innerHTML, /Landsat 30 م/);
+  assert.match(p.el("#baQ").textContent, /دقة 30 م/);
+  assert.doesNotMatch(p.el("#baFind").innerHTML, /تقدير أولي/);
+  // only Landsat over a place: then it is used rather than nothing
+  const only = [{sensor: "landsat", time: 2, cover: 1, sky: {cloud: 0, shadow: 0, cirrus: 0, nodata: 0, hidden: 0}},
+    {sensor: "landsat", time: 1, cover: 1, sky: {cloud: 0, shadow: 0, cirrus: 0, nodata: 0, hidden: 0}}];
+  assert.equal(H.choose(only, null).after.pass, only[0]);
+  assert.equal(H.sensorText(only[0]), " · Landsat 30 م");
 });
 
 test("an incident opens on the passes around it; a fire newer than the last pass shows «قبل» only", async () => {

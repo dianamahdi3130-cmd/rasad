@@ -122,6 +122,19 @@ portrait JPEG; the check posts it once as a reply to the alert, remembers it (`i
 the app opens the incident's comparison on the same two dates. No clear pass within 12 days: the
 request is closed quietly. By hand: `python -m rasad satpic --lat … --lon … --start …Z`.
 
+## Added on 11 Nov 2026 (the owner asked for all three)
+- **Daily picture on the map**: a third background, NASA's GIBS tiles (250 m), morning (Terra)
+  and early afternoon (NOAA-20), a day at a time. Shows the scene and large smoke, not facilities.
+- **Landsat 8/9 in the viewer**: extra dates (30 m) from Microsoft's Planetary Computer, read like
+  the Sentinel-2 files but signed with a free token. They are in the list for choosing by hand;
+  the default pair stays on Sentinel-2. In that archive they are 2–3 weeks late, so they help for
+  older comparisons, not for a fire of this week. A pair of two different satellites is said so.
+- **Watched places** (`config.yaml` → `watch.places`, read by the monitor): every 3 hours the
+  worker looks for a new clear Sentinel-2 pass over each place and compares it with the clear
+  pass before it; the check posts the picture only if the largest connected patch of change is at
+  least `min_patch_ha` (0.5 ha). The first clear pass is the starting point. Ports change with
+  every ship: raise `min_patch_ha` there, or expect a post with most passes.
+
 ## Not built yet
 Phases 2 and 3 above (sub-metre commercial pictures need a paid order per event); a time-lapse
 through all clear passes; partial reading of a tile (would cut the download for boxes near a tile

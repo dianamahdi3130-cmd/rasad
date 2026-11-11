@@ -21,14 +21,14 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/geocollect.py` | which European pictures each check reads (never-read first, then settled second reads) |
 | `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert) and experimental day finder (never alerts alone) |
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker |
-| `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after picture posted under an alert when a clear pass comes: queue, worker, picture, caption |
+| `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after pictures for the channel: under an alert when a clear pass comes, and for the watched places of `config.yaml` → `watch.places` when a new clear pass shows a patch of change (queue, worker, picture, captions) |
 | `rasad/smoke.py` | smoke as a second witness, **silent for now**: by day, a streak in the 500 m visible pictures counts only when new, anchored at the heat, one-directional in 3+ pictures and not cold. Recorded on the incident for the app; never posted, never part of a verdict |
 | `rasad/notify.py`, `rasad/updates.py` | Telegram sending (HTML, replies under the first post); intensity updates |
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
 | `rasad/main.py` | CLI: `cycle`, `media-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `cloud-publish` |
-| `web/index.html` | the app's page, styles and main script (Arabic RTL, Leaflet 1.9.4). `web/sw.js` holds the cache name |
-| `web/imagery.js`, `web/beforeafter.js` | «قبل وبعد»: Sentinel-2 pictures of any place read in the phone itself (engine, no page code) and its screen. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
+| `web/index.html` | the app's page, styles and main script (Arabic RTL, Leaflet 1.9.4). The map has three backgrounds: map, satellite, and NASA's daily picture (`DAILY`, GIBS tiles, 250 m). `web/sw.js` holds the cache name |
+| `web/imagery.js`, `web/beforeafter.js` | «قبل وبعد»: Sentinel-2 pictures (10 m) of any place read in the phone itself (engine, no page code) and its screen, with Landsat 8/9 (30 m, from Microsoft's Planetary Computer, signed by a free token) as extra dates. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
 | `worker/src/index.js` | private app on Cloudflare (Worker + Durable Object `Hub`): logins bound to a device, data, clips, admin, ingest |
 | `scripts/loop.sh`, `scripts/branches.sh` | the ~5.5-hour watching loop; saving to the data branches |
 | `.github/workflows/` | `rasad.yml` monitor, `probe.yml` diagnosis on real data, `deploy-worker.yml` private app |
@@ -71,6 +71,9 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
   alone is at most «مرجّح». The day finder never alerts on its own.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when
   a clear Sentinel-2 pass comes (within `satpic.max_days`); the fire is kept in memory until then.
+- A watched place is posted only for a new clear pass with a connected patch of change of at
+  least `watch.min_patch_ha`, once, as its own post; its first clear pass is the starting point
+  and is never posted. What was handled is in the memory (`state["watch"]`).
 - Smoke findings are silent: `inc["smoke"]` is shown in the app as «دخان محتمل (تجريبي)» and
   counted by the live check; nothing may post it or let it change a verdict until its record over
   real fires has been reviewed with the owner (`docs/reviews/smoke_and_satellites_20261110.md`).
