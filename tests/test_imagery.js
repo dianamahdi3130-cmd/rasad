@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const zlib = require("node:zlib");
 const I = require("../web/imagery.js");
-const {makeArchive, makeCog, SEARCH, BASE} = require("./support/archive.js");
+const {makeArchive, makeCog, SEARCH, BASE, LANDSAT_API, LANDSAT_FILES} = require("./support/archive.js");
 
 const PLACE = {lat: 26.0, lon: 50.0};
 const FROM = Date.parse("2026-08-01T00:00:00Z"), TO = Date.parse("2026-11-10T00:00:00Z");
@@ -178,6 +178,37 @@ test("if the files are not where the name says, the record is asked once and the
   assert.equal(archive.calls.filter(c => c.url.includes("/items/")).length, 1, "not asked again");
 });
 
+test("Landsat passes are listed beside Sentinel-2's and read with their token, scale and quality bits", async () => {
+  const {engine, grid, archive} = setup([{date: "2026-11-04"}, {date: "2026-10-20", sensor: "landsat"},
+    {date: "2026-10-28", sensor: "landsat", cloud: "all"}]);
+  const passes = await engine.listPasses(grid, FROM, TO);
+  assert.deepEqual(passes.map(p => [p.date, p.sensor || "sentinel"]), [["2026-11-04", "sentinel"], ["2026-10-28", "landsat"], ["2026-10-20", "landsat"]]);
+  const [, cloudy, clear] = passes;
+  assert.equal((await engine.assessPass(clear, grid)).hidden, 0);
+  near((await engine.assessPass(cloudy, grid)).hidden, 1, 1e-9, "cloud from the quality bits");
+  const scene = await engine.loadScene(clear, grid, "fast");
+  assert.equal(scene.res, 30, "30 m whatever was asked");
+  const {E, N} = I.gridUTM(grid, clear.proj);
+  for (const band of ["blue", "red", "nir08", "swir22"]) for (const i of [0, 200 * 100 + 100, 200 * 200 - 1])
+    near(scene[band][i], BASE[band] + 2e-5 * (E[i] - archive.Ec) + 1e-5 * (N[i] - archive.Nc), 5e-5, `${band} at pixel ${i}`);
+  assert.ok(scene.scl.every(c => c === 5));
+  assert.equal(archive.tokens, 1, "the token is asked for once, however many tiles start together");
+  const files = archive.calls.filter(c => c.url.startsWith(LANDSAT_FILES));
+  assert.ok(files.length >= 14 && files.every(c => c.url.endsWith("?sig=test") && c.range), "every file request is signed and by range");
+  assert.deepEqual([...I.qaClasses(new Uint8Array([1, 0, 64, 8, 2, 16, 4, 192]))], [0, 0, 5, 9, 9, 3, 10, 6]);
+});
+
+test("if Landsat's index does not answer, the Sentinel-2 passes are still listed; it can be switched off", async () => {
+  const {engine, grid, archive} = setup([{date: "2026-11-04"}, {date: "2026-10-20", sensor: "landsat"}]);
+  archive.fail = url => url.startsWith(LANDSAT_API) ? "down" : null;
+  assert.deepEqual((await engine.listPasses(grid, FROM, TO)).map(p => p.date), ["2026-11-04"]);
+  archive.fail = null;
+  const plain = I.createEngine({fetch: archive.fetch, landsat: false});
+  archive.calls.length = 0;
+  assert.deepEqual((await plain.listPasses(grid, FROM, TO)).map(p => p.date), ["2026-11-04"]);
+  assert.ok(archive.calls.every(c => !c.url.startsWith(LANDSAT_API)));
+});
+
 /* ---------- the sky and the default pair ---------- */
 test("cloud is judged over the box itself, and the default pair is the nearest clear passes", async () => {
   const {engine, grid} = setup([
@@ -301,7 +332,7 @@ test("the archive being down, slow or wrong gives a named failure after one retr
   const {engine, grid, archive} = setup([{date: "2026-11-04"}], {budgets: {json: 40, head: 40, tile: 40}});
   archive.fail = () => "down";
   assert.equal(await code(engine.listPasses(grid, FROM, TO)), "source");
-  assert.equal(archive.calls.length, 2, "tried twice");
+  assert.equal(archive.calls.filter(c => c.url === SEARCH + "/search").length, 2, "tried twice");
   archive.fail = () => 503;
   assert.equal(await code(engine.listPasses(grid, FROM, TO)), "source");
   archive.fail = () => "hang";

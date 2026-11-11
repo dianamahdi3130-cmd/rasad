@@ -106,6 +106,9 @@ DEFAULTS = {
     # The before/after Sentinel-2 picture sent under an alert once a clear pass comes (satpic.py).
     "satpic": {"enabled": True, "max_days": 12, "retry_hours": 3, "half_km": 2, "approx_half_km": 3,
                "lookback_days": 75, "job_budget_s": 170, "sea": False},
+    # Places watched whether or not anything burns there (satpic.py): add them in config.yaml.
+    "watch": {"enabled": True, "places": [], "check_hours": 3, "min_patch_ha": 0.5, "lookback_days": 45,
+              "half_km": 2, "job_budget_s": 170},
     # Smoke as a second witness, silent for now (smoke.py holds the rules and their numbers).
     "smoke": {"enabled": True},
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
@@ -1045,6 +1048,20 @@ def run_cycle(cfg, send=True, alert_now=False):
             S.sent = True
             inc["satpic"] = dict(satpic.facts(inc, result), sent_at=iso(now))
             log.info("SATELLITE PICTURE %s: %s -> %s", inc["id"], inc["satpic"]["before"], inc["satpic"]["after"])
+
+    # Watched places: a new clear pass with a patch of clear change is posted once, as its own
+    # post; a pass without one, and the first pass (the starting point), are only remembered.
+    for place, result, picture in satpic.watch_results(cfg, S.state, now):
+        seen = S.state.setdefault("watch", {})
+        if picture is None:
+            seen[place["key"]] = {"pass": result["pass"], "name": place["name"]}
+        elif pictures_left:
+            pictures_left -= 1
+            if post(satpic.watch_caption(place, result, cfg), picture):
+                S.sent = True
+                seen[place["key"]] = {"pass": result["pass"], "name": place["name"], "sent_at": iso(now),
+                                      "patch_ha": result.get("patch_ha")}
+                log.info("WATCHED PLACE %s: change posted (%s)", place["name"], result["pass"])
 
     # Smoke, silent for now: a daytime fire is given to the worker, and what it finds is written
     # on the incident for the app. Nothing here is posted and the verdict is not touched.

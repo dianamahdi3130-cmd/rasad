@@ -97,6 +97,24 @@ test("passes are listed around the event or the dates of a link, never the whole
   assert.equal(H.distanceText(240.4), "240 م"); assert.equal(H.distanceText(2345), "2.35 كم");
 });
 
+test("the film's script: before, the divider sweeps to after, the change is marked, and back to before", () => {
+  const film = H.filmPlan(true), short = H.filmPlan(false);
+  assert.ok(film.duration > 9 && film.duration < 11, "about ten seconds");
+  assert.ok(short.duration < film.duration - 3, "without a change to show, that part is left out");
+  assert.deepEqual(film.at(0), {phase: "before", split: 0, change: 0});
+  assert.deepEqual(film.at(1.0), {phase: "before", split: 0, change: 0}, "«قبل» is held first");
+  const sweep = [1.5, 2.0, 2.4, 2.8, 3.3].map(t => film.at(t).split);
+  assert.ok(sweep.every((s, i) => i === 0 || s > sweep[i - 1]), "the divider only moves forward");
+  assert.equal(film.at(2.4).split, 0.5, "half way at the middle of the sweep");
+  assert.deepEqual(film.at(4.0), {phase: "after", split: 1, change: 0});
+  assert.equal(film.at(6.5).change, 1, "the change is drawn fully while it is held");
+  assert.ok(film.at(5.0).change > 0 && film.at(5.0).change < 1, "and fades in");
+  assert.deepEqual(film.at(film.duration), {phase: "end", split: 0, change: 0}, "it ends where it began: it loops without a jump");
+  assert.deepEqual(film.at(99), film.at(film.duration));
+  for (let t = 0; t <= short.duration; t += 0.1) assert.equal(short.at(t).change, 0);
+  assert.equal(H.filmType(), null, "no recorder here: the app then says so instead of failing");
+});
+
 test("flames already there before are told apart from new ones", () => {
   const after = [{lat: 30.61, lon: 47.33}, {lat: 30.65, lon: 47.36}], before = [{lat: 30.6101, lon: 47.3301}];
   assert.deepEqual(H.splitHot(after, before), {fresh: 1, old: 1});
@@ -112,6 +130,13 @@ test("the app loads both scripts, with one version shared by the page and the of
   assert.equal(tags[1][2], version);
   assert.ok(sw.includes(`"imagery.js?v=${version}"`) && sw.includes(`"beforeafter.js?v=${version}"`), "the offline cache holds the same versions");
   assert.ok(sw.includes(`const CACHE = "firms-v${version}"`), "and the cache name moves with them");
+  // the page knows its own version, to tell when the site has a newer one (an installed app stays open for days)
+  assert.ok(html.includes(`const APP_V = ${version};`), "APP_V in index.html is the same number");
+  const newer = new Function("APP_V", "return " + /function newerVersion\(swText\)\{[^\n]*\}/.exec(html)[0])(+version);
+  assert.equal(newer(sw), false, "this page is the current one");
+  assert.equal(newer(`const CACHE = "firms-v${+version + 1}";`), true);
+  assert.equal(newer("something else"), false);
+  for (const id of ["finder", "finderQ", "update", "updateBtn"]) assert.ok(html.includes(`id="${id}"`), id);
   assert.ok(html.indexOf("beforeafter.js") < html.indexOf("const S ="), "loaded before the app starts");
   for (const id of ["baBtn", "baSheet", "pickBar", "pickCancel"]) assert.ok(html.includes(`id="${id}"`), id);
   for (const file of ["imagery.js", "beforeafter.js"]) assert.ok(!web(file).includes("الخليج العربي"));
@@ -141,7 +166,8 @@ function appPage(items, ba) {
     URLSearchParams, BA: ba,
   });
   context.window = context;
-  vm.runInContext(inline.split("/* ---------- events ---------- */")[0] + "\nglobalThis.app = {S, route, setRoute, showFocus, openDetail};", context);
+  vm.runInContext(inline.split("/* ---------- events ---------- */")[0]
+    + "\nglobalThis.app = {S, route, setRoute, showFocus, openDetail, dailyDefault, dailyStep, dailyUrl, dailyLabel};", context);
   context.app.S.items = items;
   return {app: context.app, elements, context};
 }
@@ -164,6 +190,20 @@ test("an incident carries the «قبل وبعد» button, and its route goes to 
   assert.deepEqual(seen, ["ba:26.2,50.8,2"], "the viewer's routes are handed to it");
   app.setRoute(incident.id);
   assert.deepEqual(seen.slice(1), [incident.id, "leave"], "any other screen closes it");
+});
+
+test("NASA's daily picture: the newest one that is published by now, a day at a time, never the future", () => {
+  const {app} = appPage([], undefined), at = s => Date.parse(s);
+  assert.deepEqual({...app.dailyDefault(at("2026-11-11T15:00:00Z"))}, {date: "2026-11-11", pass: "pm"});
+  assert.deepEqual({...app.dailyDefault(at("2026-11-11T11:00:00Z"))}, {date: "2026-11-11", pass: "am"}, "before the afternoon pass is out: the morning one");
+  assert.deepEqual({...app.dailyDefault(at("2026-11-11T01:30:00Z"))}, {date: "2026-11-10", pass: "pm"}, "at night: yesterday afternoon");
+  const d = {date: "2026-11-10", pass: "pm"}, now = at("2026-11-11T01:30:00Z");
+  assert.deepEqual({...app.dailyStep(d, -1, now)}, {date: "2026-11-09", pass: "pm"});
+  assert.deepEqual({...app.dailyStep(d, 1, now)}, {date: "2026-11-11", pass: "pm"});
+  assert.deepEqual({...app.dailyStep({date: "2026-11-11", pass: "am"}, 1, now)}, {date: "2026-11-11", pass: "am"}, "not past today");
+  assert.equal(app.dailyUrl(d), "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/2026-11-10/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg");
+  assert.match(app.dailyUrl({date: "2026-11-10", pass: "am"}), /MODIS_Terra_CorrectedReflectance_TrueColor\/default\/2026-11-10\//);
+  assert.equal(app.dailyLabel(d), "10 تشرين الثاني");
 });
 
 test("without the imagery scripts the app works as before, with no button", () => {
@@ -189,7 +229,8 @@ function page(archive, extra = {}) {
   const mapHandlers = {};
   const context = vm.createContext({
     console, setTimeout, clearTimeout, setInterval, clearInterval, AbortController, URL,
-    fetch: (url, init) => /nominatim/.test(url) ? Promise.reject(new Error("no names in tests")) : archive.fetch(url, init),
+    fetch: (url, init) => !/nominatim/.test(url) ? archive.fetch(url, init)
+      : extra.found ? Promise.resolve({ok: true, json: async () => extra.found}) : Promise.reject(new Error("no names in tests")),
     document: {querySelector: el, createElement: element, body: {classList: {add: c => bodyClass.add(c), remove: c => bodyClass.delete(c)}}},
     ImageData: class { constructor(data, w, h) { this.data = data; this.width = w; this.height = h; } },
     navigator: {}, devicePixelRatio: 2, addEventListener() {},
@@ -254,6 +295,13 @@ test("the divider follows the finger, the views switch, and a cloudy choice is f
   assert.equal(p.el("#baHandle").attrs["aria-valuenow"], "75");
   p.act("mode", {mode: "change"});
   assert.match(p.el("#baModes").innerHTML, /data-mode="change" aria-pressed="true"/);
+  // the film button is there; a browser that cannot record says so and points to the picture
+  assert.match(p.el("#baActions").innerHTML, /data-act="film">🎬 فيديو</);
+  p.act("film");
+  assert.match(p.el("#shot").innerHTML, /لا يسجّل الفيديو/);
+  assert.equal(p.el("#shot").hidden, false);
+  p.el("#shotClose").onclick();
+  assert.equal(p.el("#shot").hidden, true);
   p.act("blink");
   assert.equal(p.el("#baHandle").hidden, true, "no divider while the two pictures alternate");
   p.act("blink");
@@ -275,6 +323,29 @@ test("the divider follows the finger, the views switch, and a cloudy choice is f
   await p.until("the cloudy pass shown", () => /class="warn"/.test(p.el("#baFind").innerHTML) && p.el("#baVeil").hidden);
   assert.match(p.el("#baFind").innerHTML, /غيوم أو ظلالها في إحدى الصورتين/);
   assert.ok(decodeURIComponent(p.context.location.hash).includes("," + cloudy.date.replace(/-/g, "") + ","), "the link now carries the chosen date");
+});
+
+test("Landsat dates are offered in the list, but the default pair stays on Sentinel-2", async () => {
+  const passes = [{date: ago(40)}, {date: ago(12), sensor: "landsat"}, {date: ago(6), burn: true}];
+  const archive = makeArchive({lat: 26, lon: 50, passes});
+  const p = page(archive);
+  p.context.setRoute("ba:26.00000,50.00000,1");
+  await p.loaded();
+  assert.ok(p.el("#baDates").innerHTML.includes(H.dateAr(Date.parse(ago(40) + "T07:22:30Z"))), "before: the Sentinel-2 pass, though Landsat's is nearer");
+  assert.doesNotMatch(p.el("#baDates").innerHTML, /Landsat/);
+  await p.until("the Landsat pass checked", () => /صافية · Landsat 30 م/.test(p.el("#baList").innerHTML));
+  assert.doesNotMatch(p.el("#baFind").innerHTML, /Landsat/);
+  const landsat = archive.passes[1];
+  p.act("take", {side: "before", key: landsat.date + "|" + landsat.platform});
+  await p.until("the Landsat picture shown", () => /القمر الأمريكي Landsat/.test(p.el("#baFind").innerHTML) && p.el("#baVeil").hidden);
+  assert.match(p.el("#baDates").innerHTML, /Landsat 30 م/);
+  assert.match(p.el("#baQ").textContent, /دقة 30 م/);
+  assert.doesNotMatch(p.el("#baFind").innerHTML, /تقدير أولي/);
+  // only Landsat over a place: then it is used rather than nothing
+  const only = [{sensor: "landsat", time: 2, cover: 1, sky: {cloud: 0, shadow: 0, cirrus: 0, nodata: 0, hidden: 0}},
+    {sensor: "landsat", time: 1, cover: 1, sky: {cloud: 0, shadow: 0, cirrus: 0, nodata: 0, hidden: 0}}];
+  assert.equal(H.choose(only, null).after.pass, only[0]);
+  assert.equal(H.sensorText(only[0]), " · Landsat 30 م");
 });
 
 test("an incident opens on the passes around it; a fire newer than the last pass shows «قبل» only", async () => {
@@ -302,6 +373,28 @@ test("an incident opens on the passes around it; a fire newer than the last pass
   assert.match(p.el("#baList").innerHTML, /data-side="after"[^>]*aria-pressed="true"/);
   p.context.setRoute("ba:i:gone");
   assert.match(p.toasts.at(-1), /لم يعد في القائمة/);
+});
+
+test("the search field at the top finds any place: coordinates open it, a name lists what was found", async () => {
+  const archive = makeArchive({lat: 26, lon: 50, passes: PASSES()});
+  const found = [{lat: "30.549", lon: "47.662", display_name: "مطار البصرة الدولي, طريق المطار, ناحية الهارثة, قضاء البصرة, العراق"}];
+  const p = page(archive, {found});
+  assert.equal(p.el("#finder").hidden, false, "shown once the app has started");
+  const submit = text => { p.el("#finderQ").value = text; p.el("#finder").fire("submit", {preventDefault() {}}); };
+  submit("26.5, 50.1");
+  assert.equal(p.routes.at(-1), "ba:26.50000,50.10000,2", "coordinates go straight to the comparison");
+  submit("مطار البصرة");
+  assert.equal(p.routes.at(-1), "ba");
+  await p.until("the place that was found", () => /مطار البصرة الدولي/.test(p.el("#baSheet").innerHTML));
+  const sheet = p.el("#baSheet").innerHTML;
+  assert.match(sheet, /data-act="open" data-lat="30.549" data-lon="47.662"/);
+  assert.match(sheet, /data-name="مطار البصرة الدولي، طريق المطار، ناحية الهارثة"/, "a long address is cut to its first three parts");
+  assert.match(sheet, /data-act="show" data-lat="30.549" data-lon="47.662"[^>]*>على الخريطة</);
+  p.act("show", {lat: "30.549", lon: "47.662", name: "مطار البصرة الدولي"});
+  assert.equal(p.routes.at(-1), "", "back on the app's map (the pin needs the real map)");
+  assert.equal(p.el("#baSheet").hidden, true);
+  submit("   ");
+  assert.equal(p.routes.at(-1), "", "an empty search does nothing");
 });
 
 test("when the archive is down the screen says so and offers to try again", async () => {

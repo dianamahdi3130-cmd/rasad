@@ -41,6 +41,9 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     data comes ~3 hours after the pass). A fire NASA alone saw is not promised a video.
 14. The before/after picture says «تغيّر مرصود» or «لا تغيّر واضح», never a cause, never «مؤكد»,
     and always that each point is 10 m. One per fire, as a reply; not for fires at open sea.
+15. A watched place (`config.yaml` → `watch.places`) gets its own post, not a reply, only when a
+    new clear pass shows a patch of change: `satpic.watch_caption`. It names the place, the two
+    dates and the patch, says the change may be natural, and never a cause.
 12. A post that was sent is never sent again: after sending, the memory is saved at once
     (`.state_urgent` → `branches.sh save-state-if-due`).
 

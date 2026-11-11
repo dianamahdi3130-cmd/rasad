@@ -45,6 +45,19 @@ item (`raster:bands`). File tiles are 10.24 km wide (1024 px at 10 m, 512 px at 
 costs 1 to 4 tiles per band. To try a place from a session with network: `node -e` with
 `require("./web/imagery.js").createEngine()` (`listPasses`, `assessPass`, `loadScene`).
 
+Landsat 8/9 (30 m, a pass every 8 days between them, in the archive 2–3 weeks late): index
+`planetarycomputer.microsoft.com/api/stac/v1` (`landsat-c2-l2`), files on
+`landsateuwest.blob.core.windows.net`, each request signed with the token from
+`/api/sas/v1/token/landsat-c2-l2` (free, no account, ~45 minutes; ask once, not per tile: the
+service answers 429 otherwise). Reflectance = number × 0.0000275 − 0.2; cloud from `QA_PIXEL` bits.
+The app only; the channel's pictures use Sentinel-2.
+
+## NASA's daily picture (app map background, no key)
+GIBS tiles `gibs.earthdata.nasa.gov/wmts/epsg3857/best/<layer>/default/<YYYY-MM-DD>/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
+zoom 9 at most (250 m). `MODIS_Terra_CorrectedReflectance_TrueColor` (morning, out by ~10 UTC) and
+`VIIRS_NOAA20_CorrectedReflectance_TrueColor` (early afternoon, out by ~14 UTC). A day not
+published yet answers 404. `VIIRS_SNPP_…` no longer answers (checked 11 Nov 2026).
+
 ## Why was a fire missed? (in this order)
 1. Get the place and the time in UTC (Baghdad = UTC+3). A channel post's time is when it was
    posted, not when the satellite saw it.
@@ -74,5 +87,6 @@ Real data: `view.eumetsat.int`, `firms.modaps.eosdis.nasa.gov`, `overpass-api.de
 `overpass.kumi.systems`, `nominatim.openstreetmap.org`. Before/after imagery
 (`docs/plans/before-after.md`): `earth-search.aws.element84.com`,
 `e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com`, `sentinel-cogs.s3.us-west-2.amazonaws.com`,
+`planetarycomputer.microsoft.com`, `landsateuwest.blob.core.windows.net`, `gibs.earthdata.nasa.gov`,
 and later `sh.dataspace.copernicus.eu`, `identity.dataspace.copernicus.eu`.
 Never `api.telegram.org`: nothing may reach the channel from development.

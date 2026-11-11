@@ -69,6 +69,15 @@ header{position:sticky;top:0;z-index:1000;background:var(--bg);
 .dot{width:8px;height:8px;flex-shrink:0;border-radius:50%;background:var(--muted)}
 .dot.ok{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
 .dot.warn{background:var(--likely)} .dot.bad{background:var(--sure)}
+/* any place by name or coordinates, fire or no fire */
+.finder{display:flex;gap:8px;padding-block:0 10px}
+.finder input{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.finder input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.update{display:flex;align-items:center;gap:10px;justify-content:center;background:var(--accent);color:#fff;font-size:14px;padding:6px 12px}
+.update button{border:1px solid #fff;background:transparent;color:#fff;border-radius:8px;padding:2px 10px;font-size:13px}
+.ba-pin{display:flex;flex-direction:column;gap:6px;direction:rtl;min-width:170px;font:14px var(--font-ui)}
+.ba-pin small{color:#667}
+.ba-pin .btn{justify-content:center}
 .chips{display:flex;gap:8px;overflow-x:auto;padding-block:0 10px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:14px}
@@ -79,7 +88,7 @@ main{display:grid;grid-template-columns:1fr}
 #map{height:46vh;min-height:280px;background:var(--surface-2)}
 .panel{min-width:0}
 @media (min-width:900px){
-  main{grid-template-columns:minmax(360px,420px) 1fr;height:calc(100vh - 106px)}
+  main{grid-template-columns:minmax(360px,420px) 1fr;height:calc(100vh - var(--head,152px))}
   #map{height:100%;order:2}
   .panel{order:1;overflow-y:auto;border-inline-end:1px solid var(--line)}
 }
@@ -152,6 +161,11 @@ video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display
 .leaflet-container{font:inherit;background:var(--surface-2)}
 .leaflet-control-attribution{font-size:10px}
 .basemap{position:absolute;z-index:500;top:10px;left:10px}
+/* NASA's daily picture of the region: which day, morning or afternoon */
+.dailybar{position:absolute;z-index:500;top:54px;left:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:calc(100% - 20px)}
+.dailybar .btn{padding:5px 9px;font-size:13px}
+.dailybar .day{background:color-mix(in srgb,var(--bg) 88%,transparent);border:1px solid var(--line);border-radius:10px;padding:4px 9px;font-size:13px;font-weight:600}
+.dailybar .btn[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 /* the strength label hangs from the circle on a short line */
 .lead{display:none;position:absolute;left:14px;top:1px;width:22px;height:2px;border-radius:2px;
   background:currentColor;transform:rotate(-38deg);transform-origin:0 50%;color:var(--check)}
@@ -181,6 +195,7 @@ body.focus #focusCard{display:block;position:fixed;z-index:1600;left:0;right:0;b
 #focusCard .actions{margin-top:12px}
 @media (min-width:900px){body.focus #focusCard{left:auto;right:16px;bottom:16px;width:430px;border:1px solid var(--line);border-radius:16px}}
 body.focus .basemap{top:calc(66px + env(safe-area-inset-top,0px))}
+body.focus .dailybar,body.picking .dailybar{top:calc(110px + env(safe-area-inset-top,0px))}
 body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
 @media (min-width:900px){body.focus .leaflet-bottom{bottom:0}}
 
@@ -189,6 +204,7 @@ body.focus .leaflet-bottom{bottom:var(--card-h,0px)}
   align-items:center;justify-content:center;gap:14px;
   padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .shot img{max-width:100%;max-height:62vh;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);-webkit-touch-callout:default}
+.shot video,.shot canvas{width:auto;max-width:100%;max-height:62vh;border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);background:#000}
 .shot p{margin:0;color:#c9d3e3;font-size:14px;text-align:center;max-width:520px}
 .shot .actions{justify-content:center}
 .spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:var(--accent);animation:spin 1s linear infinite}
@@ -330,6 +346,11 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
     <div class="pill" id="status"><span class="dot"></span><span>جارٍ التحميل…</span></div>
     <button class="btn" id="adminBtn" type="button" hidden>الإدارة</button>
   </div>
+  <div class="update" id="update" hidden><span>يوجد تحديث للتطبيق</span><button type="button" id="updateBtn">حدّث الآن</button></div>
+  <form class="wrap finder" id="finder" role="search" hidden>
+    <input id="finderQ" type="search" enterkeyhint="search" autocomplete="off" aria-label="ابحث عن أي موقع" placeholder="ابحث عن أي موقع: اسم مكان أو إحداثيات">
+    <button class="btn" type="submit">بحث</button>
+  </form>
   <div class="wrap chips" id="chips" role="toolbar" aria-label="المناطق"></div>
 </header>
 
@@ -337,6 +358,7 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
   <div id="mapWrap">
     <div id="map" role="region" aria-label="الخريطة"></div>
     <button class="btn basemap" id="basemapBtn" type="button">قمر صناعي</button>
+    <div class="dailybar" id="dailyBar" hidden></div>
     <button class="btn bamap" id="baBtn" type="button" hidden>🛰 قبل وبعد</button>
   </div>
   <section class="panel wrap">
@@ -389,8 +411,8 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="imagery.js?v=14"></script>
-<script src="beforeafter.js?v=14"></script>
+<script src="imagery.js?v=15"></script>
+<script src="beforeafter.js?v=15"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24};
@@ -450,15 +472,63 @@ function initMap(){
   zoomLabels();
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", setBase);
 }
+// NASA's picture of the whole region, one per satellite per day (GIBS, free, no key): 250 m per
+// point, so it shows the scene and large smoke, not single facilities. Terra passes in the
+// morning, NOAA-20 in the early afternoon; a day's picture is published a few hours later.
+const DAILY = {
+  am: ["MODIS_Terra_CorrectedReflectance_TrueColor", "صباحاً", 10],     // [layer, label, UTC hour by which the day's picture is published]
+  pm: ["VIIRS_NOAA20_CorrectedReflectance_TrueColor", "بعد الظهر", 14],
+};
+const dayOf = ms => new Date(ms).toISOString().slice(0, 10);
+function dailyDefault(now = Date.now()){            // the newest picture that should be there by now
+  const hour = new Date(now).getUTCHours();
+  if (hour >= DAILY.pm[2]) return {date: dayOf(now), pass: "pm"};
+  if (hour >= DAILY.am[2]) return {date: dayOf(now), pass: "am"};
+  return {date: dayOf(now - 864e5), pass: "pm"};
+}
+function dailyStep(d, dir, now = Date.now()){       // one day earlier or later, never into the future
+  const date = dayOf(Date.parse(d.date + "T12:00:00Z") + dir * 864e5);
+  return date > dayOf(now) || date < "2018-01-01" ? d : {date, pass: d.pass};
+}
+function dailyUrl(d){
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${DAILY[d.pass][0]}/default/${d.date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`;
+}
+function dailyLabel(d){
+  return new Date(d.date + "T12:00:00Z").toLocaleDateString("ar-IQ-u-nu-latn", {timeZone:"UTC", day:"numeric", month:"long"});
+}
+function renderDaily(){
+  const bar = $("#dailyBar"), d = S.daily;
+  bar.hidden = !d;
+  if (!d) return;
+  bar.innerHTML = `<button class="btn" type="button" data-daily="-1" aria-label="اليوم السابق">أقدم</button>
+    <span class="day">${esc(dailyLabel(d))}</span>
+    <button class="btn" type="button" data-daily="1" aria-label="اليوم التالي">أحدث</button>
+    ${Object.entries(DAILY).map(([k, v]) => `<button class="btn" type="button" data-pass="${k}" aria-pressed="${d.pass === k}">${v[1]}</button>`).join("")}`;
+}
 function setBase(){
   if (S.base) S.map.removeLayer(S.base);
   const light = matchMedia("(prefers-color-scheme: light)").matches;
-  const [base, labels, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
-  S.base = L.layerGroup([
-    L.tileLayer(base, {maxZoom:17, attribution:attr}),
-    L.tileLayer(labels, {maxZoom:17, opacity:.9})
-  ]).addTo(S.map);
-  $("#basemapBtn").textContent = S.sat ? "خريطة" : "قمر صناعي";
+  if (S.daily){
+    const picture = L.tileLayer(dailyUrl(S.daily), {maxZoom:17, maxNativeZoom:9, attribution:"NASA EOSDIS GIBS"});
+    let missing = 0;
+    picture.on("tileerror", () => { if (++missing === 4) toast("لم تُنشر صورة هذا اليوم بعد. جرّب «أقدم»."); });
+    S.base = L.layerGroup([picture, L.tileLayer(TILES.sat[1], {maxZoom:17, opacity:.9})]).addTo(S.map);
+  } else {
+    const [base, labels, attr] = S.sat ? TILES.sat : (light ? TILES.light : TILES.dark);
+    S.base = L.layerGroup([
+      L.tileLayer(base, {maxZoom:17, attribution:attr}),
+      L.tileLayer(labels, {maxZoom:17, opacity:.9})
+    ]).addTo(S.map);
+  }
+  // the button names the next view: map -> satellite -> today's picture -> map
+  $("#basemapBtn").textContent = S.daily ? "خريطة" : S.sat ? "صورة اليوم" : "قمر صناعي";
+  renderDaily();
+}
+function nextBase(){
+  if (S.daily) { S.daily = null; S.sat = false; }
+  else if (S.sat) { S.sat = false; S.daily = dailyDefault(); }
+  else S.sat = true;
+  setBase();
 }
 function mwText(v){
   if (v == null || isNaN(v)) return "";
@@ -1000,7 +1070,13 @@ document.addEventListener("click", e => {
 });
 $("#closeBtn").onclick = () => S.sel ? setRoute(S.sel) : setRoute("");   // details -> the incident on the map
 $("#allBtn").onclick = () => setRoute("");                               // the map -> all incidents
-$("#basemapBtn").onclick = () => { S.sat = !S.sat; setBase(); };
+$("#basemapBtn").onclick = nextBase;
+$("#dailyBar").onclick = e => {
+  const step = e.target.closest("[data-daily]"), pass = e.target.closest("[data-pass]");
+  if (!S.daily || (!step && !pass)) return;
+  S.daily = step ? dailyStep(S.daily, +step.dataset.daily) : {date: S.daily.date, pass: pass.dataset.pass};
+  setBase();
+};
 addEventListener("popstate", route);
 addEventListener("keydown", e => {
   if (e.key !== "Escape") return;
@@ -1014,6 +1090,22 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
   try { if (!localStorage.getItem("rasad-install-seen")) { $("#install").hidden = false; localStorage.setItem("rasad-install-seen", "1"); } } catch {}
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// An installed app stays open in the phone's memory for days and keeps the page it started with.
+// When the site has a newer version than this page, say so and offer to load it.
+const APP_V = 15;                    // the same number as CACHE in sw.js and ?v= of the two scripts
+function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
+async function checkUpdate(){
+  try {
+    const r = await fetch("sw.js?t=" + Date.now(), {cache:"no-store"});
+    if (r.ok && newerVersion(await r.text())) $("#update").hidden = false;
+  } catch {}
+}
+$("#updateBtn").onclick = async () => {
+  try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch {}
+  location.reload();
+};
+const fitHeader = () => document.documentElement.style.setProperty("--head", document.querySelector("header").offsetHeight + "px");
+addEventListener("resize", fitHeader);
 
 /* ---------- private access: staff accounts, each tied to one browser ---------- */
 const hexOf = a => [...a].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -1040,6 +1132,9 @@ function startApp(){
   started = true;
   initMap(); load();
   if (hasBA()) BA.init();
+  fitHeader(); checkUpdate();
+  setInterval(checkUpdate, 15 * 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
   setInterval(load, 60000);
   setInterval(renderStatus, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
