@@ -87,6 +87,27 @@ class WMSBudgetTests(unittest.TestCase):
         self.assertLessEqual(self.clock.value - 100, 22)
         self.assertLessEqual(self.session.get.call_count, 2)
 
+    def test_a_picture_the_source_had_is_not_asked_about_again_in_later_checks(self):
+        # each probe can take 15 seconds; the day finder needs six pictures per slot and stalled
+        # for hours on 11 Nov 2026 asking about the same ones in every check
+        state, when = {}, self.WHEN
+        earlier = when - dt.timedelta(minutes=30)
+        with patch.object(mod, "served", side_effect=[True, False]) as probe:
+            first = mod.Availability(self.wms, state, when + dt.timedelta(minutes=20))
+            self.assertTrue(first.has("layer", earlier))
+            self.assertFalse(first.has("layer", when))
+            self.assertEqual(probe.call_count, 2)
+        with patch.object(mod, "served", side_effect=[True]) as probe:
+            later = mod.Availability(self.wms, state, when + dt.timedelta(minutes=23))
+            self.assertTrue(later.has("layer", earlier), "remembered from the check before")
+            self.assertTrue(later.has("layer", when), "a late picture is asked about again, and is out now")
+            self.assertEqual(probe.call_count, 1)
+        with patch.object(mod, "served", side_effect=AssertionError("nothing left to ask")):
+            third = mod.Availability(self.wms, state, when + dt.timedelta(minutes=26))
+            self.assertTrue(third.has("layer", earlier) and third.has("layer", when))
+        old = mod.Availability(self.wms, state, when + dt.timedelta(hours=9))
+        self.assertEqual(old.served, {}, "pictures older than eight hours are forgotten")
+
     def test_served_time_from_warning_is_kept_instead_of_requested_time(self):
         buffer = io.BytesIO()
         Image.new("RGBA", (24, 24), (1, 2, 3, 255)).save(buffer, "PNG")

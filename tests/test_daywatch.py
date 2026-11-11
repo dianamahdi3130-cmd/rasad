@@ -78,17 +78,43 @@ class DaywatchTests(unittest.TestCase):
         self.assertIn("glint", reason)
         self.pics.get.assert_not_called()
 
-    def test_ref_sunrise_and_glint_are_checked_per_pixel(self):
-        for bad_reference, kind in ((self.times[1], "sun"), (self.times[2], "glint")):
-            with self.subTest(kind=kind):
-                def geometry(lat, lon, when):
-                    sun, view, glint = self.geometry(lat, lon, when)
-                    if when == bad_reference:
-                        target = sun if kind == "sun" else glint
-                        target[self.row, self.col] = 0
-                    return sun, view, glint
-                spots, _ = self.find(geometry=geometry)
-                self.assertEqual(spots, [])
+    def test_reference_glint_is_checked_per_pixel(self):
+        def geometry(lat, lon, when):
+            sun, view, glint = self.geometry(lat, lon, when)
+            if when == self.times[2]:
+                glint[self.row, self.col] = 0
+            return sun, view, glint
+        spots, _ = self.find(geometry=geometry)
+        self.assertEqual(spots, [])
+
+    @staticmethod
+    def dawn(now_sun, reference_sun=-20):
+        """Sun height for the picture under test and for the two before it; no glint before sunrise."""
+        def geometry(lat, lon, when):
+            shape = np.broadcast_shapes(lat.shape, lon.shape)
+            sun = now_sun if when == DaywatchTests.WHEN else reference_sun
+            return np.full(shape, float(sun)), np.full(shape, 25.0), np.full(shape, 60.0 if sun > 0 else np.nan)
+        return geometry
+
+    def test_from_first_light_on_the_picture_is_checked_against_night_pictures(self):
+        # dawn used to belong to neither finder: about two hours around each sunrise went unwatched
+        import json
+        for sun in (-5.5, -1, 0.5, 4):
+            with self.subTest(sun=sun):
+                spots, notes = self.find(geometry=self.dawn(sun))
+                self.assertEqual(len(spots), 1, notes)
+                self.assertEqual(spots[0]["glint_angle"], None if sun <= 0 else 60)
+                self.assertNotIn("NaN", json.dumps(spots), "the app could not read a NaN")
+        spots, reason = self.find(geometry=self.dawn(-7))
+        self.assertEqual(spots, [], "darker than first light is the night finder's")
+        self.assertIn("illumination", reason)
+        # dusk: a twilight picture against two daylight pictures
+        self.assertEqual(len(self.find(geometry=self.dawn(-3, reference_sun=10))[0]), 1)
+        # a low sun with glint is still refused
+        def glinting(lat, lon, when):
+            sun, view, glint = self.dawn(3)(lat, lon, when)
+            return sun, view, glint * 0 + 10 if when == self.WHEN else glint
+        self.assertEqual(self.find(geometry=glinting)[0], [])
 
     def test_low_view_elevation_is_rejected(self):
         def geometry(lat, lon, when):
@@ -203,7 +229,31 @@ class DaywatchTests(unittest.TestCase):
         self.assertEqual(spots, [])
         self.assertIn("heat seen here before", notes["rejected"])
 
+    def test_a_fire_among_many_cloud_specks_is_still_looked_at(self):
+        # 11 Nov 2026 at dawn over Hormuz: 101 bright specks in one picture and only the six
+        # strongest (clouds) were examined
+        current, blue = self.data[("fire-rgb", 0, self.WHEN)], self.data[("fire-rgb", 2, self.WHEN)]
+        current[:] = 30
+        clouds = [(r, c) for r in (6, 14, 22, 30, 38) for c in (6, 14, 22, 30)][:18]
+        for row, col in clouds:                       # brighter than the fire, and bright in blue: sunlit cloud
+            current[row, col] = 140
+            blue[row, col] = 80
+        current[44, 44] = 100                         # the fire: weaker than every cloud speck
+        spots, notes = self.find()
+        self.assertEqual(notes["candidates"], 19)
+        self.assertEqual(notes["validated"], 19)
+        self.assertNotIn("validation budget", notes["rejected"])
+        self.assertEqual(notes["rejected"]["blue-channel reflection or cloud"], 18)
+        self.assertEqual([(s["rise"] > 60) for s in spots], [True])
+        latitude = spots[0]["lat"]
+        self.cfg["seawatch"]["daytime"]["max_candidates"] = 6      # the old limit lost it
+        spots, notes = self.find()
+        self.assertEqual(spots, [])
+        self.assertEqual(notes["rejected"]["validation budget"], 13)
+        self.assertTrue(24.8 < latitude < 25.2)
+
     def test_candidate_validation_and_burst_limits(self):
+        self.cfg["seawatch"]["daytime"]["max_candidates"] = 6
         current = self.data[("fire-rgb", 0, self.WHEN)]
         current[:] = 30
         for row, col in ((10, 10), (10, 25), (10, 40), (25, 10), (25, 25), (25, 40), (40, 10)):

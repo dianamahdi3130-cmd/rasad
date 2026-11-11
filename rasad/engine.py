@@ -131,12 +131,14 @@ DEFAULTS = {
         # Day candidates need independent official/NASA evidence before any Telegram alert.
         "daytime": {
             "enabled": True, "ref_minutes": [30, 60],
-            "min_sun_elev": 6.0, "min_view_elev": 10.0, "min_glint_angle": 25.0,
+            # from first light (where the night finder stops), not from full daylight: dawn and
+            # dusk used to be watched by neither finder, about two hours around each sunrise
+            "min_sun_elev": -6.0, "min_view_elev": 10.0, "min_glint_angle": 25.0,
             "min_rise": 12.0, "min_z": 8.0, "min_above_sea": 12.0, "max_was_hot": 8.0,
             "max_area_km2": 40.0, "max_warm_extent_km": 8.0,
             "max_blue_contrast": 12.0, "max_blue_rise": 10.0,
             "max_ir_change_z": 3.0, "max_ir_cold_excess": 20.0,
-            "max_candidates": 6, "burst_max": 3,
+            "max_candidates": 40, "burst_max": 3,
         },
         # areas switched on only after a replay of a real night showed no false fires there
         # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and

@@ -189,11 +189,20 @@ class Availability:
         self.known, self.asked = {}, 0
         for k in [k for k, v in self.missing.items() if now - parse_time(v) > dt.timedelta(hours=8)]:
             del self.missing[k]
+        # A picture the source once had stays there. It is remembered across checks, so a slow
+        # source (a probe can take 15 seconds) is not asked about the same pictures every time:
+        # the day finder needs six of them per slot and used to stall on exactly that.
+        self.served = state.setdefault("served_pictures", {})
+        for k in [k for k in self.served if now - parse_time(k.rsplit("|", 1)[1]) > dt.timedelta(hours=8)]:
+            del self.served[k]
 
     def has(self, layer, t, pbox=None):
         key = f"{layer}|{iso(t)}"
         if key in self.known:
             return self.known[key]
+        if key in self.served:
+            self.known[key] = True
+            return True
         last = self.missing.get(key)
         # a recent picture may just be late: ask every run; an old hole only now and then
         if last and self.now - t > self.fresh and self.now - parse_time(last) < self.retry:
@@ -205,6 +214,7 @@ class Availability:
             self.missing[key] = iso(self.now)
         elif ok:
             self.missing.pop(key, None)
+            self.served[key] = iso(self.now)
         self.known[key] = ok
         return ok
 

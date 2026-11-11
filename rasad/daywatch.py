@@ -58,14 +58,20 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
     times = [t] + [t - dt.timedelta(minutes=m) for m in offsets]
     eligible = np.ones((H, W), dtype=bool)
     glint_now = None
+    # The night finder stops when the sky begins to lighten (sun at -6 degrees); this one takes
+    # over from there, so dawn and dusk are no longer left to neither. The picture under test must
+    # be in that light; the two it is compared with may still be night pictures. Glint needs the
+    # sun above the horizon: only then is its angle asked for.
+    first_light = float(D.get("min_sun_elev", -6))
     for when in times:
         sun, view, glint = solar_geometry(lat, lon, when)
-        eligible &= (np.isfinite(sun) & np.isfinite(view) & np.isfinite(glint)
-                     & (sun >= float(D.get("min_sun_elev", 6)))
-                     & (view >= float(D.get("min_view_elev", 10)))
-                     & (glint >= float(D.get("min_glint_angle", 25))))
+        sun_up = np.isfinite(sun) & (sun > 0)
+        fair = (np.isfinite(sun) & np.isfinite(view) & (view >= float(D.get("min_view_elev", 10)))
+                & (~sun_up | (np.isfinite(glint) & (glint >= float(D.get("min_glint_angle", 25))))))
         if when == t:
+            fair &= sun >= first_light
             glint_now = np.broadcast_to(glint, (H, W))
+        eligible &= fair
     if not eligible.any():
         return [], "daytime illumination or glint guard"
 
@@ -128,7 +134,9 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         row, col = map(int, points[peak])
         ranked.append((float(spot[row, col]), row, col, len(points)))
     ranked.sort(reverse=True)
-    budget = max(0, int(D.get("max_candidates", 6)))
+    # On a morning of small sunlit clouds there are dozens of bright specks; the checks below are
+    # cheap arithmetic, so enough of them are looked at that a fire is not crowded out by clouds.
+    budget = max(0, int(D.get("max_candidates", 40)))
     if len(ranked) > budget:
         reject("validation budget", len(ranked) - budget)
     if not ranked or budget == 0:
@@ -197,7 +205,8 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
                     "daytime": True, "experimental": True, "rise": round(strength, 1),
                     "z": round(strength / sigma, 1), "z10": round(z10, 1), "area_px": area,
                     "above_sea": round(above, 1), "extent_km": round(extent, 1),
-                    "glint_angle": round(float(glint_now[row, col]), 1)})
+                    # no glint angle before sunrise (never NaN: the app could not read the data)
+                    "glint_angle": round(float(glint_now[row, col]), 1) if np.isfinite(glint_now[row, col]) else None})
     burst = max(0, int(D.get("burst_max", 3)))
     if len(out) > burst:
         # Many simultaneous specks are usually weather. Retain only exceptionally
