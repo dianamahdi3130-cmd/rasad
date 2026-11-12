@@ -561,6 +561,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     repairs.apply_reviewed(cfg, S, now)
     if cfg.get("_background_media"):
         mediaqueue.consume_results(cfg, S, now)
+        flares.take_videos(S.state, cfg, now, mediaqueue.import_result)   # the app's flare markers
     geo = Geo(cfg, session, wms, S.state)
     if cfg.get("_background_media"):
         method = getattr(type(wms), "budget", None)
@@ -1114,7 +1115,11 @@ def run_cycle(cfg, send=True, alert_now=False):
     # an alerted fire still waiting for its before/after satellite picture is kept until it comes
     S.incidents = [i for i in S.incidents if now - parse_time(i["last"]) <= keep or satpic.wanted(i, cfg, now)]
     mem.prune(today, int(M["window_days"]) + 5)
-    flares.tidy(S.state, now, FL)
+    flares.seed_reviewed(S.state, now, FL)
+    for token in flares.tidy(S.state, now, FL):
+        mediaqueue.discard(cfg, token)
+    if cfg.get("_background_media"):
+        flares.ask_videos(S.state, cfg, now, mediaqueue.request_clip)
     S.state["slots"] = {k: v for k, v in slots.items()
                         if now - parse_time(k.rsplit("|", 1)[1]) <= dt.timedelta(hours=6)}
     S.state["seen"] = {k: v for k, v in S.state.get("seen", {}).items()
@@ -1173,6 +1178,8 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         drop = {id(i) for i in low}
         items = [i for i in items if id(i) not in drop]
     save_json(site / "data" / "incidents.json", {"generated": iso(finished), "items": items}, compact=True)
+    # silent, for the app only: plants whose flare burns far busier than usual (flares.py)
+    busy = flares.items(S.state, now, {**flares.DEFAULTS, **cfg.get("flares", {})})
     save_json(site / "data" / "meta.json", {
         "generated": iso(finished), "scan_started": iso(now), "scan_finished": iso(finished),
         "scan_duration_s": round(duration if duration is not None else max(0, (finished - now).total_seconds()), 1),
@@ -1181,10 +1188,9 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         "local_name": cfg["local_time"]["name"],
         "regions": [{"id": r["id"], "name": r["name"], "bbox": r["bbox"]} for r in cfg["regions"]],
         "sources": status, "telegram": bool(cfg["telegram"].get("bot_token")),
-        # silent, for the app only: plants whose flare burns far busier than usual (flares.py)
-        "flare_activity": flares.items(S.state, now, {**flares.DEFAULTS, **cfg.get("flares", {})})})
+        "flare_activity": busy})
     # remove clips of incidents that are gone
-    keep = {i.get("clip") for i in items} | {i.get("snap") for i in items}
+    keep = {i.get(k) for i in items + busy for k in ("clip", "snap")}
     clips = site / "clips"
     if clips.exists():
         for f in clips.iterdir():

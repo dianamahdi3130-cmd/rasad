@@ -289,3 +289,52 @@ def consume_results(cfg, S, now):
         finally:
             handle.close()
     return imported
+
+
+def import_result(cfg, snapshot):
+    """The finished media of a record kept outside the incident list (a flare marker), whose
+    request snapshot is `snapshot` (what request_clip was given). Copies a finished video into the
+    site and returns ("done", fields); ("failed", fields) after a failed try (retried later by the
+    worker); ("waiting", {}) while queued or rendering; ("gone", {}) when the job no longer exists
+    or settings changed, so it should be asked again."""
+    token = snapshot.get("media_job")
+    if not isinstance(token, str) or not _TOKEN.fullmatch(token):
+        return "gone", {}
+    folder = queue_dir(cfg) / token
+    if not folder.is_dir():
+        return "gone", {}
+    handle = _lock(folder)
+    if handle is None:
+        return "waiting", {}
+    try:
+        job = _valid_job(cfg, folder)
+        if not job:
+            shutil.rmtree(folder, ignore_errors=True)
+            return "gone", {}
+        result = load_json(folder / "result.json", {})
+        fields = result.get("fields")
+        if result.get("token") != token or not isinstance(fields, dict):
+            return "waiting", {}
+        if not result.get("ok"):
+            return "failed", fields
+        sources = [_safe_asset(folder / "site", fields.get(k)) for k in ("clip", "snap")]
+        if any(path is None for path in sources):
+            return "waiting", {}
+        site = Path(cfg["_site_dir"])
+        for key, source in zip(("clip", "snap"), sources):
+            destination = site / fields[key]
+            try:
+                destination.resolve().relative_to(site.resolve())
+            except ValueError:
+                raise ValueError("unsafe media destination") from None
+            _copy_atomic(source, destination)
+        shutil.rmtree(folder, ignore_errors=True)
+        return "done", fields
+    finally:
+        handle.close()
+
+
+def discard(cfg, token):
+    """Remove a queued job nobody needs any more (a marker that is no longer shown)."""
+    if isinstance(token, str) and _TOKEN.fullmatch(token):
+        shutil.rmtree(queue_dir(cfg) / token, ignore_errors=True)

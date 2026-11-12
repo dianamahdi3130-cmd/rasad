@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from rasad import engine, flares
+from rasad import cloud, engine, flares, mediaqueue
 from rasad.brain import Memory
 from rasad.util import UTC, iso, load_json, save_json
 
@@ -152,6 +152,7 @@ class WholeCheckTests(unittest.TestCase):
         cfg["firms"]["map_key"] = "offline-test-key"
         cfg["clip"]["enabled"] = False
         cfg["telegram"].update(bot_token="offline-test-token", chat_id="offline-test-chat")
+        cfg["flares"]["reviewed"] = []
         save_json(cfg["_state_dir"] / "state.json", {
             "schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE,
             "sea_check": engine.SEA_CHECK, "hello_sent": iso(now), "bootstrapped": iso(now)})
@@ -187,6 +188,110 @@ class WholeCheckTests(unittest.TestCase):
         self.assertEqual(load_json(cfg["_site_dir"] / "data" / "incidents.json", {})["items"], [])
         # the busy flare does not change what the place's usual heat is learned to be
         self.assertEqual(Memory(state.memory).profile(lat, lon, "2026-11-12", 30, 1)[1], 3.5)
+
+
+class ReviewedNightTests(unittest.TestCase):
+    """The night of 11-12 Nov happened before the markers existed: it is replayed once."""
+    AFTER = dt.datetime(2026, 11, 12, 3, 0, tzinfo=UTC)
+
+    def test_both_plants_show_after_the_night(self):
+        state = {}
+        flares.seed_reviewed(state, self.AFTER)
+        shown = {e["label"]: e["peak"] for e in flares.items(state, self.AFTER)}
+        self.assertEqual(shown, {"معمل شدقم للغاز": 23.9, "ينبع الصناعية": 17.5})
+        before = copy.deepcopy(state)
+        flares.seed_reviewed(state, self.AFTER + dt.timedelta(minutes=5))
+        self.assertEqual(state, before)
+
+    def test_not_before_the_night_is_over_nor_once_it_left_the_app(self):
+        state = {}
+        flares.seed_reviewed(state, dt.datetime(2026, 11, 11, 20, 0, tzinfo=UTC))
+        self.assertEqual(state.get("flare_reviewed"), [])
+        self.assertNotIn("flare_watch", state)
+        flares.seed_reviewed(state, dt.datetime(2026, 11, 20, tzinfo=UTC))
+        self.assertEqual(state["flare_reviewed"], ["flares_20261112"])
+        self.assertEqual(flares.items(state, dt.datetime(2026, 11, 20, tzinfo=UTC)), [])
+
+
+class VideoTests(unittest.TestCase):
+    """Each marker gets a video from the media worker, shown in the app and sent to the private app."""
+    NOW = dt.datetime(2026, 11, 12, 3, 0, tzinfo=UTC)
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        self.cfg = copy.deepcopy(engine.DEFAULTS)
+        self.cfg.update(_state_dir=self.root / "state", _site_dir=self.root / "site")
+        self.state = {}
+        flares.seed_reviewed(self.state, self.NOW)
+
+    def finish(self, job, ok=True, note=None):
+        """What the worker leaves behind after one try."""
+        folder = mediaqueue.queue_dir(self.cfg) / job["media_job"]
+        fields = {"clip": None, "snap": None, "clip_note": note}
+        if ok:
+            name = f"clips/{job['id']}-abc"
+            (folder / "site" / "clips").mkdir(parents=True, exist_ok=True)
+            (folder / "site" / f"{name}.mp4").write_bytes(b"video")
+            (folder / "site" / f"{name}.jpg").write_bytes(b"still")
+            fields.update(clip=f"{name}.mp4", snap=f"{name}.jpg")
+        save_json(folder / "result.json", {"token": job["media_job"], "ok": ok, "attempts": 0 if ok else 1,
+                                           "finished_at": iso(self.NOW), "fields": fields})
+
+    def jobs(self):
+        return [s["episode"]["clip_job"] for s in self.state["flare_watch"].values()
+                if s.get("episode", {}).get("clip_job")]
+
+    def test_each_marker_is_asked_once_and_its_video_reaches_the_app(self):
+        self.assertEqual(flares.ask_videos(self.state, self.cfg, self.NOW, mediaqueue.request_clip), 2)
+        self.assertEqual(flares.ask_videos(self.state, self.cfg, self.NOW, mediaqueue.request_clip), 0)
+        job = next(j for j in self.jobs() if j["where"] == "ينبع الصناعية")
+        self.assertEqual((job["country"], job["verdict"], job["max_frp"]),
+                         ("نشاط حراري أعلى من المعتاد (تجريبي)", None, 17.5))
+        self.assertIn(["2026-11-11T23:10:00Z", 17.48], job["frp_series"])
+        self.finish(job)
+        self.assertEqual(flares.take_videos(self.state, self.cfg, self.NOW, mediaqueue.import_result), 1)
+        shown = {e["label"]: e for e in flares.items(self.state, self.NOW)}
+        clip = shown["ينبع الصناعية"]["clip"]
+        self.assertTrue(clip.startswith("clips/flare-") and clip.endswith(".mp4"))
+        self.assertTrue((self.root / "site" / clip).is_file())
+        self.assertIsNone(shown["معمل شدقم للغاز"]["clip"])
+        # a video is not asked again unless the flare burns half as hot again as in its video
+        self.assertEqual(flares.ask_videos(self.state, self.cfg, self.NOW, mediaqueue.request_clip), 0)
+
+    def test_a_failed_try_is_said_and_a_lost_job_is_asked_again(self):
+        flares.ask_videos(self.state, self.cfg, self.NOW, mediaqueue.request_clip)
+        first, second = self.jobs()
+        self.finish(first, ok=False, note="لا يظهر بوضوح في الصور")
+        mediaqueue.discard(self.cfg, second["media_job"])
+        flares.take_videos(self.state, self.cfg, self.NOW, mediaqueue.import_result)
+        notes = [e["clip_note"] for e in flares.items(self.state, self.NOW)]
+        self.assertIn("لا يظهر بوضوح في الصور", notes)
+        self.assertEqual(len(self.jobs()), 1)
+        self.assertEqual(flares.ask_videos(self.state, self.cfg, self.NOW, mediaqueue.request_clip), 1)
+
+    def test_forgotten_markers_leave_the_queue(self):
+        flares.ask_videos(self.state, self.cfg, self.NOW, mediaqueue.request_clip)
+        tokens = flares.tidy(self.state, self.NOW + dt.timedelta(days=3))
+        self.assertEqual(len(tokens), 2)
+        for token in tokens:
+            mediaqueue.discard(self.cfg, token)
+        self.assertEqual([p for p in mediaqueue.queue_dir(self.cfg).iterdir() if p.is_dir()], [])
+
+    def test_the_private_app_receives_the_marker_videos(self):
+        site = self.root / "site"
+        (site / "clips").mkdir(parents=True)
+        (site / "clips" / "flare-x.mp4").write_bytes(b"video")
+        save_json(site / "data" / "meta.json", {"flare_activity": [{"id": "flare-x", "clip": "clips/flare-x.mp4"}]})
+        save_json(site / "data" / "incidents.json", {"items": []})
+        session = Mock(headers={})
+        session.get.return_value.json.return_value = {"clips": []}
+        session.post.return_value.json.return_value = {"removed": 0}
+        with patch.object(cloud.requests, "Session", return_value=session):
+            self.assertTrue(cloud.publish(site, "https://example.invalid", "test-key"))
+        self.assertEqual(session.put.call_args.args[0], "https://example.invalid/api/ingest/clip/flare-x.mp4")
+        self.assertEqual(session.post.call_args.kwargs["json"], {"clips": ["flare-x.mp4"]})
 
 
 if __name__ == "__main__":
