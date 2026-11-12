@@ -29,7 +29,7 @@ def publish(site_dir, url, key, timeout=60):
     r = s.post(f"{url}/api/ingest/data", data=body, headers={"content-type": "application/json"}, timeout=timeout)
     r.raise_for_status()
     want = set()   # every clip an incident still points to (kept there even when not on this runner)
-    for it in items:
+    for it in items + list(meta.get("flare_activity") or []):   # incidents and the flare markers
         for k in ("clip", "snap"):
             v = it.get(k)
             if v and v.startswith("clips/"):
