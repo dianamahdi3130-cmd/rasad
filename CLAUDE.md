@@ -23,6 +23,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker |
 | `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after pictures for the channel: under an alert when a clear pass comes, and for the watched places of `config.yaml` → `watch.places` when a new clear pass shows a patch of change (queue, worker, picture, captions) |
 | `rasad/smoke.py` | smoke as a second witness, **silent for now**: by day, a streak in the 500 m visible pictures counts only when new, anchored at the heat, one-directional in 3+ pictures and not cold. Recorded on the incident for the app; never posted, never part of a verdict |
+| `rasad/flares.py` | a plant's flare far busier than usual, **silent**: Meteosat-12 symbol in 8+ of the last 3 hours' pictures with 3+ readings at least twice the usual and 5 MW above it. Kept apart from incidents, sent in `meta.flare_activity`, shown in the app as «نشاط حراري أعلى من المعتاد (تجريبي)»; never posted |
 | `rasad/notify.py`, `rasad/updates.py` | Telegram sending (HTML, replies under the first post); intensity updates |
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
@@ -78,6 +79,10 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 - Smoke findings are silent: `inc["smoke"]` is shown in the app as «دخان محتمل (تجريبي)» and
   counted by the live check; nothing may post it or let it change a verdict until its record over
   real fires has been reviewed with the owner (`docs/reviews/smoke_and_satellites_20261110.md`).
+- Flare markers are silent: `meta.flare_activity` is shown in the app only; it is never an incident,
+  never posted, never part of a verdict, and never trains the usual heat, until its record has been
+  reviewed with the owner (`docs/reviews/yanbu_shedgum_20261112.md`).
+- No «سبب التأخر» line in any post (the owner removed it on 12 Nov 2026).
 - Recovered past events appear in the app but are never posted as news. An alert is never sent
   twice (the memory is saved at once after anything is sent).
 - Every network call inside a check has a time budget (EUMETView is often slow). No unbounded waits.

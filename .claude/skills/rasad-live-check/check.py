@@ -144,6 +144,11 @@ def overview():
         for i in [i for i in smoke if i["smoke"].get("seen")][:6]:
             print(f"    smoke seen {when(i['smoke'].get('at'))}  {i['smoke'].get('length_km')} km  "
                   f"{i.get('verdict')}  {str(i.get('headline'))[:50]}  [{i.get('id')}]")
+        busy = meta.get("flare_activity") or []
+        print(f"  flares busier than usual (silent, app only): {len(busy)}")
+        for f in busy[:6]:
+            print(f"    {when(f.get('first'))} .. {when(f.get('last'))}  peak {mw(f.get('peak'))}"
+                  f" (usual {mw(f.get('typical'))})  {f.get('pictures')} pictures  {str(f.get('label'))[:40]}")
         print("  newest:")
         for i in sorted(items, key=lambda i: i.get("first") or "", reverse=True)[:5]:
             print(f"    {when(i.get('first'))}  {i.get('verdict')}  {mw(i.get('max_frp'))}  "

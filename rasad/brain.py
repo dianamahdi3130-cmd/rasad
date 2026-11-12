@@ -542,17 +542,6 @@ def app_link(cfg, inc):
     return f"{base}?e={inc['id']}#{inc['id']}"
 
 
-def delay_note(inc, now):
-    """Why a first report comes long after the fire's start, said in the post itself (the owner
-    asked: "it started at 12:43, why does the report come at 15:19?")."""
-    if (now - parse_time(inc["first"])).total_seconds() < 3600:
-        return ""
-    if not inc.get("geo_slots") and inc.get("polar"):
-        return ("⏱ <b>سبب التأخر:</b> رصدته أقمار ناسا وحدها (حريق أصغر مما يراه القمر الأوروبي السريع)، "
-                "وبيانات ناسا تُنشر بعد نحو 3 ساعات من مرور القمر.")
-    return "⏱ <b>سبب التأخر:</b> لم يكتمل التحقق من الرصد إلا الآن (تأخر نشر صور القمر أو احتاج الرصد صورة ثانية)."
-
-
 def video_note(inc):
     """What to expect when the alert goes out without its clip. A fire NASA alone saw is too
     small for the European pictures the clip is made of: a video is not promised for it."""

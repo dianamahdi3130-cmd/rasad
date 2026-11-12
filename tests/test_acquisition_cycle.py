@@ -106,6 +106,8 @@ class AcquisitionCycleTests(unittest.TestCase):
             self.assertAlmostEqual(morning["alerted_max_frp"], 61.07, delta=.05)
             self.assertIn("61 MW", deliver.call_args.args[2])
             self.assertNotIn("ارتفاع", deliver.call_args.args[2])
+            # the owner asked (12 Nov 2026) for no "reason for the delay" line in posts
+            self.assertNotIn("سبب التأخر", deliver.call_args.args[2])
             published = load_json(cfg["_site_dir"] / "data" / "incidents.json", {})["items"]
             self.assertEqual({inc["max_frp"] for inc in published}, {61.07, 50.59})
             return tuple((inc["id"], inc["first"], inc["last"], inc["max_frp"],

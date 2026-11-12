@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 
 from rasad import engine, s2, satpic
-from rasad.brain import Memory, delay_note, video_note
+from rasad.brain import Memory, video_note
 from rasad.util import UTC, iso, load_json, parse_time, save_json
 
 LAT, LON, ZONE = 26.0, 50.0, 39
@@ -438,15 +438,11 @@ class WatchedPlaceTests(unittest.TestCase):
 
 
 class AlertTextTests(unittest.TestCase):
-    def test_a_report_that_arrives_hours_late_says_why_and_does_not_promise_a_video(self):
-        now = T("2026-11-10T12:19:00Z")
+    def test_a_fire_nasa_alone_saw_is_not_promised_a_video(self):
         nasa = {"first": "2026-11-10T09:43:00Z", "geo_slots": [], "polar": [{"conf": "n"}]}
-        self.assertIn("بيانات ناسا تُنشر بعد نحو 3 ساعات", delay_note(nasa, now))
         self.assertIn("لا يُتوقع فيديو", video_note(nasa))
         geo = {"first": "2026-11-10T12:10:00Z", "geo_slots": ["x"], "polar": []}
-        self.assertEqual(delay_note(geo, now), "")
         self.assertEqual(video_note(geo), "🎞 الفيديو قيد التجهيز؛ سيُرسل عند توفر صور واضحة للرصد.")
-        self.assertIn("لم يكتمل التحقق", delay_note(dict(geo, first="2026-11-10T10:00:00Z"), now))
 
 
 class CycleTests(unittest.TestCase):

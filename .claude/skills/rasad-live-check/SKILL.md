@@ -36,6 +36,9 @@ and usually one `pending` (the next one, queued every 10 minutes; older pending 
 - **smoke (silent)**: daytime fires the smoke check looked at, and those where it saw a plume
   (listed with their ids). Silent period: nothing of this is posted. Compare the listed ones with
   what really burnt before letting smoke raise a verdict (`rasad/smoke.py`).
+- **flares busier than usual (silent, app only)**: plants whose flare burned far busier than
+  usual in the last 48 hours (`rasad/flares.py`); shown in the app as «نشاط حراري أعلى من المعتاد»,
+  never posted. Review with the owner before it may do more.
 - **memory: sealed** or **no live branch**: the private app is on. Then judge health from the
   runs and their logs; the data itself is only on Cloudflare.
 
