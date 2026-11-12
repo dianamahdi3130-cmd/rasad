@@ -13,12 +13,12 @@ import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
                     nearby_confirmed, new_incident, day_requires_confirmation, association_requires_confirmation,
-                    delay_note, video_note)
+                    video_note)
 from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue
-from . import acquisitions, repairs, satpic, smoke
+from . import acquisitions, flares, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -111,6 +111,8 @@ DEFAULTS = {
               "half_km": 2, "job_budget_s": 170},
     # Smoke as a second witness, silent for now (smoke.py holds the rules and their numbers).
     "smoke": {"enabled": True},
+    # A plant's flare far busier than usual, silent for now (flares.py holds the rule and numbers).
+    "flares": {"enabled": True},
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
         "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
@@ -567,6 +569,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     else:
         geo.self_test()
     E, M, I = cfg["eumetview"], cfg["memory"], cfg["incidents"]
+    FL = {**flares.DEFAULTS, **cfg.get("flares", {})}
     regions = cfg["regions"]
     box = union_bbox([r["bbox"] for r in regions])
     tiles = region_tiles(regions, float(E["tile_deg"]))
@@ -778,6 +781,11 @@ def run_cycle(cfg, send=True, alert_now=False):
             (steady_facility if steady_facility is not None else
              geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"])))
         routine = known and not unusual
+        # a steady flare burning far busier than usual: noted for the app only (flares.py)
+        if FL.get("enabled", True) and d["src"] == flares.SRC and steady and typical is not None \
+                and (steady_facility if steady_facility is not None else
+                     geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"]))):
+            flares.observe(S.state, d, typical, geo.facility(d["lat"], d["lon"]), FL)
         if not experimental_day:
             mem.record(d["lat"], d["lon"], day, frp)
         group = membership[id(d)]
@@ -977,9 +985,6 @@ def run_cycle(cfg, send=True, alert_now=False):
         if ready and inc.get("clip"):
             media = Path(cfg["_site_dir"]) / inc["clip"]
         message = alert_message(inc, cfg)
-        late = delay_note(inc, now)
-        if late:
-            message += "\n" + late
         if media is None and cfg["clip"].get("enabled", True):
             message += "\n" + video_note(inc)
         if cfg["satpic"].get("enabled", True) and (inc.get("place") != "sea" or cfg["satpic"].get("sea")):
@@ -1109,6 +1114,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     # an alerted fire still waiting for its before/after satellite picture is kept until it comes
     S.incidents = [i for i in S.incidents if now - parse_time(i["last"]) <= keep or satpic.wanted(i, cfg, now)]
     mem.prune(today, int(M["window_days"]) + 5)
+    flares.tidy(S.state, now, FL)
     S.state["slots"] = {k: v for k, v in slots.items()
                         if now - parse_time(k.rsplit("|", 1)[1]) <= dt.timedelta(hours=6)}
     S.state["seen"] = {k: v for k, v in S.state.get("seen", {}).items()
@@ -1174,7 +1180,9 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         "detections_this_run": n_dets, "local_offset_hours": cfg["local_time"]["offset_hours"],
         "local_name": cfg["local_time"]["name"],
         "regions": [{"id": r["id"], "name": r["name"], "bbox": r["bbox"]} for r in cfg["regions"]],
-        "sources": status, "telegram": bool(cfg["telegram"].get("bot_token"))})
+        "sources": status, "telegram": bool(cfg["telegram"].get("bot_token")),
+        # silent, for the app only: plants whose flare burns far busier than usual (flares.py)
+        "flare_activity": flares.items(S.state, now, {**flares.DEFAULTS, **cfg.get("flares", {})})})
     # remove clips of incidents that are gone
     keep = {i.get("clip") for i in items} | {i.get("snap") for i in items}
     clips = site / "clips"

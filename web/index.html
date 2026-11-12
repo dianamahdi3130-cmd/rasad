@@ -149,6 +149,14 @@ video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display
 .fire.v-sure{color:var(--sure)} .fire.v-likely{color:var(--likely)} .fire.v-check{color:var(--check)}
 .fire.old{opacity:.5;filter:saturate(.45)}   /* last seen more than a day ago (shown only when asked for) */
 .plant{width:14px;height:14px;background:#7dd3fc;border:2px solid #0b1220;transform:rotate(45deg)}
+/* a plant's flare burning busier than usual (silent, experimental): a dashed ring, not a fire */
+.flare{width:18px;height:18px;border-radius:50%;border:2px dashed var(--accent);
+  background:color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:0 0 0 2px rgba(0,0,0,.25)}
+.stripe.flare-stripe{background:repeating-linear-gradient(45deg,var(--accent) 0 4px,transparent 4px 8px)}
+.badge.exp{background:var(--surface-2);color:var(--muted);border:1px solid var(--line);font-weight:500}
+.flare-pop{direction:rtl;text-align:right;font:13px/1.6 var(--font-ui);max-width:240px}
+.flare-pop b{display:block;font-size:14px}
+.card .flare-text{display:block;margin-top:6px;font-size:13px;line-height:1.7}
 /* fire strength next to the circle, shown once the map is zoomed in */
 .mw{display:none;position:absolute;left:26px;top:-3px;white-space:nowrap;direction:rtl;
   background:rgba(8,12,20,.86);color:#fff;border:1px solid currentColor;border-radius:8px;
@@ -411,8 +419,8 @@ body.locked #baSheet,body.locked #pickBar{display:none!important}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="imagery.js?v=15"></script>
-<script src="beforeafter.js?v=15"></script>
+<script src="imagery.js?v=16"></script>
+<script src="beforeafter.js?v=16"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24};
@@ -534,6 +542,43 @@ function mwText(v){
   if (v == null || isNaN(v)) return "";
   return (v < 10 ? (Math.round(v * 10) / 10) : Math.round(v)) + " MW";
 }
+/* ---------- flares busier than usual (meta.flare_activity): shown here, never posted ---------- */
+const FLARE_AR = "نشاط حراري أعلى من المعتاد";
+function flareItems(hours = S.hours){
+  const reg = (S.meta?.regions || []).find(r => r.id === S.region), now = Date.now();
+  const list = Array.isArray(S.meta?.flare_activity) ? S.meta.flare_activity : [];
+  return list.filter(f => f && Number.isFinite(f.lat) && Number.isFinite(f.lon)
+    && Number.isFinite(Date.parse(f.last)) && now - Date.parse(f.last) <= hours * 3600e3
+    && (!reg || (f.lon >= reg.bbox[0] && f.lon <= reg.bbox[2] && f.lat >= reg.bbox[1] && f.lat <= reg.bbox[3])));
+}
+function flareCards(){
+  return flareItems().map(f => `
+      <button class="card" type="button" data-flare="${esc(f.id)}">
+        <span class="stripe flare-stripe"></span>
+        <span>
+          <h3>${FLARE_AR}</h3>
+          <span class="where">${bidi(f.label || "")}</span>
+          <span class="strength">أعلى قوة ${esc(mwText(f.peak))} · المعتاد نحو ${esc(mwText(f.typical))}</span>
+          <span class="where flare-text">${esc(f.text || "")}</span>
+          <span class="meta">
+            <span class="badge exp">تجريبي · لا يُرسل إلى القناة</span>
+            <span class="tag">${flareSpan(f)}</span>
+          </span>
+        </span>
+      </button>`).join("");
+}
+const flareSpan = f => `من ${esc(clock(f.first))} إلى ${esc(clock(f.last))}`;
+function flarePopup(f){
+  return `<div class="flare-pop"><b>${FLARE_AR}</b>${bidi(f.label || "")}<br>${flareSpan(f)}<br>`
+    + `أعلى قوة ${esc(mwText(f.peak))} · المعتاد نحو ${esc(mwText(f.typical))}<br><small>تجريبي · لا يُرسل إلى القناة</small></div>`;
+}
+function showFlare(id){
+  const f = flareItems().find(x => x.id === id); if (!f || !S.map) return;
+  window.scrollTo(0, 0);   // the map sits right under the header at the top of the page
+  S.map.setView([f.lat, f.lon], Math.max(S.map.getZoom(), 9), {animate:false});
+  const m = (S.flareMarks || {})[id]; if (m) m.openPopup();
+}
+
 function cardStrengthText(it){
   const measured = value => {
     if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())) return null;
@@ -662,11 +707,11 @@ function render(){
   const list = $("#list");
   if (!items.length){
     const wider = PERIODS.find(([h]) => h > S.hours && visible(h).length);
-    list.innerHTML = `<div class="empty">لا حرائق جديدة هنا خلال ${PERIOD_AR[S.hours]}.<br>آخر فحص ${S.meta?.generated ? ago(S.meta.generated) : "—"}.`
+    list.innerHTML = flareCards() + `<div class="empty">لا حرائق جديدة هنا خلال ${PERIOD_AR[S.hours]}.<br>آخر فحص ${S.meta?.generated ? ago(S.meta.generated) : "—"}.`
       + (wider ? `<br><button class="more" type="button" data-hours="${wider[0]}">عرض ${PERIOD_AR[wider[0]]} (${visible(wider[0]).length})</button>` : "")
       + `</div>`;
   } else {
-    list.innerHTML = items.map(it => `
+    list.innerHTML = flareCards() + items.map(it => `
       <button class="card" type="button" data-id="${esc(it.id)}">
         <span class="stripe ${V[it.verdict]||""}"></span>
         <span>
@@ -694,6 +739,12 @@ function drawMarkers(){
     L.marker([it.lat, it.lon], {icon:fireIcon(it, !!one), title:it.headline, zIndexOffset: one ? 1000 : 0})
       .on("click", () => { if (!one) go(it.id); }).addTo(S.layer);
     pts.push([it.lat, it.lon]);
+  });
+  S.flareMarks = {};
+  if (!one) flareItems().forEach(f => {
+    S.flareMarks[f.id] = L.marker([f.lat, f.lon], {title:FLARE_AR, zIndexOffset:-500,
+        icon:L.divIcon({className:"", iconSize:[18,18], iconAnchor:[9,9], html:'<div class="flare"></div>'})})
+      .bindPopup(flarePopup(f), {maxWidth:260, autoPanPaddingTopLeft:[10, 64]}).addTo(S.layer);   // below the map's buttons
   });
   if (!one && S.fitFor !== S.region){    // move the map only when the region changes
     S.fitFor = S.region;
@@ -1058,6 +1109,8 @@ async function copy(text){
 document.addEventListener("click", e => {
   const chip = e.target.closest(".chip");
   if (chip){ S.region = chip.dataset.id; renderChips(); render(); return; }
+  const flare = e.target.closest("[data-flare]");
+  if (flare){ showFlare(flare.dataset.flare); return; }
   const card = e.target.closest(".card");
   if (card){ go(card.dataset.id); return; }
   if (e.target.closest("#impBtn")){ S.important = !S.important; render(); return; }
@@ -1092,7 +1145,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 15;                    // the same number as CACHE in sw.js and ?v= of the two scripts
+const APP_V = 16;                    // the same number as CACHE in sw.js and ?v= of the two scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {

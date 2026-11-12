@@ -14,8 +14,7 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
 - When: `engine.run_cycle` (its inner `post`), `brain.alert_worthy`,
   `updates.intensity_update_due`; thresholds in `config.yaml` → `alerts`.
 - The before/after satellite picture: `satpic.caption` (text), `satpic.render` (picture), posted
-  by `engine.run_cycle` as a reply; a late first report explains itself with `brain.delay_note`,
-  and `brain.video_note` says whether a video can be expected.
+  by `engine.run_cycle` as a reply; `brain.video_note` says whether a video can be expected.
 - Tests: `tests/test_alert_updates.py`, `test_updates.py`, `test_clip_updates.py`, `test_satpic.py`. Every new or
   changed message gets a test that checks its exact text.
 
@@ -37,8 +36,8 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     more after the last post, within 24 hours.
 11. A video is attached only when the pictures really show the fire; one that is ready after the
     alert goes as a reply to it. An old video is never presented as covering a newer measurement.
-13. A first report sent an hour or more after the fire started says why in its own text (NASA's
-    data comes ~3 hours after the pass). A fire NASA alone saw is not promised a video.
+13. No «سبب التأخر» line in any post (the owner removed it on 12 Nov 2026), even when the first
+    report comes hours after the fire started. A fire NASA alone saw is not promised a video.
 14. The before/after picture says «تغيّر مرصود» or «لا تغيّر واضح», never a cause, never «مؤكد»,
     and always that each point is 10 m. One per fire, as a reply; not for fires at open sea.
 15. A watched place (`config.yaml` → `watch.places`) gets its own post, not a reply, only when a
