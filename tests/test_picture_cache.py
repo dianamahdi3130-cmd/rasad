@@ -180,7 +180,7 @@ class PictureCacheTests(unittest.TestCase):
         with patch.object(seawatch, "Pictures") as pictures:
             seawatch.watch(cfg, Mock(), {}, self.WHEN, avail=Mock())
         pictures.assert_called_once_with(Mock if False else pictures.call_args.args[0],
-                                         cache_dir=self.root / ".rasad-pictures")
+                                             cache_dir=self.root / ".rasad-pictures", attempts=1)
 
 
 if __name__ == "__main__":

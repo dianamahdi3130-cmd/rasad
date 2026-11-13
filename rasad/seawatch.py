@@ -18,6 +18,7 @@ A speck is kept only if:
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -86,8 +87,10 @@ class Pictures:
     CACHE_MAX_BYTES = 256 * 1024 * 1024
     _CACHE_NAME = re.compile(r"^[0-9a-f]{64}\.png$")
 
-    def __init__(self, wms, cache_dir=None):
+    def __init__(self, wms, cache_dir=None, attempts=2):
         self.wms, self.cache = wms, {}
+        self.attempts = max(1, int(attempts))
+        self._network_allowed = True
         self.cache_dir = Path(cache_dir) if cache_dir is not None else None
         if self.cache_dir is not None:
             try:
@@ -213,6 +216,16 @@ class Pictures:
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(lambda r: self.get(*r), todo.values()))
 
+    @contextmanager
+    def cached_only(self):
+        """Validate acquired rasters without spending another network budget."""
+        previous = self._network_allowed
+        self._network_allowed = False
+        try:
+            yield self
+        finally:
+            self._network_allowed = previous
+
     def get(self, layer, bbox, W, H, t, channel=None):
         if channel not in (None, 0, 1, 2):
             raise ValueError("RGB channel must be 0, 1 or 2")
@@ -223,10 +236,13 @@ class Pictures:
             return self.cache[key]
         if raw_key not in self.cache:
             raw = self._read_disk(base)
-            if raw is None:
-                img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
-                if img is None:  # big pictures sometimes fail once: ask again
+            if raw is None and not self._network_allowed:
+                return None
+            if raw is None and self._network_allowed:
+                for _ in range(self.attempts):
                     img, actual = self.wms.getmap(layer, bbox, W, H, t=t, quiet=True)
+                    if img is not None:
+                        break
                 if not self._valid_time(actual, base[4]):
                     img = None  # the server gave another time: this slot is not published yet
                 raw = None if img is None else np.asarray(img)
@@ -474,20 +490,30 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
             del done[key]
         cands[:] = [c for c in cands if c.get("src", SRC) != day_src]
         state["sea_day_config"] = day_signature
+        state.pop("sea_day_resume", None)
     day_status = {"enabled": day_enabled, "experimental": True, "checked": 0,
                   "missing": 0, "waiting": 0, "candidates": 0, "spots": 0,
                   "last_checked": max((v for k, v in done.items() if k.startswith("day:")), default=None),
                   "last_attempt": None}
     state["sea_day_status"] = day_status
     state_path = cfg.get("_state_dir")
+    picture_options = {"attempts": 1} if cfg.get("_background_media") else {}
     if cfg.get("_background_media") and isinstance(state_path, (str, os.PathLike)):
-        pics = Pictures(wms, cache_dir=Path(state_path).resolve().parent / ".rasad-pictures")
+        pics = Pictures(wms, cache_dir=Path(state_path).resolve().parent / ".rasad-pictures",
+                        **picture_options)
     else:
-        pics = Pictures(wms)
+        pics = Pictures(wms, **picture_options)
     avail = avail or Availability(wms, state, now)
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []
     live = [b for b in C["boxes"] if b.get("enabled", True)]
+    if day_enabled and live:
+        # A slow first region must not take every short cycle's acquisition budget.
+        cursor = state.get("sea_day_box_cursor", 0)
+        cursor = cursor if isinstance(cursor, int) else 0
+        offset = cursor % len(live)
+        live = live[offset:] + live[:offset]
+        state["sea_day_box_cursor"] = (offset + 1) % len(live)
     sparkle = state.setdefault("sea_sparkle", {})  # ~5 km cell -> nights a speck was seen there
     span = max(int(C["slots_per_run"]), int(round(float(C.get("catchup_hours", 3)) * 60 / cad)))
     per_run, budget, t_start = int(C["slots_per_run"]), float(C.get("budget_s", 240)), time.time()
@@ -510,6 +536,20 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
             todo.append((t, night_boxes, day_boxes))
     # At night the day finder has nothing to do: that is rest, not a fault.
     day_status["daylight"] = any(day_boxes for _, _, day_boxes in todo)
+    resume = state.get("sea_day_resume", {})
+    if not isinstance(resume, dict):
+        resume = {}
+    attempts = resume.get("attempts", 0)
+    attempts = attempts if isinstance(attempts, int) else 0
+    if attempts < 4:
+        # Finish an acquired subset before a newer clock forces all six rasters
+        # to change. A persistent source hole yields to fresh work after four tries.
+        resume_job = next((job for job in todo if iso(job[0]) == resume.get("t") and job[2]), None)
+        if resume_job is not None:
+            todo.remove(resume_job)
+            todo.insert(0, resume_job)
+    resume_candidate = None
+    day_attempted = set()
     checked, waiting, lost = [], 0, 0
     for t, night_boxes, day_boxes in todo:
         if len(checked) >= per_run or time.time() - t_start > budget:
@@ -518,18 +558,17 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
             continue
         if day_boxes and day_status["last_attempt"] is None:
             day_status["last_attempt"] = iso(t)
-        if not avail.has(C["layer"], t, probe):
-            day_status["missing"] += len(day_boxes)
+        night_ready = bool(night_boxes) and avail.has(C["layer"], t, probe)
+        if night_boxes and not night_ready:
             if now - t > dt.timedelta(minutes=40):
                 lost += 1    # a hole at the source (asked again now and then)
             else:
                 waiting += 1  # not out yet
-            continue
         # compare with the picture 30 minutes before, or the nearest one the source does have; just
         # after an outage that is the last picture before it, so a fire that began during the
         # outage still shows as new
         jobs = []
-        if night_boxes:
+        if night_ready:
             refs = next(([m] for m in [int(x) for x in C["ref_minutes"]]
                          + [40, 20, 50, 60, 70, 80, 90, 100, 110, 120]
                          if avail.has(C["layer"], t - dt.timedelta(minutes=m), probe)), None)
@@ -539,15 +578,18 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                 jobs += [(box, SRC, refs) for box in night_boxes]
         if day_boxes:
             refs = [int(m) for m in D.get("ref_minutes", [30, 60])]
-            times = [t] + [t - dt.timedelta(minutes=m) for m in refs]
-            if refs and all(avail.has(layer, tt, probe)
-                            for layer in (C["layer"], C["check_layer"]) for tt in times):
+            # Download useful rasters directly. Six serial tiny availability
+            # probes can consume the whole live budget and block valid disk caches.
+            # The day finder still requires both references and all channels.
+            if len(set(refs)) >= 2 and all(m > 0 for m in refs):
                 jobs += [(box, day_src, refs) for box in day_boxes]
             else:
                 day_status["missing"] += len(day_boxes)
                 lost += 1
         if not jobs:
             continue
+        if any(src == day_src for _, src, _ in jobs):
+            day_attempted.add(iso(t))
         requests = []
         for box, src, refs in jobs:
             for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]:
@@ -559,15 +601,23 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         checked.append(t)
         for box, src, refs in jobs:
             is_day = src == day_src
-            if time.time() - t_start > budget:
+            if not is_day and time.time() - t_start > budget:
                 day_status["waiting"] += int(is_day)
                 continue
             key = ("day:" if is_day else "") + f"{box['id']}|{iso(t)}"
             finder = find_day_spots if is_day else find_spots
-            spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
+            if is_day:
+                # A complete cached comparison is useful even when acquisition
+                # consumed the deadline. Missing frames cannot trigger extra I/O.
+                with pics.cached_only():
+                    spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
+            else:
+                spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
             if spots is None:
                 log.info("sea watch %s %s: %s", box["id"], iso(t), notes)
                 day_status["missing"] += int(is_day)
+                if is_day and resume_candidate is None:
+                    resume_candidate = iso(t)
                 continue  # the download failed: try again next run
             done[key] = iso(t)
             if is_day:
@@ -606,6 +656,12 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                 log.info("sea watch %s %s: %s", box["id"], iso(t),
                          notes if not spots else f"{len(spots)} speck(s) {notes}")
         pics.cache = {}  # pictures are big: keep memory low between slots
+    if resume_candidate is not None:
+        state["sea_day_resume"] = {"t": resume_candidate,
+                                   "attempts": attempts + 1 if resume.get("t") == resume_candidate else 1}
+    elif (resume.get("t") in day_attempted
+          or not any(iso(t) == resume.get("t") and day for t, _, day in todo)):
+        state.pop("sea_day_resume", None)
     if checked or lost:
         log.info("sea watch: %d slot(s) checked%s, %d waiting, %d missing at the source", len(checked),
                  f" ({', '.join(f'{t:%H:%M}' for t in sorted(checked))})" if checked else "", waiting, lost)

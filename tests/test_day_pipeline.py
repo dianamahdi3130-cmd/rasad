@@ -1,6 +1,7 @@
 """Offline regressions for scheduling and isolating the experimental daytime finder."""
 import copy
 import datetime as dt
+from contextlib import nullcontext
 import sys
 import types
 import unittest
@@ -43,6 +44,7 @@ class DayWatchPipelineTests(unittest.TestCase):
         if availability.has.return_value is not False and availability.has.side_effect is None:
             availability.has.return_value = True
         pictures = Mock(cache={})
+        pictures.cached_only.side_effect = nullcontext
         module = types.ModuleType("rasad.daywatch")
         module.find_spots = day
         with patch.dict(sys.modules, {"rasad.daywatch": module}), \
@@ -115,7 +117,7 @@ class DayWatchPipelineTests(unittest.TestCase):
         self.assertEqual(day.call_count, 2)
         self.assertIn("day:test|" + iso(self.NOW), state["seawatch"])
 
-    def test_both_day_references_and_ir_availability_are_mandatory(self):
+    def test_missing_day_frames_retry_without_waiting_for_availability_probes(self):
         for missing_layer, minutes in (("layer", 60), ("check_layer", 0)):
             with self.subTest(layer=missing_layer, minutes=minutes):
                 cfg = self.config()
@@ -124,9 +126,11 @@ class DayWatchPipelineTests(unittest.TestCase):
                 availability = Mock()
                 availability.has.side_effect = lambda layer, t, box: not (
                     layer == cfg["seawatch"][missing_layer] and t == absent)
-                _, day, _, pictures = self.run_watch(cfg, state, availability=availability)
-                day.assert_not_called()
-                pictures.prefetch.assert_not_called()
+                day = Mock(return_value=(None, "required picture missing"))
+                _, day, _, pictures = self.run_watch(cfg, state, availability=availability, day=day)
+                availability.has.assert_not_called()
+                day.assert_called_once()
+                pictures.prefetch.assert_called_once()
                 self.assertEqual(state["seawatch"], {})
                 self.assertEqual(state["sea_day_status"]["missing"], 1)
 
