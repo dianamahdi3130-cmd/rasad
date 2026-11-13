@@ -763,6 +763,9 @@ function drawMarkers(){
 }
 
 /* ---------- routes: #ID = the incident on the full map, #ID:i = its details, #ba… = before/after ---------- */
+function incidentById(id){
+  return S.items.find(x => x.id === id || (Array.isArray(x.early_ids) && x.early_ids.includes(id)));
+}
 const hasBA = () => !!(window.BA && BA.available);
 function setRoute(hash, push=true){
   const url = location.pathname + (hash ? "#" + encodeURIComponent(hash) : "");
@@ -779,9 +782,10 @@ function route(){
     BA.leave();
   } else if (h === "ba" || h.startsWith("ba:")) h = "";
   const [id, part] = h.split(":");
-  if (id && S.items.some(x => x.id === id)){
-    showFocus(id, S.sel !== id);
-    if (part === "i") openDetail(id); else $("#sheet").hidden = true;
+  const incident = id && incidentById(id);
+  if (incident){
+    showFocus(incident.id, S.sel !== incident.id);
+    if (part === "i") openDetail(incident.id); else $("#sheet").hidden = true;
   } else {
     if (id) toast("هذا الحدث لم يعد في القائمة");
     $("#sheet").hidden = true;
@@ -791,7 +795,8 @@ function route(){
 
 /* ---------- one incident on the full map ---------- */
 function showFocus(id, move=true){
-  const it = S.items.find(x => x.id === id); if (!it) return;
+  const it = incidentById(id); if (!it) return;
+  id = it.id;
   if (!S.sel && S.map) S.prevView = {c:S.map.getCenter(), z:S.map.getZoom()};
   S.sel = id;
   document.body.classList.add("focus");
@@ -862,11 +867,13 @@ async function share(it){
   copy(text + "\n" + appLink(it));
 }
 function openDetail(id){
-  const it = S.items.find(x => x.id === id); if (!it) return;
+  const it = incidentById(id); if (!it) return;
+  id = it.id;
   const f = it.facility, series = it.frp_series || [];
   $("#detail").innerHTML = `
     <h2 id="dTitle">${bidi(it.headline)}</h2>
     <div style="color:var(--muted)">${bidi(it.where||"")}</div>
+    ${it.early_promotion_ambiguous ? `<p class="note" role="status">توجد عدة بقع أولية قرب هذا الموقع؛ ارتباطها بهذا الحدث قيد المراجعة.</p>` : ""}
     ${sure(it) ? `<div class="verdict"><span class="badge v-sure">مؤكد</span><p>${esc(it.reason)}</p></div>`
                : `<div class="verdict"><span aria-hidden="true">🛰</span><p>${esc(it.reason)}</p></div>`}
     ${it.clip ? `<video src="${esc(it.clip)}" ${it.snap?`poster="${esc(it.snap)}"`:""} controls playsinline muted loop preload="metadata"></video>`
@@ -876,16 +883,16 @@ function openDetail(id){
       ? `<p class="note" role="status">${esc(it.clip_status_text || it.clip_note || "لا يتوفر فيديو لهذا الحدث حالياً")}</p>` : ""}
     <dl class="facts">
       <dt>المكان</dt><dd>${esc(PLACE[it.place] || "غير محدد")}</dd>
-      <dt>أقرب منشأة</dt><dd>${f ? bidi(f.text) : "لا توجد منشأة طاقة قريبة"}</dd>
+      <dt>أقرب منشأة</dt><dd>${it.preliminary ? "لم تُراجع المنشآت القريبة بعد" : f ? bidi(f.text) : "لا توجد منشأة طاقة قريبة"}</dd>
       <dt>بدأ</dt><dd>${esc(it.start_text)}</dd>
       <dt>آخر رصد</dt><dd>${esc(it.last_text)} (${ago(it.last)})</dd>
-      <dt>الحجم</dt><dd>${it.size ? esc(it.size) + (it.max_frp != null ? ` (${esc(mwText(it.max_frp))})` : "") : "يُعرف بعد مرور قمر أمريكي"}</dd>
+      <dt>الحجم</dt><dd>${it.preliminary ? "غير مقاسة حالياً" : it.size ? esc(it.size) + (it.max_frp != null ? ` (${esc(mwText(it.max_frp))})` : "") : "يُعرف بعد مرور قمر أمريكي"}</dd>
       ${series.length > 1 ? `<dt>الشدة عبر الوقت</dt><dd class="series">${series.map(r => `<span>${esc(clock(r[0]))} · ${esc(mwText(r[1]))}</span>`).join("")}</dd>` : ""}
       <dt>رصدته</dt><dd>${esc(it.sources_text ? "أقمار: " + it.sources_text : "—")}</dd>
       ${it.smoke_text ? `<dt>دخان</dt><dd>${esc(it.smoke_text)}</dd>` : ""}
       ${it.satpic && it.satpic.after ? `<dt>قبل وبعد</dt><dd>صورة القمر Sentinel-2 بتاريخ <bdi dir="ltr">${esc(it.satpic.after)}</bdi>: ${it.satpic.quiet ? "لا تغيّر واضح بدقة 10 أمتار" : "تغيّر مرصود نحو " + esc(hasBA() ? BA._.areaText(it.satpic.area_ha) : it.satpic.area_ha + " هكتار")}</dd>` : ""}
       <dt>الإحداثيات</dt><dd><button class="btn" type="button" id="copyBtn" dir="ltr">${it.lat.toFixed(4)},${it.lon.toFixed(4)}</button></dd>
-      <dt>الدقة</dt><dd>${it.best === "polar" ? "دقيقة (نحو نصف كيلومتر)" : "تقريبية (نحو 3 كم) حتى يمر قمر أمريكي"}</dd>
+      <dt>الدقة</dt><dd>${it.preliminary ? "تقريبية (نحو 3 كم)" : it.best === "polar" ? "دقيقة (نحو نصف كيلومتر)" : "تقريبية (نحو 3 كم) حتى يمر قمر أمريكي"}</dd>
     </dl>
     <div class="actions">
       <button class="btn primary" type="button" id="shareBtn">مشاركة</button>

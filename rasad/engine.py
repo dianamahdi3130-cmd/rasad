@@ -17,7 +17,7 @@ from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finali
 from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
-from . import backfill, geocollect, mediaqueue
+from . import backfill, geocollect, mediaqueue, earlyalerts
 from . import acquisitions, flares, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
@@ -116,9 +116,11 @@ DEFAULTS = {
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
         "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
+        "early_alerts": {"enabled": True, "max_age_min": 45, "max_new_per_run": 3,
+                         "match_km": 1.5, "match_minutes": 40, "keep_days": 7},
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
-        "cadence_min": 10, "delay_min": 15, "slots_per_run": 6, "km_per_px": 0.5,
+        "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.5,
         # slots missed in the last hours (the source late or down) are checked later, newest first,
         # within this many seconds per run
         "catchup_hours": 3, "budget_s": 240,
@@ -377,6 +379,10 @@ def clip_for(cfg, wms, S, inc, focus_time=None):
     import json
     from .updates import peak_reading
 
+    if inc.get("preliminary") is True:
+        from .earlyclip import render
+        return render(cfg, wms, inc, utcnow())
+
     peak = peak_reading(inc)
     focus = parse_time(focus_time) if focus_time is not None else \
         (parse_time(peak[0]) if peak else None)
@@ -499,12 +505,17 @@ def add_clip(cfg, wms, S, inc, now, refresh=False):
         inc["clip_max_frp"] = covered
         inc["clip_peak_time"] = peak[0] if peak else None
         inc["clip_updated_at"], inc["clip_style"] = iso(now), CLIP_STYLE
+        inc.pop("early_clip", None)
+        inc.pop("early_clip_time", None)
         inc.pop("clip_needs_refresh", None)
         inc.pop("clip_note", None)
         if inc.pop("unseen_close", None):
             finalize(inc, cfg)
         return True
     except NotVisible:
+        if inc.get("preliminary") is True:
+            inc["clip_note"] = "لم تتوفر صور صالحة لإظهار البقعة الأولية بوضوح؛ ستُعاد المحاولة"
+            return False
         if refresh:
             log.info("updated clip for %s: the new heat is not visible yet; keeping previous media", inc["id"])
             return False
@@ -587,7 +598,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         if bootstrap(cfg, session, S, box) > 0:
             S.state["bootstrapped"] = iso(now)
 
-    if telegram_ready(cfg) and not S.state.get("hello_sent"):
+    if send and telegram_ready(cfg) and not S.state.get("hello_sent"):
         active = Memory(S.memory).days_known(today, int(M["window_days"])) > 0 or alert_now
         hello = ("✅ <b>رصد يعمل الآن</b>\n"
                  f"يراقب: {'، '.join(r['name'] for r in regions)}\n"
@@ -638,6 +649,12 @@ def run_cycle(cfg, send=True, alert_now=False):
                 "latest": checked_at, "experimental": True,
             }
         log.info("sea watch: %d spot(s), %.0f s", len(spots), time.time() - t1)
+
+    # Queue first-frame media while the remaining sources are being read. The
+    # renderer reuses the original detection grid and never waits for a future pass.
+    if cfg.get("_background_media"):
+        earlyalerts.sync(cfg, S, now)
+        earlyalerts.prepare(cfg, S, now, mediaqueue.request_clip)
 
     # 2) NASA (VIIRS/MODIS), precise but a few hours late.
     #    Ask for today AND yesterday (UTC): the night passes over the Gulf (about 21:30-23:30 UTC)
@@ -925,6 +942,9 @@ def run_cycle(cfg, send=True, alert_now=False):
         S.incidents = keep
         S.state["rules"] = RULES
         log.info("re-judged stored incidents with the current rules: %d kept, %d dropped", len(keep), dropped)
+    # Transfer only an exact originating observation to a genuine incident, so
+    # confirmation replies to its early post without merging a different nearby fire.
+    earlyalerts.sync(cfg, S, now)
     for inc in S.incidents:
         if inc.get("status") == "alerted" and "alerted_max_frp" not in inc:
             # Earlier releases did not save the sent strength. Do not invent its value
@@ -943,6 +963,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             look_budget -= 1
         if inc["priority"] != "high" or inc.get("status") == "held":
             continue
+        if inc.get("early_promotion_ambiguous"):
+            continue  # several original spots cannot be assigned to one Telegram thread safely
         if day_requires_confirmation(inc) or association_requires_confirmation(inc) or inc.get("recovered_historical"):
             continue  # experimental day evidence cannot send alerts or updates without corroboration
         rank = VERDICT_RANK[inc["verdict"]]
@@ -964,6 +986,13 @@ def run_cycle(cfg, send=True, alert_now=False):
                     updates.append((inc, intensity_changed))
             elif verdict_changed:
                 inc["alerted_verdict"] = inc["verdict"]  # remember it quietly: the app shows it
+
+    def post_early(message, media=None, reply_to=None):
+        result = post(message, media, reply_to=reply_to)
+        # Printing a dry run must not consume the first real notification.
+        return result if send and telegram_ready(cfg) else None
+
+    earlyalerts.deliver(cfg, S, now, post_early, prepare_clip)
 
     # safety valve: many "new" fires at once usually means the memory is not ready, not a war
     max_new = int(cfg["alerts"].get("max_new_per_run", 6))
@@ -1004,19 +1033,28 @@ def run_cycle(cfg, send=True, alert_now=False):
         updated_ids.add(inc["id"])
         first_post = inc.get("tg_msg")
         media = None
-        if intensity and prepare_clip(inc, refresh=True) and inc.get("clip"):
+        early_confirmation = bool(inc.get("early_ids")) and inc.get("early_video_sent_at") != iso(now)
+        with_video = intensity or early_confirmation
+        if with_video and prepare_clip(inc, refresh=True) and inc.get("clip"):
+            path = Path(cfg["_site_dir"]) / inc["clip"]
+            if path.exists():
+                media = path
+        elif early_confirmation and not intensity and inc.get("early_clip") and inc.get("clip"):
+            # The source-grid evidence remains useful for a confirmation-only
+            # reply, with its original time printed in the video. It must never
+            # stand in for a video covering a later measured intensity peak.
             path = Path(cfg["_site_dir"]) / inc["clip"]
             if path.exists():
                 media = path
         message = alert_message(inc, cfg, update=True, threaded=bool(first_post),
                                 intensity=intensity, delayed=_delayed_update(inc, cfg, now))
-        if intensity and media is None and cfg["clip"].get("enabled", True):
+        if with_video and media is None and cfg["clip"].get("enabled", True):
             message += "\n🎞 الفيديو المحدث قيد التجهيز؛ سيُرسل عند توفر صور تُظهر الرصد الجديد بوضوح."
         if post(message, media, reply_to=first_post):
             S.sent = True
             inc["alerted_verdict"] = inc["verdict"]
             _remember_post(inc, now)
-            if intensity:
+            if with_video:
                 inc["clip_video_pending"] = bool(cfg["clip"].get("enabled", True) and media is None)
             log.info("UPDATE %s -> %s%s", inc["id"], inc["verdict"], " (stronger)" if intensity else "")
 
@@ -1025,8 +1063,12 @@ def run_cycle(cfg, send=True, alert_now=False):
     for inc in S.incidents:
         if inc["id"] in updated_ids or not inc.get("clip_video_pending") \
                 or inc.get("status") != "alerted" or inc.get("priority") != "high" \
+                or inc.get("early_promotion_ambiguous") \
                 or day_requires_confirmation(inc) or association_requires_confirmation(inc) or inc.get("recovered_historical") \
                 or now - parse_time(inc["last"]) > update_max_age:
+            continue
+        if inc.get("early_video_sent_at") == iso(now) and peak_reading(inc) is None:
+            inc["clip_video_pending"] = False
             continue
         if not prepare_clip(inc, refresh=True) or not inc.get("clip"):
             continue
@@ -1145,7 +1187,8 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "first", "last", "lat", "lon", "best", "size", "max_frp", "verdict", "reason", "priority",
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
-          "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke"]
+          "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke",
+          "early_ids", "early_promotion_ambiguous"]
 
 
 def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=None):
@@ -1156,6 +1199,7 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
                       and not row.get("experimental"))
                   for key, row in status.items() if key != "recovery")
     items = [{k: i.get(k) for k in PUBLIC} for i in S.incidents if i.get("headline")]
+    items.extend(earlyalerts.items(cfg, S.state, S.incidents, finished))
     for item in items:
         if (item.get("clip_video_pending") or item.get("clip_needs_refresh")) \
                 and (item.get("clip") or not item.get("clip_note")):

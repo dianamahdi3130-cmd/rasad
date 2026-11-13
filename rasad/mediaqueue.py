@@ -24,7 +24,8 @@ from .wms import WMS
 
 _TOKEN = re.compile(r"^[0-9a-f]{64}$")
 _INPUT_FIELDS = ("id", "lat", "lon", "headline", "where", "country", "place", "region_name",
-                 "facility", "verdict", "first", "last", "max_frp", "frp_series", "polar", "srcs")
+                 "facility", "verdict", "first", "last", "max_frp", "frp_series", "polar", "srcs",
+                 "preliminary", "source_grid", "reference_minutes")
 _RESULT_FIELDS = ("clip", "snap", "clip_max_frp", "clip_peak_time", "clip_style", "clip_updated_at",
                   "clip_note", "unseen_close")
 
@@ -48,6 +49,9 @@ def _revision(cfg, inc, refresh):
                         "cadence": cfg["seawatch"].get("cadence_min")},
              "watermark": cfg.get("watermark"), "logo": cfg.get("watermark_logo"),
              "local_time": cfg.get("local_time")}
+    if inc.get("preliminary") is True:
+        from .earlyclip import STYLE
+        value["early_style"] = STYLE
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str,
                                      separators=(",", ":")).encode()).hexdigest()
 
@@ -161,7 +165,15 @@ def process_one(cfg, now=None):
                 folders.append((path.stat().st_mtime, path))
         except FileNotFoundError:
             pass  # a completed job was consumed between listing and inspecting it
-    folders = [path for _, path in sorted(folders, reverse=True)]
+    def priority(row):
+        job = load_json(row[1] / "job.json", {})
+        snapshot = job.get("incident") if isinstance(job, dict) else None
+        early = isinstance(snapshot, dict) and snapshot.get("preliminary") is True
+        return early, row[0]
+
+    # First-frame marine clips should not wait behind routine archive renders.
+    # Failed jobs still obey their retry interval, so they cannot starve the rest.
+    folders = [path for _, path in sorted(folders, key=priority, reverse=True)]
     for folder in folders:
         handle = _lock(folder)
         if handle is None:
@@ -270,6 +282,8 @@ def consume_results(cfg, S, now):
                     else:
                         inc[key] = fields[key]
                 inc.pop("clip_needs_refresh", None)
+                inc.pop("early_clip", None)
+                inc.pop("early_clip_time", None)
                 inc.pop("media_job", None)
                 inc.pop("media_result_at", None)
                 finalize(inc, cfg)

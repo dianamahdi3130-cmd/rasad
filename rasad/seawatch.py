@@ -579,7 +579,13 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
             night = (t - dt.timedelta(hours=12)).date().isoformat()
             for sp in spots:
                 pair = confirm([c for c in cands if c.get("src", SRC) == src], sp)
-                cands.append(dict({k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")}, src=src))
+                width, height = box_size(box, float(C["km_per_px"]))
+                cands.append(dict(
+                    {k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")}, src=src,
+                    source_grid={"box_id": box["id"], "bbox": list(box["bbox"]),
+                                 "width": width, "height": height,
+                                 "km_per_px": float(C["km_per_px"]), "layer": C["layer"]},
+                    reference_minutes=list(refs)))
                 if is_day:
                     if pair:
                         found += [dict(row, src=day_src, family="mtg", kind="geo", frp=None,
