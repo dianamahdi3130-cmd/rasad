@@ -1,0 +1,39 @@
+name: رصد - فحص اتصال EUMETSAT
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ["tools/eumetsat_access_probe.py", ".github/workflows/eumetsat-access.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eumetsat-access
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install HTTP client
+        run: pip install --disable-pip-version-check requests==2.34.2
+      - name: Check authentication and read a tiny raw-data sample
+        env:
+          EUMETSAT_CONSUMER_KEY: ${{ secrets.EUMETSAT_CONSUMER_KEY }}
+          EUMETSAT_CONSUMER_SECRET: ${{ secrets.EUMETSAT_CONSUMER_SECRET }}
+        run: python tools/eumetsat_access_probe.py
+      - name: Keep the safe access report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eumetsat-access-report
+          path: eumetsat-check/report.json
+          if-no-files-found: ignore
+          retention-days: 3
