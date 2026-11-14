@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T03:08:12Z",
- "scan_started": "2026-11-14T03:07:13Z",
- "scan_finished": "2026-11-14T03:08:12Z",
- "scan_duration_s": 59.2,
+ "generated": "2026-11-14T03:18:11Z",
+ "scan_started": "2026-11-14T03:17:13Z",
+ "scan_finished": "2026-11-14T03:18:11Z",
+ "scan_duration_s": 58.0,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 46,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -116,7 +116,7 @@
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
    "latest": "2026-11-14T03:00:00Z",
-   "checked": 16,
+   "checked": 0,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -127,14 +127,14 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T02:40:00Z",
-   "checked": 4,
+   "latest": "2026-11-14T02:50:00Z",
+   "checked": 16,
    "missing": 0,
-   "pending": 12,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -149,12 +149,12 @@
    "waiting": 0,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-14T02:50:00Z",
-   "last_attempt": "2026-11-14T03:00:00Z",
+   "last_checked": "2026-11-14T03:00:00Z",
+   "last_attempt": "2026-11-14T03:10:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-14T02:50:00Z"
+   "latest": "2026-11-14T03:00:00Z"
   },
   "firms": {
    "attempted": 4,
@@ -172,12 +172,12 @@
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 0,
-   "pending": 131,
+   "detections": 8,
+   "pending": 122,
    "targets": 6,
    "invalid_targets": 0,
    "historical": true,
-   "latest": null,
+   "latest": "2026-11-13T03:30:00Z",
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
@@ -189,7 +189,7 @@
    "lon": 38.2359,
    "label": "مصفاة (Yanpet)",
    "first": "2026-11-11T23:10:00Z",
-   "last": "2026-11-14T02:40:00Z",
+   "last": "2026-11-14T02:50:00Z",
    "peak": 48.2,
    "typical": 3.68,
    "pictures": 18,
@@ -205,7 +205,7 @@
    "lon": 47.5133,
    "label": "محطة المعالجة المركزية الثانية",
    "first": "2026-11-13T01:00:00Z",
-   "last": "2026-11-14T02:40:00Z",
+   "last": "2026-11-14T02:50:00Z",
    "peak": 52.2,
    "typical": 19.71,
    "pictures": 18,
@@ -213,6 +213,22 @@
    "text": "اشتعلت الشعلة في محطة المعالجة المركزية الثانية أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 9 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-6156253520-6de4325c39a2.mp4",
    "snap": "clips/flare-6156253520-6de4325c39a2.jpg",
+   "clip_note": null
+  },
+  {
+   "id": "flare-5181a42ed9",
+   "lat": 31.6971,
+   "lon": 47.2576,
+   "label": "محطة كهرباء ميسان العمارة المركبة الاسثمارية",
+   "first": "2026-11-13T23:10:00Z",
+   "last": "2026-11-14T02:50:00Z",
+   "peak": 21.3,
+   "typical": 2.43,
+   "pictures": 18,
+   "strong": 16,
+   "text": "اشتعلت الشعلة في محطة كهرباء ميسان العمارة المركبة الاسثمارية أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 16 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
+   "clip": "clips/flare-5181a42ed9-034c185866c9.mp4",
+   "snap": "clips/flare-5181a42ed9-034c185866c9.jpg",
    "clip_note": null
   },
   {
@@ -229,22 +245,6 @@
    "text": "اشتعلت الشعلة في محطة عزل غاز زبير مشرف الثالثة أكثر من المعتاد: رمز حريق في 16 صورة خلال 3 ساعات، منها 12 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-5e821c0523-08885e992c16.mp4",
    "snap": "clips/flare-5e821c0523-08885e992c16.jpg",
-   "clip_note": null
-  },
-  {
-   "id": "flare-5181a42ed9",
-   "lat": 31.6971,
-   "lon": 47.2576,
-   "label": "محطة الكحلاء الغازية",
-   "first": "2026-11-13T23:10:00Z",
-   "last": "2026-11-14T02:40:00Z",
-   "peak": 21.3,
-   "typical": 2.43,
-   "pictures": 17,
-   "strong": 15,
-   "text": "اشتعلت الشعلة في محطة الكحلاء الغازية أكثر من المعتاد: رمز حريق في 17 صورة خلال 3 ساعات، منها 15 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-5181a42ed9-034c185866c9.mp4",
-   "snap": "clips/flare-5181a42ed9-034c185866c9.jpg",
    "clip_note": null
   },
   {
