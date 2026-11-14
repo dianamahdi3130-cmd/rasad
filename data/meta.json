@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T07:53:24Z",
- "scan_started": "2026-11-14T07:52:13Z",
- "scan_finished": "2026-11-14T07:53:24Z",
- "scan_duration_s": 71.1,
- "scan_partial": true,
+ "generated": "2026-11-14T08:03:21Z",
+ "scan_started": "2026-11-14T08:02:13Z",
+ "scan_finished": "2026-11-14T08:03:21Z",
+ "scan_duration_s": 67.2,
+ "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 3,
+ "detections_this_run": 42,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -116,25 +116,25 @@
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
    "latest": "2026-11-14T07:45:00Z",
-   "checked": 10,
+   "checked": 4,
    "missing": 0,
-   "pending": 6,
-   "pending_recent": 6,
-   "scan_complete": false,
+   "pending": 8,
+   "pending_recent": 0,
+   "scan_complete": true,
    "clock_cached": false,
    "budget_exhausted": true
   },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T07:30:00Z",
-   "checked": 10,
-   "missing": 10,
-   "pending": 16,
-   "pending_recent": 16,
-   "scan_complete": false,
+   "latest": "2026-11-14T07:40:00Z",
+   "checked": 16,
+   "missing": 0,
+   "pending": 0,
+   "pending_recent": 0,
+   "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -145,16 +145,16 @@
    "enabled": true,
    "experimental": true,
    "checked": 0,
-   "missing": 2,
-   "waiting": 16,
+   "missing": 4,
+   "waiting": 14,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-14T07:30:00Z",
-   "last_attempt": "2026-11-14T07:50:00Z",
+   "last_checked": "2026-11-14T07:40:00Z",
+   "last_attempt": "2026-11-14T08:00:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-14T07:30:00Z"
+   "latest": "2026-11-14T07:40:00Z"
   },
   "firms": {
    "attempted": 4,
@@ -163,7 +163,7 @@
    "deferred": 0,
    "ok": true,
    "name": "الأقمار الأمريكية (ناسا)",
-   "latest": "2026-11-14T05:08:00Z"
+   "latest": "2026-11-14T06:44:00Z"
   },
   "recovery": {
    "enabled": true,
@@ -189,7 +189,7 @@
    "lon": 38.2359,
    "label": "مصفاة (Yanpet)",
    "first": "2026-11-11T23:10:00Z",
-   "last": "2026-11-14T07:20:00Z",
+   "last": "2026-11-14T07:40:00Z",
    "peak": 53.5,
    "typical": 3.68,
    "pictures": 18,
@@ -197,6 +197,22 @@
    "text": "اشتعلت الشعلة في مصفاة (⁨Yanpet⁩‏) أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 18 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-7c11755f32-16621c415bfb.mp4",
    "snap": "clips/flare-7c11755f32-16621c415bfb.jpg",
+   "clip_note": null
+  },
+  {
+   "id": "flare-53fc2816d4",
+   "lat": 28.8912,
+   "lon": 48.0169,
+   "label": "منشأة نفطية في منطقة صباح الأحمد",
+   "first": "2026-11-14T07:40:00Z",
+   "last": "2026-11-14T07:40:00Z",
+   "peak": 21.0,
+   "typical": 2.04,
+   "pictures": 8,
+   "strong": 8,
+   "text": "اشتعلت الشعلة في منشأة نفطية في منطقة صباح الأحمد أكثر من المعتاد: رمز حريق في 8 صورة خلال 3 ساعات، منها 8 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
+   "clip": null,
+   "snap": null,
    "clip_note": null
   },
   {
