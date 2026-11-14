@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T08:03:21Z",
- "scan_started": "2026-11-14T08:02:13Z",
- "scan_finished": "2026-11-14T08:03:21Z",
- "scan_duration_s": 67.2,
+ "generated": "2026-11-14T08:05:06Z",
+ "scan_started": "2026-11-14T08:04:44Z",
+ "scan_finished": "2026-11-14T08:05:06Z",
+ "scan_duration_s": 22.2,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 42,
+ "detections_this_run": 1,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -112,23 +112,23 @@
   }
  ],
  "sources": {
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
-   "ok": true,
-   "latest": "2026-11-14T07:45:00Z",
-   "checked": 4,
-   "missing": 0,
-   "pending": 8,
-   "pending_recent": 0,
-   "scan_complete": true,
-   "clock_cached": false,
-   "budget_exhausted": true
-  },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
    "latest": "2026-11-14T07:40:00Z",
-   "checked": 16,
+   "checked": 0,
+   "missing": 0,
+   "pending": 0,
+   "pending_recent": 0,
+   "scan_complete": true,
+   "clock_cached": false,
+   "budget_exhausted": false
+  },
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
+   "ok": true,
+   "latest": "2026-11-14T07:45:00Z",
+   "checked": 8,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -213,7 +213,7 @@
    "text": "اشتعلت الشعلة في منشأة نفطية في منطقة صباح الأحمد أكثر من المعتاد: رمز حريق في 8 صورة خلال 3 ساعات، منها 8 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": null,
    "snap": null,
-   "clip_note": null
+   "clip_note": "لا يظهر هذا الحريق بوضوح في الصور القريبة للقمر الأوروبي، وننتظر مرور قمر أمريكي"
   },
   {
    "id": "flare-d086aa62ed",
