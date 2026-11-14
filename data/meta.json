@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T10:36:01Z",
- "scan_started": "2026-11-14T10:35:20Z",
- "scan_finished": "2026-11-14T10:36:01Z",
- "scan_duration_s": 40.7,
+ "generated": "2026-11-14T10:42:16Z",
+ "scan_started": "2026-11-14T10:40:20Z",
+ "scan_finished": "2026-11-14T10:42:16Z",
+ "scan_duration_s": 115.5,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 18,
+ "detections_this_run": 17,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -115,7 +115,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T10:10:00Z",
+   "latest": "2026-11-14T10:20:00Z",
    "checked": 16,
    "missing": 0,
    "pending": 0,
@@ -127,14 +127,14 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-14T10:15:00Z",
-   "checked": 0,
+   "latest": "2026-11-14T10:30:00Z",
+   "checked": 4,
    "missing": 0,
-   "pending": 0,
+   "pending": 12,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -145,16 +145,16 @@
    "enabled": true,
    "experimental": true,
    "checked": 0,
-   "missing": 4,
-   "waiting": 15,
+   "missing": 2,
+   "waiting": 17,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-14T10:00:00Z",
+   "last_checked": "2026-11-14T10:20:00Z",
    "last_attempt": "2026-11-14T10:30:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-14T10:00:00Z"
+   "latest": "2026-11-14T10:20:00Z"
   },
   "firms": {
    "attempted": 4,
@@ -163,7 +163,7 @@
    "deferred": 0,
    "ok": true,
    "name": "الأقمار الأمريكية (ناسا)",
-   "latest": "2026-11-14T06:46:00Z"
+   "latest": "2026-11-14T08:32:00Z"
   },
   "recovery": {
    "enabled": true,
@@ -189,7 +189,7 @@
    "lon": 38.2359,
    "label": "مصفاة (Yanpet)",
    "first": "2026-11-11T23:10:00Z",
-   "last": "2026-11-14T10:10:00Z",
+   "last": "2026-11-14T10:20:00Z",
    "peak": 53.5,
    "typical": 3.68,
    "pictures": 18,
@@ -200,12 +200,28 @@
    "clip_note": null
   },
   {
+   "id": "flare-99451834f9",
+   "lat": 31.6643,
+   "lon": 47.5133,
+   "label": "محطة المعالجة المركزية الثانية",
+   "first": "2026-11-14T10:20:00Z",
+   "last": "2026-11-14T10:20:00Z",
+   "peak": 42.6,
+   "typical": 19.71,
+   "pictures": 17,
+   "strong": 3,
+   "text": "اشتعلت الشعلة في محطة المعالجة المركزية الثانية أكثر من المعتاد: رمز حريق في 17 صورة خلال 3 ساعات، منها 3 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
+   "clip": null,
+   "snap": null,
+   "clip_note": null
+  },
+  {
    "id": "flare-d3770d3d45",
    "lat": 32.3505,
    "lon": 47.7061,
    "label": "منشأة نفطية في منطقة دشت عباس",
    "first": "2026-11-14T10:10:00Z",
-   "last": "2026-11-14T10:10:00Z",
+   "last": "2026-11-14T10:20:00Z",
    "peak": 68.0,
    "typical": 31.21,
    "pictures": 17,
@@ -261,22 +277,6 @@
    "text": "اشتعلت الشعلة في محطة عزل غاز زبير مشرف الثالثة أكثر من المعتاد: رمز حريق في 16 صورة خلال 3 ساعات، منها 12 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-5e821c0523-08885e992c16.mp4",
    "snap": "clips/flare-5e821c0523-08885e992c16.jpg",
-   "clip_note": null
-  },
-  {
-   "id": "flare-6156253520",
-   "lat": 31.6643,
-   "lon": 47.5133,
-   "label": "محطة المعالجة المركزية الثانية",
-   "first": "2026-11-13T01:00:00Z",
-   "last": "2026-11-14T03:50:00Z",
-   "peak": 52.2,
-   "typical": 19.71,
-   "pictures": 18,
-   "strong": 9,
-   "text": "اشتعلت الشعلة في محطة المعالجة المركزية الثانية أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 9 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-6156253520-6de4325c39a2.mp4",
-   "snap": "clips/flare-6156253520-6de4325c39a2.jpg",
    "clip_note": null
   },
   {
