@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T09:23:09Z",
- "scan_started": "2026-11-14T09:22:49Z",
- "scan_finished": "2026-11-14T09:23:09Z",
- "scan_duration_s": 19.8,
+ "generated": "2026-11-14T09:33:54Z",
+ "scan_started": "2026-11-14T09:32:49Z",
+ "scan_finished": "2026-11-14T09:33:54Z",
+ "scan_duration_s": 65.6,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 29,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -127,8 +127,8 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T09:00:00Z",
-   "checked": 0,
+   "latest": "2026-11-14T09:10:00Z",
+   "checked": 16,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -149,12 +149,12 @@
    "waiting": 19,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-14T09:00:00Z",
-   "last_attempt": "2026-11-14T09:20:00Z",
+   "last_checked": "2026-11-14T09:10:00Z",
+   "last_attempt": "2026-11-14T09:30:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-14T09:00:00Z"
+   "latest": "2026-11-14T09:10:00Z"
   },
   "firms": {
    "attempted": 4,
@@ -189,7 +189,7 @@
    "lon": 38.2359,
    "label": "مصفاة (Yanpet)",
    "first": "2026-11-11T23:10:00Z",
-   "last": "2026-11-14T09:00:00Z",
+   "last": "2026-11-14T09:10:00Z",
    "peak": 53.5,
    "typical": 3.68,
    "pictures": 18,
