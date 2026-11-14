@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T12:16:17Z",
- "scan_started": "2026-11-14T12:15:34Z",
- "scan_finished": "2026-11-14T12:16:17Z",
- "scan_duration_s": 43.5,
+ "generated": "2026-11-14T12:26:21Z",
+ "scan_started": "2026-11-14T12:25:34Z",
+ "scan_finished": "2026-11-14T12:26:21Z",
+ "scan_duration_s": 47.5,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 13,
+ "detections_this_run": 22,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -115,7 +115,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T11:50:00Z",
+   "latest": "2026-11-14T12:00:00Z",
    "checked": 16,
    "missing": 0,
    "pending": 0,
@@ -127,7 +127,7 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-14T12:00:00Z",
+   "latest": "2026-11-14T12:15:00Z",
    "checked": 4,
    "missing": 0,
    "pending": 12,
@@ -149,12 +149,12 @@
    "waiting": 18,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-14T11:50:00Z",
-   "last_attempt": "2026-11-14T12:10:00Z",
+   "last_checked": "2026-11-14T12:00:00Z",
+   "last_attempt": "2026-11-14T12:20:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-14T11:50:00Z"
+   "latest": "2026-11-14T12:00:00Z"
   },
   "firms": {
    "attempted": 4,
@@ -189,7 +189,7 @@
    "lon": 47.7061,
    "label": "منشأة نفطية في منطقة دشت عباس",
    "first": "2026-11-14T10:10:00Z",
-   "last": "2026-11-14T11:50:00Z",
+   "last": "2026-11-14T12:00:00Z",
    "peak": 74.1,
    "typical": 31.21,
    "pictures": 18,
