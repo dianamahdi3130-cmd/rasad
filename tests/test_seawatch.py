@@ -16,7 +16,9 @@ from rasad.util import box_around, floor_time, haversine_km, iso, px_to_latlon
 class PlatformRadiusTests(unittest.TestCase):
     WHEN = dt.datetime(2026, 11, 7, 22, 30, tzinfo=dt.timezone.utc)
 
-    def find(self, platform_distance, radius=None, known_heat=False):
+    def find(self, platform_distance, radius=None, known_heat=False, known_days=3,
+             known_distance=0, when=None):
+        when = when or self.WHEN
         cfg = copy.deepcopy(engine.DEFAULTS)
         if radius is not None:
             cfg["seawatch"]["platform_km"] = radius
@@ -28,7 +30,7 @@ class PlatformRadiusTests(unittest.TestCase):
         previous = current.copy()
         current[row, col] = 100.0
         pics = Mock()
-        pics.get.side_effect = lambda layer, bbox, w, h, t: current if t == self.WHEN else previous
+        pics.get.side_effect = lambda layer, bbox, w, h, t: current if t == when else previous
 
         # Use the real platform spatial lookup, with one platform at a known distance.
         platform_lat = lat + math.degrees(platform_distance / 6371.0)
@@ -37,14 +39,15 @@ class PlatformRadiusTests(unittest.TestCase):
         self.assertAlmostEqual(haversine_km(lat, lon, platform_lat, lon), platform_distance, places=6)
         memory = Memory({})
         if known_heat:
-            day = (self.WHEN - dt.timedelta(days=1)).date().isoformat()
-            memory.record(lat, lon, day, 10.0)
+            for offset in range(1, known_days + 1):
+                day = (when - dt.timedelta(days=offset)).date().isoformat()
+                memory.record(lat + known_distance / 111.32, lon, day, 10.0)
         sea_mask = lambda lats, lons: np.zeros_like(np.asarray(lats), dtype=bool)
         with patch.dict(seawatch._SEA, {}, clear=True), \
                 patch.object(seawatch, "land_mask_points", return_value=sea_mask), \
                 patch.object(seawatch, "sun_elevation", return_value=-30.0), \
                 patch.object(seawatch, "_ir105_change", return_value=0.7):
-            return seawatch.find_spots(cfg, pics, box, self.WHEN, mem=memory, geo=geo)
+            return seawatch.find_spots(cfg, pics, box, when, mem=memory, geo=geo)
 
     def test_independent_spot_nine_km_from_platform_is_kept(self):
         spots, notes = self.find(8.9)
@@ -57,10 +60,29 @@ class PlatformRadiusTests(unittest.TestCase):
         self.assertEqual(spots, [])
         self.assertEqual(notes["rejected"], {"oil platform": 1})
 
-    def test_known_heat_stays_excluded_with_smaller_platform_radius(self):
+    def test_persistent_local_heat_stays_excluded_with_smaller_platform_radius(self):
         spots, notes = self.find(8.9, known_heat=True)
         self.assertEqual(spots, [])
         self.assertEqual(notes["rejected"], {"heat seen here before": 1})
+
+    def test_one_old_heat_point_does_not_hide_a_new_night_spot(self):
+        for distance in (0, 8):
+            with self.subTest(distance=distance):
+                spots, notes = self.find(8.9, known_heat=True, known_days=1, known_distance=distance)
+                self.assertEqual(len(spots), 1, notes)
+                self.assertNotIn("heat seen here before", notes["rejected"])
+
+    def test_a_persistent_source_eight_km_away_does_not_hide_a_new_night_spot(self):
+        spots, notes = self.find(8.9, known_heat=True, known_distance=8)
+        self.assertEqual(len(spots), 1, notes)
+        self.assertEqual(notes["rejected"], {})
+
+    def test_current_night_across_utc_midnight_cannot_be_a_third_old_heat_day(self):
+        when = self.WHEN + dt.timedelta(hours=3)
+        self.assertEqual(when.day, 8)
+        # Dates7,6,5 include the current night (Nov7), leaving only two prior dates.
+        spots, notes = self.find(8.9, known_heat=True, known_days=3, when=when)
+        self.assertEqual(len(spots), 1, notes)
 
     def test_explicit_ten_km_radius_is_respected(self):
         spots, notes = self.find(8.9, radius=10.0)
@@ -71,7 +93,7 @@ class PlatformRadiusTests(unittest.TestCase):
 class PlatformRadiusCacheTests(unittest.TestCase):
     NOW = dt.datetime(2026, 11, 7, 23, tzinfo=dt.timezone.utc)
 
-    def watch(self, old_radius):
+    def watch(self, old_radius, old_history="current"):
         cfg = copy.deepcopy(engine.DEFAULTS)
         cfg["seawatch"]["boxes"] = [{"id": "test", "bbox": [55, 25, 56, 26]}]
         cfg["seawatch"]["slots_per_run"] = 1
@@ -86,6 +108,10 @@ class PlatformRadiusCacheTests(unittest.TestCase):
         state = {"seawatch": old_done.copy(), "sea_candidates": [candidate.copy()],
                  "sea_sparkle": copy.deepcopy(history), "slots": general_slots,
                  "sea_sparkle_min_days": 3}
+        if old_history == "current":
+            state["sea_history_rules"] = seawatch.history_rules(cfg["seawatch"])
+        elif old_history is not None:
+            state["sea_history_rules"] = old_history
         if old_radius is not None:
             state["sea_platform_km"] = old_radius
         avail = Mock()
@@ -116,6 +142,28 @@ class PlatformRadiusCacheTests(unittest.TestCase):
         find.assert_called_once()
         self.assertEqual(set(state["seawatch"]), {latest_key})
 
+    def test_changed_history_rules_recheck_completed_slots_and_preserve_evidence(self):
+        current = seawatch.history_rules(engine.DEFAULTS["seawatch"])
+        for field, prior in (("known_heat_km", 20), ("known_heat_exclusion_km", 10),
+                             ("known_heat_min_days", 1), ("version", 0)):
+            with self.subTest(field=field):
+                changed = dict(current, **{field: prior})
+                state, _, latest_key, find = self.watch(3.0, old_history=changed)
+                find.assert_called_once()
+                self.assertEqual(set(state["seawatch"]), {latest_key})
+                self.assertEqual(state["sea_history_rules"], current)
+
+    def test_first_history_rule_migration_rechecks_completed_slots(self):
+        state, _, latest_key, find = self.watch(3.0, old_history=None)
+        find.assert_called_once()
+        self.assertEqual(set(state["seawatch"]), {latest_key})
+        self.assertEqual(state["sea_history_rules"], seawatch.history_rules(engine.DEFAULTS["seawatch"]))
+
+    def test_unchanged_history_rules_preserve_completed_slots(self):
+        state, old_done, _, find = self.watch(3.0)
+        find.assert_not_called()
+        self.assertEqual(state["seawatch"], old_done)
+
 
 class SparkleHistoryTests(unittest.TestCase):
     NOW = dt.datetime(2026, 11, 7, 23, tzinfo=dt.timezone.utc)
@@ -130,7 +178,8 @@ class SparkleHistoryTests(unittest.TestCase):
         done = {"test|" + iso(latest - dt.timedelta(minutes=10 * i)):
                 iso(latest - dt.timedelta(minutes=10 * i)) for i in range(3)} if completed else {}
         state = {"seawatch": done.copy(), "sea_sparkle": copy.deepcopy(history),
-                 "sea_platform_km": cfg["seawatch"]["platform_km"]}
+                 "sea_platform_km": cfg["seawatch"]["platform_km"],
+                 "sea_history_rules": seawatch.history_rules(cfg["seawatch"])}
         if old_threshold is not None:
             state["sea_sparkle_min_days"] = old_threshold
         availability = Mock()

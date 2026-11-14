@@ -32,6 +32,7 @@ import numpy as np
 from PIL import Image, PngImagePlugin
 
 from .geodb import land_mask_points, ring_points
+from .thermal_history import history_rules, persistent_local_heat
 from .util import box_around, floor_time, iso, log, parse_time, px_to_latlon, sun_elevation
 from .wms import Availability, components
 
@@ -421,9 +422,10 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if geo is not None and geo.platform_within(lat, lon, float(C["platform_km"])):
             reject("oil platform")
             continue
-        # offshore oil fields flare on and off: no speck within ~10 km of heat NASA has seen before
-        reach = max(1, int(round(float(C["known_heat_km"]) / 2.2)))
-        if mem is not None and mem.profile(lat, lon, t.date().isoformat(), 30, reach)[0] > 0:
+        # Recurring heat belongs to its own cell. One old nearby ship or an
+        # onshore flare must not hide a new, separate hot spot in open water.
+        night = (t - dt.timedelta(hours=12)).date()
+        if persistent_local_heat(mem, lat, lon, night, C):
             reject("heat seen here before")
             continue
         z10 = _ir105_change(pics, cfg, lat, lon, t, refs)
@@ -475,12 +477,15 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     sun = float(C["sun_max_elev"])
     platform_km = float(C["platform_km"])
     sparkle_min_days = max(1, int(C.get("sparkle_min_days", 3)))
+    history_signature = history_rules(C)
     if (state.get("sea_platform_km") != platform_km
-            or state.get("sea_sparkle_min_days") != sparkle_min_days):
+            or state.get("sea_sparkle_min_days") != sparkle_min_days
+            or state.get("sea_history_rules") != history_signature):
         # Recheck recent pictures under changed filters; keep candidates and heat history.
         state["seawatch"] = {}
         state["sea_platform_km"] = platform_km
         state["sea_sparkle_min_days"] = sparkle_min_days
+        state["sea_history_rules"] = history_signature
     done = state.setdefault("seawatch", {})
     cands = state.setdefault("sea_candidates", [])
     day_signature = hashlib.sha256(json.dumps({"version": 1, "config": D}, sort_keys=True,

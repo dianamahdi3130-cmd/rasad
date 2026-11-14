@@ -117,7 +117,8 @@ DEFAULTS = {
     "seawatch": {
         "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
         "early_alerts": {"enabled": True, "max_age_min": 45, "max_new_per_run": 3,
-                         "match_km": 1.5, "match_minutes": 40, "keep_days": 7},
+                         "match_km": 1.5, "match_minutes": 40, "keep_days": 7,
+                         "video_max_age_hours": 24},
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.5,
@@ -129,6 +130,8 @@ DEFAULTS = {
         # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km)
         "min_above_sea": 3.0, "max_warm_extent_km": 8.0,
         "min_coast_km": 3.0, "platform_km": 3.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
+        "known_heat_min_days": 3, "known_heat_exclusion_km": 3.0,
+        "prefetch": {"enabled": True, "budget_s": 90, "request_timeout_s": 40, "batch_size": 4},
         "sparkle_min_days": 3,
         "sun_max_elev": -6.0,
         # These thresholds are image display levels, never Kelvin or fire power in MW.
@@ -143,6 +146,7 @@ DEFAULTS = {
             "max_blue_contrast": 12.0, "max_blue_rise": 10.0,
             "max_ir_change_z": 3.0, "max_ir_cold_excess": 20.0,
             "max_candidates": 40, "burst_max": 3,
+            "validation_grid": 8,
         },
         # areas switched on only after a replay of a real night showed no false fires there
         # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and

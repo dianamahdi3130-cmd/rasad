@@ -224,10 +224,32 @@ class DaywatchTests(unittest.TestCase):
         memory = Memory({})
         latitude, longitude = seawatch.px_to_latlon(self.box["bbox"], self.width, self.height,
                                                   self.col, self.row)
-        memory.record(latitude, longitude, "2026-11-07", 10)
+        for day in ("2026-11-07", "2026-11-06", "2026-11-05"):
+            memory.record(latitude, longitude, day, 10)
         spots, notes = self.find(mem=memory)
         self.assertEqual(spots, [])
         self.assertIn("heat seen here before", notes["rejected"])
+
+    def test_one_old_local_or_nearby_observation_does_not_hide_a_new_day_spot(self):
+        latitude, longitude = seawatch.px_to_latlon(self.box["bbox"], self.width, self.height,
+                                                  self.col, self.row)
+        for distance in (0, 8):
+            with self.subTest(distance=distance):
+                memory = Memory({})
+                memory.record(latitude + distance / 111.32, longitude, "2026-11-07", 10)
+                spots, notes = self.find(mem=memory)
+                self.assertEqual(len(spots), 1, notes)
+                self.assertNotIn("heat seen here before", notes["rejected"])
+
+    def test_persistent_heat_eight_km_away_does_not_hide_a_new_day_spot(self):
+        latitude, longitude = seawatch.px_to_latlon(self.box["bbox"], self.width, self.height,
+                                                  self.col, self.row)
+        memory = Memory({})
+        for day in ("2026-11-07", "2026-11-06", "2026-11-05"):
+            memory.record(latitude + 8 / 111.32, longitude, day, 10)
+        spots, notes = self.find(mem=memory)
+        self.assertEqual(len(spots), 1, notes)
+        self.assertEqual(notes["rejected"], {})
 
     def test_a_fire_among_many_cloud_specks_is_still_looked_at(self):
         # 11 Nov 2026 at dawn over Hormuz: 101 bright specks in one picture and only the six

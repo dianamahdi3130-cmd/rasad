@@ -13,9 +13,49 @@ import numpy as np
 
 from .geodb import land_mask_points, ring_points
 from .solar import solar_geometry
+from .thermal_history import persistent_local_heat
 from .util import iso, px_to_latlon
 
 SRC = "mtg_day_spot"
+
+
+def select_for_validation(ranked, budget, shape, grid=8):
+    """Spread a limited review budget across the image without changing tests.
+
+    Below the limit, retain the existing order. On overflow, visit each occupied
+    spatial cell once before taking its second candidate. Cells and candidates
+    are ordered by their strongest tuple, so the global strongest remains first
+    and ties do not depend on connected-component enumeration order.
+    """
+    budget = max(0, int(budget))
+    if len(ranked) <= budget:
+        return ranked[:]
+    if not budget:
+        return []
+    try:
+        grid = max(1, min(32, int(grid)))
+    except (TypeError, ValueError, OverflowError):
+        grid = 8
+    height, width = shape
+    cells = {}
+    for candidate in sorted(set(ranked), reverse=True):
+        _, row, col, _ = candidate
+        key = min(grid - 1, row * grid // height), min(grid - 1, col * grid // width)
+        cells.setdefault(key, []).append(candidate)
+    ordered = sorted(cells.values(), key=lambda rows: rows[0], reverse=True)
+    result, level = [], 0
+    while len(result) < budget:
+        added = False
+        for rows in ordered:
+            if level < len(rows):
+                result.append(rows[level])
+                added = True
+                if len(result) == budget:
+                    break
+        if not added:
+            break
+        level += 1
+    return result
 
 
 def _sea_ring(image, sea, row, col, km, inner=2.0, outer=15.0):
@@ -141,6 +181,7 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         reject("validation budget", len(ranked) - budget)
     if not ranked or budget == 0:
         return [], notes
+    selected = select_for_validation(ranked, budget, rise.shape, D.get("validation_grid", 8))
 
     blue_rise = blue[0] - np.maximum.reduce(blue[1:])
     blue_contrast = blue[0] - local_mean(blue[0], radius)
@@ -152,7 +193,7 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         return None, "daytime land mask unavailable"
     out = []
     max_area = float(D.get("max_area_km2", 40)) / (km * km)
-    for strength, row, col, area in ranked[:budget]:
+    for strength, row, col, area in selected:
         notes["validated"] += 1
         if area > max_area:
             reject("too big (clouds)")
@@ -196,8 +237,7 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if geo is not None and geo.platform_within(latitude, longitude, float(C.get("platform_km", 3))):
             reject("oil platform")
             continue
-        reach = max(1, int(round(float(C.get("known_heat_km", 10)) / 2.2)))
-        if mem is not None and mem.profile(latitude, longitude, t.date().isoformat(), 30, reach)[0] > 0:
+        if persistent_local_heat(mem, latitude, longitude, t.date(), C):
             reject("heat seen here before")
             continue
         out.append({"src": SRC, "family": "mtg", "kind": "geo", "t": iso(t),

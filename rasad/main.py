@@ -106,6 +106,10 @@ def main(argv=None):
     p.add_argument("--interval", type=float, default=2, help="seconds between checks for queued clips")
     p.add_argument("--max-minutes", type=float, default=340, help="worker lifetime in minutes")
     p.add_argument("--once", action="store_true", help="process at most one queued clip")
+    p = sub.add_parser("picture-worker", help="cache finder rasters independently of satellite checks")
+    p.add_argument("--interval", type=float, default=5, help="seconds between image acquisition batches")
+    p.add_argument("--max-minutes", type=float, default=340, help="worker lifetime in minutes")
+    p.add_argument("--once", action="store_true", help="try one bounded acquisition batch")
     p = sub.add_parser("satpic-worker", help="make the before/after satellite pictures for alerted fires")
     p.add_argument("--interval", type=float, default=60, help="seconds between looks at the queue")
     p.add_argument("--max-minutes", type=float, default=340, help="worker lifetime in minutes")
@@ -171,6 +175,10 @@ def main(argv=None):
 
     if args.cmd == "media-worker":
         media_worker(cfg, args.interval, args.max_minutes, args.once)
+        return
+    if args.cmd == "picture-worker":
+        from .pictureworker import run_worker
+        run_worker(cfg, args.interval, args.max_minutes, args.once)
         return
     if args.cmd == "satpic-worker":
         from .satpic import run_worker
