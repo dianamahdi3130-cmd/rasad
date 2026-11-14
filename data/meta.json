@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T04:55:09Z",
- "scan_started": "2026-11-14T04:54:43Z",
- "scan_finished": "2026-11-14T04:55:09Z",
- "scan_duration_s": 26.1,
+ "generated": "2026-11-14T05:05:04Z",
+ "scan_started": "2026-11-14T05:04:43Z",
+ "scan_finished": "2026-11-14T05:05:04Z",
+ "scan_duration_s": 21.2,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 6,
+ "detections_this_run": 5,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -115,7 +115,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T04:30:00Z",
+   "latest": "2026-11-14T04:40:00Z",
    "checked": 0,
    "missing": 0,
    "pending": 0,
@@ -149,12 +149,12 @@
    "waiting": 0,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-14T04:30:00Z",
-   "last_attempt": "2026-11-14T04:50:00Z",
+   "last_checked": "2026-11-14T04:40:00Z",
+   "last_attempt": "2026-11-14T05:00:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-14T04:30:00Z"
+   "latest": "2026-11-14T04:40:00Z"
   },
   "firms": {
    "attempted": 4,
@@ -172,12 +172,12 @@
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 6,
-   "pending": 44,
+   "detections": 5,
+   "pending": 37,
    "targets": 6,
    "invalid_targets": 0,
    "historical": true,
-   "latest": "2026-11-13T16:30:00Z",
+   "latest": "2026-11-13T17:50:00Z",
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
@@ -189,7 +189,7 @@
    "lon": 38.2359,
    "label": "مصفاة سامرف",
    "first": "2026-11-11T23:10:00Z",
-   "last": "2026-11-14T04:30:00Z",
+   "last": "2026-11-14T04:40:00Z",
    "peak": 48.2,
    "typical": 3.68,
    "pictures": 18,
