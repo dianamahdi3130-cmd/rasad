@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T06:02:40Z",
- "scan_started": "2026-11-14T06:02:13Z",
- "scan_finished": "2026-11-14T06:02:40Z",
- "scan_duration_s": 27.2,
- "scan_partial": false,
+ "generated": "2026-11-14T06:12:45Z",
+ "scan_started": "2026-11-14T06:12:13Z",
+ "scan_finished": "2026-11-14T06:12:45Z",
+ "scan_duration_s": 32.2,
+ "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 3,
+ "detections_this_run": 0,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -115,26 +115,26 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-14T05:45:00Z",
-   "checked": 12,
+   "latest": "2026-11-14T06:00:00Z",
+   "checked": 0,
    "missing": 0,
-   "pending": 0,
+   "pending": 16,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": false,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T05:40:00Z",
-   "checked": 4,
-   "missing": 0,
-   "pending": 0,
-   "pending_recent": 0,
-   "scan_complete": true,
+   "latest": "2026-11-14T05:50:00Z",
+   "checked": 20,
+   "missing": 20,
+   "pending": 28,
+   "pending_recent": 16,
+   "scan_complete": false,
    "clock_cached": true,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -149,12 +149,12 @@
    "waiting": 0,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-14T05:40:00Z",
-   "last_attempt": "2026-11-14T06:00:00Z",
+   "last_checked": "2026-11-14T05:50:00Z",
+   "last_attempt": "2026-11-14T06:10:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-14T05:40:00Z"
+   "latest": "2026-11-14T05:50:00Z"
   },
   "firms": {
    "attempted": 4,
