@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-14T10:56:27Z",
- "scan_started": "2026-11-14T10:55:33Z",
- "scan_finished": "2026-11-14T10:56:27Z",
- "scan_duration_s": 54.7,
+ "generated": "2026-11-14T11:06:17Z",
+ "scan_started": "2026-11-14T11:05:34Z",
+ "scan_finished": "2026-11-14T11:06:17Z",
+ "scan_duration_s": 43.3,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 19,
+ "detections_this_run": 15,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -115,26 +115,26 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-14T10:30:00Z",
-   "checked": 14,
+   "latest": "2026-11-14T10:40:00Z",
+   "checked": 16,
    "missing": 0,
-   "pending": 2,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": false,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
    "latest": "2026-11-14T10:45:00Z",
-   "checked": 6,
+   "checked": 0,
    "missing": 0,
-   "pending": 16,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -150,7 +150,7 @@
    "candidates": 0,
    "spots": 0,
    "last_checked": "2026-11-14T10:20:00Z",
-   "last_attempt": "2026-11-14T10:50:00Z",
+   "last_attempt": "2026-11-14T11:00:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
@@ -163,7 +163,7 @@
    "deferred": 0,
    "ok": true,
    "name": "الأقمار الأمريكية (ناسا)",
-   "latest": "2026-11-14T08:32:00Z"
+   "latest": "2026-11-14T09:15:00Z"
   },
   "recovery": {
    "enabled": true,
@@ -189,7 +189,7 @@
    "lon": 38.2359,
    "label": "مصفاة (Yanpet)",
    "first": "2026-11-11T23:10:00Z",
-   "last": "2026-11-14T10:30:00Z",
+   "last": "2026-11-14T10:40:00Z",
    "peak": 53.5,
    "typical": 3.68,
    "pictures": 18,
@@ -205,7 +205,7 @@
    "lon": 47.7061,
    "label": "منشأة نفطية في منطقة دشت عباس",
    "first": "2026-11-14T10:10:00Z",
-   "last": "2026-11-14T10:30:00Z",
+   "last": "2026-11-14T10:40:00Z",
    "peak": 68.0,
    "typical": 31.21,
    "pictures": 17,
