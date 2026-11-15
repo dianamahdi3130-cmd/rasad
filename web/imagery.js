@@ -8,22 +8,50 @@
 //   assessPass  how much of the box each pass really shows (cloud over the box itself)
 //   pickPair    the default "before" and "after"
 //   loadScene   the bands of one pass, resampled to a north-up grid that fits a web map
+//   loadBands   the same, but only the bands asked for, kept in memory within a byte budget
 //   colorImage / swirImage / changeOf / changeImage / hotSpots   what the viewer shows
+//   comboImage  any band combination or index (NBR, NDVI) as a picture, with its legend's ramp
+//   burnOf / burnImage   the drop of the burn ratio between two dates, in the usual four classes
+//   inspect     the numbers of one point; pairJob: the comparison as one job for a background worker
 (function (root, factory) {
   const api = factory();
+  // the whole engine as text: the viewer starts a background worker from it (no second file to load)
+  api.source = "(" + factory.toString() + ")()";
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.RasadImagery = api;
 })(typeof self !== "undefined" ? self : globalThis, function () {
 "use strict";
 
-const VERSION = 1;
+const VERSION = 2;
 const SEARCH_URL = "https://earth-search.aws.element84.com/v1";
 // the reprocessed archive first; the older one fills the years the new one does not hold yet
 const COLLECTIONS = ["sentinel-2-c1-l2a", "sentinel-2-l2a"];
 const C1_FILES = "https://e84-earth-search-sentinel-data.s3.us-west-2.amazonaws.com/sentinel-2-c1-l2a/";
 // asset name in the index -> file name in the archive
 const BAND_FILE = {red:"B04", green:"B03", blue:"B02", nir08:"B8A", swir16:"B11", swir22:"B12", scl:"SCL"};
+// read only when a view asks for it: the wide near-infrared band, the only infrared one at 10 m
+const EXTRA_FILE = {nir: "B08"};
 const REFLECTANCE = ["red", "green", "blue", "nir08", "swir16", "swir22"];
+// What each band is on each satellite: [its name there, the middle of the band in nanometres,
+// metres per point]. Landsat 8/9 (OLI) has no second near-infrared band: «nir» is its band 5 too.
+const SENSORS = {
+  sentinel2: {name: "Sentinel-2", instrument: "MSI", metres: 10,
+    bands: {blue: ["B02", 490, 10], green: ["B03", 560, 10], red: ["B04", 665, 10], nir: ["B08", 842, 10],
+      nir08: ["B8A", 865, 20], swir16: ["B11", 1610, 20], swir22: ["B12", 2190, 20]}},
+  landsat: {name: "Landsat", instrument: "OLI", metres: 30,
+    bands: {blue: ["B2", 482, 30], green: ["B3", 561, 30], red: ["B4", 655, 30], nir: ["B5", 865, 30],
+      nir08: ["B5", 865, 30], swir16: ["B6", 1609, 30], swir22: ["B7", 2201, 30]}},
+};
+const sensorOf = pass => SENSORS[pass && pass.sensor === "landsat" ? "landsat" : "sentinel2"];
+// The views: three bands as red, green and blue, or one ratio of two bands drawn with a colour ramp.
+const COMBOS = {
+  color: {bands: ["red", "green", "blue"]},
+  swir: {bands: ["swir22", "nir08", "red"]},            // heat and burnt ground stand out, plants are green
+  veg: {bands: ["nir", "red", "green"]},                // plants are red: the classic false colour
+  fire: {bands: ["swir22", "swir16", "red"]},           // flames glow through smoke, burnt ground is dark red-brown
+  nbr: {index: ["nir08", "swir22"]},                    // burn ratio: high over healthy plants, low over burnt ground
+  ndvi: {index: ["nir", "red"]},                        // plant cover
+};
 // Landsat 8 and 9 (USGS, 30 m, every 8 days between them) add dates between Sentinel-2's passes.
 // Their files are on Microsoft's Planetary Computer: free, but each request carries a short-lived
 // token that the service hands out to anyone. They reach that archive two to three weeks late.
@@ -336,26 +364,56 @@ function createEngine(options = {}) {
     });
   }
 
+  /* ---------- what is kept in memory: file headers, decoded tiles, finished bands ---------- */
+  // One piece of work shared by everyone who asks for it while it runs, and kept afterwards within a
+  // byte budget (least recently used dropped first). Each caller can give up on its own (its
+  // signal): the work itself is cancelled only when nobody is left waiting for it, so a view the
+  // user has left stops downloading while a view still open keeps what it shares with it.
+  function makeStore(budget) {
+    const map = new Map();
+    const store = {map, bytes: 0, budget, dropped: 0};
+    const drop = (key, e) => { if (map.get(key) === e) { map.delete(key); store.bytes -= e.bytes; } };
+    store.get = (key, signal, bytes, start) => {
+      if (signal && signal.aborted) return Promise.reject(new ImageryError("aborted"));
+      let e = map.get(key);
+      if (e) { map.delete(key); map.set(key, e); }          // now the most recently used
+      else {
+        const ctl = new AbortController();
+        e = {ctl, bytes, users: 0, pinned: false, done: false};
+        e.promise = start(ctl.signal);
+        const mine = e;
+        e.promise.then(() => { mine.done = true; }, () => drop(key, mine));
+        map.set(key, e); store.bytes += bytes;
+        for (const [k, old] of map) {                        // forget what was used longest ago
+          if (store.bytes <= store.budget || k === key) break;
+          map.delete(k); store.bytes -= old.bytes; store.dropped++;
+        }
+      }
+      if (e.done) return e.promise;
+      if (!signal) { e.pinned = true; return e.promise; }
+      const entry = e;
+      entry.users++;
+      return new Promise((resolve, reject) => {
+        const leave = () => {
+          reject(new ImageryError("aborted"));
+          if (--entry.users === 0 && !entry.pinned && !entry.done) { drop(key, entry); entry.ctl.abort(); }
+        };
+        signal.addEventListener("abort", leave, {once: true});
+        entry.promise.then(v => { signal.removeEventListener("abort", leave); resolve(v); },
+          err => { signal.removeEventListener("abort", leave); reject(err); });
+      });
+    };
+    store.clear = () => { map.clear(); store.bytes = 0; };
+    return store;
+  }
+
   /* ---------- Cloud-Optimized GeoTIFF: header once, then only the tiles asked for ---------- */
   const HEAD_BYTES = 8192;                     // the directory of these files ends near 4 KB
   const TYPE_SIZE = {1:1, 2:1, 3:2, 4:4, 5:8, 6:1, 7:1, 8:2, 9:4, 10:8, 11:4, 12:8};
-  const cogs = new Map();                      // url -> promise of the opened file
-  const tiles = new Map();                     // key -> {data, bytes}: least recently used first
-  let tileBytes = 0;
-  const TILE_CACHE = options.tileCache || 56e6;
-  // A download started for a view the user has since left is cancelled; whoever asks next starts it again.
-  const stale = entry => !entry || (entry.signal && entry.signal.aborted && !entry.done);
-  function openCog(url, signal) {
-    let entry = cogs.get(url);
-    if (stale(entry)) {
-      entry = {signal, done: false};
-      entry.promise = readHeader(url, signal);
-      const mine = entry;
-      entry.promise.then(() => { mine.done = true; }, () => { if (cogs.get(url) === mine) cogs.delete(url); });
-      cogs.set(url, entry);
-    }
-    return entry.promise;
-  }
+  const cogs = makeStore(Infinity);                         // url -> the opened file (a few KB each)
+  const tiles = makeStore(options.tileCache || 56e6);       // decoded tiles of the files
+  const bands = makeStore(options.bandCache || 96e6);       // finished bands on a picture's grid
+  const openCog = (url, signal) => cogs.get(url, signal, 0, sig => readHeader(url, sig));
   async function readHeader(url, signal) {
     // Landsat's files have many small tiles: their directory is longer
     const first = SIGNED_HOST.test(url) ? 4 * HEAD_BYTES : HEAD_BYTES;
@@ -418,19 +476,12 @@ function createEngine(options = {}) {
   }
   function readTile(cog, li, tx, ty, signal) {
     const key = cog.url + "|" + li + "|" + tx + "|" + ty;
-    const hit = tiles.get(key);
-    if (hit && !stale(hit)) {
-      tiles.delete(key); tiles.set(key, hit);          // now the most recently used
-      return hit.promise;
-    }
-    if (hit) { tiles.delete(key); tileBytes -= hit.bytes; }
     const lv = cog.levels[li], idx = ty * lv.across + tx;
     const samples = lv.tileW * lv.tileH * lv.spp, raw = samples * lv.bits / 8;
-    const entry = {bytes: raw, signal, done: false};
-    entry.promise = (async () => {
+    return tiles.get(key, signal, raw, async sig => {
       const count = lv.counts[idx], offset = lv.offsets[idx];
       if (!count) return lv.bits === 16 ? new Uint16Array(samples) : new Uint8Array(samples);   // an empty tile
-      const packed = await getRange(cog.url, offset, offset + count - 1, signal);
+      const packed = await getRange(cog.url, offset, offset + count - 1, sig);
       const bytes = lv.compression === 1 ? packed : await unpack(packed, raw);
       if (bytes.length < raw) throw new ImageryError("format", "short tile");
       let data;
@@ -442,14 +493,7 @@ function createEngine(options = {}) {
         for (let r = 0; r < lv.tileH; r++) for (let i = r * w + s, end = (r + 1) * w; i < end; i++) data[i] += data[i - s];
       }
       return data;
-    })();
-    entry.promise.then(() => { entry.done = true; }, () => { if (tiles.get(key) === entry) { tiles.delete(key); tileBytes -= entry.bytes; } });
-    tiles.set(key, entry); tileBytes += entry.bytes;
-    for (const [k, e] of tiles) {                       // forget the tiles used longest ago
-      if (tileBytes <= TILE_CACHE || k === key) break;
-      tiles.delete(k); tileBytes -= e.bytes;
-    }
-    return entry.promise;
+    });
   }
   // One band of a file resampled onto the grid. `linear` blends the four nearest pixels (pictures),
   // otherwise the nearest pixel is taken (classes). Returns Float32Array with NaN where the file
@@ -537,6 +581,34 @@ function createEngine(options = {}) {
     }
     return hit / (K * K);
   }
+  // the same 9 x 9 points, one by one: which of them a footprint holds
+  function cells(geom, grid) {
+    const K = 9, out = new Uint8Array(K * K);
+    for (let j = 0; j < K; j++) for (let i = 0; i < K; i++) {
+      const [la, lo] = gridPoint(grid, (i + 0.5) / K * grid.size, (j + 0.5) / K * grid.size);
+      if (inGeometry(geom, lo, la)) out[j * K + i] = 1;
+    }
+    return out;
+  }
+  // A box wider than one picture tile (the tiles are about 110 km wide): the other tiles of the same
+  // pass fill in what the best one leaves out. `pass.parts` then lists them, the best first, and
+  // `pass.cover` is what they hold together. A box inside one tile is left exactly as it was.
+  const FULL = 0.985;
+  function joinTiles(pass, best, others, grid) {
+    const have = cells(best.geometry, grid), parts = [best];
+    for (const t of others) {
+      if (parts.some(p => (p.grid && p.grid === t.grid) || p.id === t.id)) continue;   // the same tile from the other archive
+      const c = cells(t.geometry, grid);
+      let adds = 0;
+      for (let i = 0; i < c.length; i++) if (c[i] && !have[i]) adds++;
+      if (!adds) continue;
+      for (let i = 0; i < c.length; i++) if (c[i]) have[i] = 1;
+      parts.push(t);
+    }
+    if (parts.length < 2) return;
+    pass.parts = parts.map(t => { const part = {...t}; delete part.geometry; return part; });
+    pass.cover = have.reduce((sum, x) => sum + x, 0) / have.length;
+  }
   const iso = t => new Date(t).toISOString().slice(0, 19) + "Z";
   // The passes over the box between two times, newest first. One entry per satellite per day; when
   // several overlapping tiles hold the same pass, the one that covers the box best is kept.
@@ -551,7 +623,7 @@ function createEngine(options = {}) {
       datetime: iso(from) + "/" + iso(to), limit: 100, query: {platform: {in: ["landsat-8", "landsat-9"]}}};
     const d = await getJSON(landsatUrl + "/stac/v1/search", body, signal);
     if (!d || !Array.isArray(d.features)) throw new ImageryError("source", "bad answer");
-    const best = new Map();
+    const groups = new Map();
     for (const it of d.features) {
       const p = it.properties || {}, a = it.assets || {};
       let proj;
@@ -566,10 +638,21 @@ function createEngine(options = {}) {
       }
       const key = p.datetime.slice(0, 10) + "|" + (p.platform || "landsat");
       const pass = {key, date: p.datetime.slice(0, 10), datetime: p.datetime, time: Date.parse(p.datetime), platform: p.platform || "landsat",
-        id: it.id, collection: LANDSAT, sensor: "landsat", grid: "", proj, cover, tileCloud: p["eo:cloud_cover"], sky: null, assets, assetsChecked: true};
-      if (!best.has(key) || best.get(key).cover < cover) best.set(key, pass);
+        id: it.id, collection: LANDSAT, sensor: "landsat", grid: "", proj, cover, tileCloud: p["eo:cloud_cover"], sky: null, assets, assetsChecked: true,
+        geometry: it.geometry};
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(pass);
     }
-    return [...best.values()];
+    const out = [];
+    for (const g of groups.values()) {
+      // the first of the best-covering pictures, as before; a second one of the same day joins it for a wide box
+      const best = g.reduce((a, b) => b.cover > a.cover ? b : a), geometry = best.geometry;
+      const pass = {...best};
+      delete pass.geometry;
+      if (best.cover < FULL && g.length > 1) joinTiles(pass, {...best, geometry}, g.filter(t => t !== best).sort((a, b) => b.cover - a.cover), grid);
+      out.push(pass);
+    }
+    return out;
   }
   async function listSentinel(grid, from, to, signal) {
     const body = {collections: COLLECTIONS, bbox: [grid.west, grid.south, grid.east, grid.north],
@@ -591,7 +674,7 @@ function createEngine(options = {}) {
       try { proj = projectionOf(p); } catch (e) { continue; }
       const tile = {id: it.id, collection: it.collection, datetime: p.datetime, platform: p.platform || "",
         grid: String(p["grid:code"] || "").replace(/^MGRS-/, ""), proj, tileCloud: p["eo:cloud_cover"],
-        cover: coverage(it.geometry, grid)};
+        cover: coverage(it.geometry, grid), geometry: it.geometry};
       if (tile.cover <= 0) continue;
       const key = p.datetime.slice(0, 10) + "|" + tile.platform;
       if (!groups.has(key)) groups.set(key, []);
@@ -605,9 +688,11 @@ function createEngine(options = {}) {
     for (const [key, g] of groups) {
       // the same picture is often in both archives: keep the reprocessed one
       const best = g.reduce((a, b) => rank(b) > rank(a) ? b : a);
-      passes.push({key, date: best.datetime.slice(0, 10), datetime: best.datetime, time: Date.parse(best.datetime),
+      const pass = {key, date: best.datetime.slice(0, 10), datetime: best.datetime, time: Date.parse(best.datetime),
         platform: best.platform, id: best.id, collection: best.collection, grid: best.grid, proj: best.proj,
-        cover: best.cover, tileCloud: best.tileCloud, sky: null});
+        cover: best.cover, tileCloud: best.tileCloud, sky: null};
+      if (best.cover < FULL && g.length > 1) joinTiles(pass, best, g.filter(t => t !== best).sort((a, b) => rank(b) - rank(a)), grid);
+      passes.push(pass);
     }
     passes.sort((a, b) => b.time - a.time);
     return passes;
@@ -621,15 +706,18 @@ function createEngine(options = {}) {
     if (pass.collection !== COLLECTIONS[0] || !m) return null;
     const dir = `${C1_FILES}${+m[1]}/${m[2]}/${m[3]}/${pass.datetime.slice(0, 4)}/${+pass.datetime.slice(5, 7)}/${pass.id}/`;
     const assets = {};
-    for (const [name, file] of Object.entries(BAND_FILE)) assets[name] = {href: dir + file + ".tif", scale: 1e-4, offset: -0.1};
+    for (const [name, file] of Object.entries({...BAND_FILE, ...EXTRA_FILE})) assets[name] = {href: dir + file + ".tif", scale: 1e-4, offset: -0.1};
     return assets;
   }
   async function fetchAssets(pass, signal) {
     const d = await getJSON(`${searchUrl}/collections/${pass.collection}/items/${pass.id}`, null, signal);
     const assets = {};
-    for (const name of Object.keys(BAND_FILE)) {
+    for (const name of [...Object.keys(BAND_FILE), ...Object.keys(EXTRA_FILE)]) {
       const a = d && d.assets && d.assets[name];
-      if (!a || !/^https:/.test(a.href || "")) throw new ImageryError("source", "pass without " + name);
+      if (!a || !/^https:/.test(a.href || "")) {
+        if (name in EXTRA_FILE) continue;                  // a pass without the extra band is still a pass
+        throw new ImageryError("source", "pass without " + name);
+      }
       const band = (a["raster:bands"] || [])[0] || {};
       assets[name] = {href: a.href, scale: band.scale ?? 1e-4, offset: band.offset ?? 0};
     }
@@ -652,19 +740,74 @@ function createEngine(options = {}) {
   async function assessPass(pass, grid, signal) {
     if (pass.sky) return pass.sky;
     const g = skyGrid(grid);
-    const scl = pass.sensor === "landsat" ? qaClasses(await sampleBand(pass.assets.qa.href, g, pass.proj, {res: 30}, signal))
-      : await withAssets(pass, signal, a => sampleBand(a.scl.href, g, pass.proj, {res: 20}, signal));
-    pass.scl = scl;
-    return pass.sky = skyOf(scl);
+    // each tile that holds a part of the pass (one, unless the box is wider than a tile)
+    const got = await Promise.all(partsOf(pass).map(part => part.sensor === "landsat"
+      ? sampleBand(part.assets.qa.href, g, part.proj, {res: Math.max(30, g.res)}, signal).then(qaClasses)
+      : withAssets(part, signal, a => sampleBand(a.scl.href, g, part.proj, {res: Math.max(20, g.res)}, signal))));
+    pass.scl = got.reduce((into, from) => fill(into, from, true));
+    return pass.sky = skyOf(pass.scl);
   }
+  // 20 m points up to a 20 km box, as ever; a wider box is judged on 500 x 500 points (enough to
+  // tell how much of it is under cloud, and a hundred times less to read and to keep per pass)
   function skyGrid(grid) {
-    if (!grid.sky) grid.sky = makeGrid(grid.lat, grid.lon, grid.halfKm, Math.max(8, Math.round(grid.halfKm * 100)));
+    if (!grid.sky) grid.sky = makeGrid(grid.lat, grid.lon, grid.halfKm, grid.halfKm <= 10 ? Math.max(8, Math.round(grid.halfKm * 100)) : 500);
     return grid.sky;
+  }
+  const partsOf = pass => pass.parts || [pass];
+  // what the first tile of a pass does not hold is taken from the next one
+  function fill(into, from, classes) {
+    if (classes) { for (let i = 0; i < into.length; i++) if (!into[i]) into[i] = from[i]; }
+    else for (let i = 0; i < into.length; i++) if (into[i] !== into[i]) into[i] = from[i];
+    return into;
+  }
+
+  /* ---------- one pass as a picture, band by band ---------- */
+  const NATIVE = {red: 10, green: 10, blue: 10, nir: 10, nir08: 20, swir16: 20, swir22: 20};
+  const gridKey = g => [g.lat.toFixed(5), g.lon.toFixed(5), g.halfKm, g.size].join(",");
+  // One band of a pass on the picture's grid, read once and kept (within the byte budget) for every
+  // view that asks for it again. `res` is the sharpness asked for; a band is never read sharper than
+  // the satellite took it, so the 20 m bands of a quick look and of the full picture are one copy.
+  function band(pass, grid, name, res, signal) {
+    const landsat = pass.sensor === "landsat", classes = name === "scl";
+    const real = classes ? Math.max(landsat ? 30 : 20, grid.res) : Math.max(res, landsat ? 30 : NATIVE[name]);
+    const key = [pass.collection, pass.id, gridKey(grid), name, real].join("|");
+    return bands.get(key, signal, grid.size * grid.size * (classes ? 1 : 4), async sig => {
+      const got = await Promise.all(partsOf(pass).map(part => {
+        if (classes && part.sensor === "landsat") return sampleBand(part.assets.qa.href, grid, part.proj, {res: real}, sig).then(qaClasses);
+        return withAssets(part, sig, a => {
+          const file = a[name];
+          if (!file) throw new ImageryError("noband", "pass without " + name);
+          return sampleBand(file.href, grid, part.proj, classes ? {res: real} : {res: real, linear: true, scale: file.scale, offset: file.offset}, sig);
+        });
+      }));
+      return got.reduce((into, from) => fill(into, from, classes));
+    });
+  }
+  // The bands asked for, and the scene classes, of one pass: "fast" reads nothing sharper than 20 m,
+  // "full" the grid's own sharpness. «nir» (band 8, the only infrared band at 10 m) is worth its
+  // download only for a sharp picture: otherwise, on Landsat, and where a pass has no such file,
+  // band 8A stands in for it. `from` says which band each name really is.
+  async function loadBands(pass, grid, names, quality, signal) {
+    const landsat = pass.sensor === "landsat";
+    const res = quality === "fast" ? Math.max(20, grid.res) : grid.res;
+    const scene = {pass, grid, quality, res: Math.max(res, landsat ? 30 : 10), from: {}};
+    await Promise.all([...new Set([...names, "scl"])].map(async name => {
+      let real = name === "nir" && (landsat || res >= 20) ? "nir08" : name, data;
+      try { data = await band(pass, grid, real, res, signal); }
+      catch (e) {
+        if (real !== "nir" || !["noband", "missing"].includes(e.code)) throw e;
+        real = "nir08";
+        data = await band(pass, grid, real, res, signal);
+      }
+      scene[name] = data; scene.from[name] = real;
+    }));
+    return scene;
   }
 
   /* ---------- one pass as a picture ---------- */
   // quality "fast": everything at 20 m (a quarter of the download), "full": the grid's own sharpness.
   async function loadScene(pass, grid, quality, signal) {
+    if (pass.parts) return loadBands(pass, grid, REFLECTANCE, quality, signal);
     const res = quality === "fast" ? Math.max(20, grid.res) : grid.res;
     return withAssets(pass, signal, async a => {
       const landsat = pass.sensor === "landsat";
@@ -679,8 +822,11 @@ function createEngine(options = {}) {
     });
   }
 
-  return {stats, listPasses, assessPass, loadScene, openCog, sampleBand, skyGrid,
-    forget() { cogs.clear(); tiles.clear(); tileBytes = 0; }};
+  return {stats, listPasses, assessPass, loadScene, loadBands, openCog, sampleBand, skyGrid,
+    // what the decoded tiles and the finished bands hold now, against their budgets (bytes)
+    memory: () => ({tiles: tiles.bytes, tileBudget: tiles.budget, bands: bands.bytes, bandBudget: bands.budget,
+      held: tiles.map.size + bands.map.size, dropped: tiles.dropped + bands.dropped}),
+    forget() { cogs.clear(); tiles.clear(); bands.clear(); }};
 }
 
 // Landsat's quality bits (the low eight: nothing, cloud margin, cirrus, cloud, cloud shadow, snow,
@@ -795,6 +941,126 @@ const COLOR_BANDS = ["red", "green", "blue"];
 const SWIR_BANDS = ["swir22", "nir08", "red"];          // heat and burnt ground stand out, plants are green
 const colorImage = (scene, stretch) => composite(scene, COLOR_BANDS, stretch || stretchOf([scene], COLOR_BANDS));
 const swirImage = (scene, stretch) => composite(scene, SWIR_BANDS, stretch || stretchOf([scene], SWIR_BANDS));
+
+/* ------------------------------------------------------------------ band combinations and indices */
+// The bands a view needs from a scene. «nir» is band 8 where the scene holds it, else band 8A.
+function comboBands(combo, scene) {
+  const c = COMBOS[combo];
+  if (!c) throw new ImageryError("format", "unknown view " + combo);
+  return (c.bands || c.index).map(b => b === "nir" && !(scene && scene.nir) ? "nir08" : b);
+}
+// the names of those bands on the satellite that took the scene, as "B12", "B8A" (for the legend)
+function comboNames(combo, scene) {
+  const sensor = sensorOf(scene && scene.pass);
+  return comboBands(combo, scene).map(b => {
+    const real = scene && scene.from && scene.from[b] ? scene.from[b] : b;
+    return (sensor.bands[real] || ["?"])[0];
+  });
+}
+// can this satellite show this view at all (every band of it exists there)
+function comboAvailable(combo, pass) {
+  const c = COMBOS[combo], sensor = sensorOf(pass);
+  if (!c) return false;
+  return (c.bands || c.index).every(b => sensor.bands[b] && (b === "nir" || !pass || !pass.assets || !!pass.assets[b]));
+}
+const hasBands = (scene, names) => !!scene && !!scene.scl && names.every(b => !!scene[b]);
+// A stronger display stretch (the 2 % and 98 % points instead of 0.5 % and 99.5 %): more contrast
+// from the same numbers. It adds no detail; the brightest and darkest few per cent are clipped.
+function stretchRange(scenes, bands, qlo = 0.02, qhi = 0.98) {
+  const sample = [];
+  for (const s of scenes) {
+    if (!s) continue;
+    const n = s[bands[0]].length, step = Math.max(1, Math.floor(n / 20000));
+    for (let i = 0; i < n; i += step) {
+      if (cloudy(s.scl[i])) continue;
+      for (const b of bands) { const v = s[b][i]; if (v === v) sample.push(v); }
+    }
+  }
+  if (sample.length < 30) return {lo: 0, hi: 0.4};
+  let [lo, hi] = quantiles(sample, [qlo, qhi]);
+  lo = Math.max(0, Math.min(lo, 0.2));
+  if (hi - lo < 0.1) hi = lo + 0.1;
+  return {lo, hi};
+}
+// Sharpen a picture in place (each point pushed away from the mean of its four neighbours). Display
+// only: edges that are in the data look crisper, nothing that is not in the data appears.
+function sharpen(rgba, n, amount = 0.45) {
+  const src = new Uint8ClampedArray(rgba), row = n * 4;
+  for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) {
+    const o = y * row + x * 4;
+    if (!src[o + 3] || !src[o - 4 + 3] || !src[o + 4 + 3] || !src[o - row + 3] || !src[o + row + 3]) continue;
+    for (let c = 0; c < 3; c++) {
+      const p = src[o + c];
+      rgba[o + c] = p + amount * (4 * p - src[o + c - 4] - src[o + c + 4] - src[o + c - row] - src[o + c + row]);
+    }
+  }
+  return rgba;
+}
+// A ratio of two bands, (a - b) / (a + b), between -1 and 1; nothing where either band has nothing
+// or both are too dark to mean anything.
+function indexOf(scene, kind, names) {
+  const [A, B] = (names || comboBands(kind, scene)).map(b => scene[b]), n = A.length, out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = A[i], b = B[i], s = a + b;
+    out[i] = s > 0.02 ? (a - b) / s : NaN;              // also NaN where a or b is NaN
+  }
+  return out;
+}
+// The colour ramps of the indices: [value, colour] stops, lightest at «nothing to see» and darker to
+// both sides (lightness runs one way on each arm, so the order survives colour blindness and print).
+const RAMPS = {
+  // plant cover: slate below zero (water), pale where there are no plants, darker green with more plants
+  ndvi: {min: -0.2, max: 0.9, stops: [[-0.2, "#33415c"], [0, "#7d8597"], [0.1, "#ddd8cc"], [0.25, "#c3dc97"], [0.45, "#7fbf5a"], [0.65, "#2f9140"], [0.9, "#0d5a27"]]},
+  // burn ratio: red-brown where it is low (burnt ground), pale around zero (bare ground), teal over healthy plants
+  nbr: {min: -0.6, max: 0.8, stops: [[-0.6, "#4a0d12"], [-0.42, "#a3221a"], [-0.27, "#e2572b"], [-0.13, "#f4b76b"], [0, "#e2dfd8"], [0.22, "#a3d6cc"], [0.45, "#4aaf9f"], [0.8, "#0d5f57"]]},
+};
+const MASK_COLORS = {cloud: [174, 182, 196], water: [34, 48, 74]};
+const rgbOf = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+const LUTS = {};
+function rampTable(kind) {
+  if (LUTS[kind]) return LUTS[kind];
+  const r = RAMPS[kind], t = new Uint8Array(256 * 3), stops = r.stops.map(([v, c]) => [v, rgbOf(c)]);
+  for (let k = 0; k < 256; k++) {
+    const v = r.min + (r.max - r.min) * k / 255;
+    let j = 0;
+    while (j < stops.length - 2 && v > stops[j + 1][0]) j++;
+    const [v0, c0] = stops[j], [v1, c1] = stops[j + 1], f = Math.min(1, Math.max(0, (v - v0) / (v1 - v0)));
+    for (let c = 0; c < 3; c++) t[k * 3 + c] = Math.round(c0[c] + (c1[c] - c0[c]) * f);
+  }
+  return LUTS[kind] = t;
+}
+// the colour of one value of an index, as [r, g, b]
+function rampColor(kind, value) {
+  const r = RAMPS[kind], t = rampTable(kind), k = Math.round(Math.min(1, Math.max(0, (value - r.min) / (r.max - r.min))) * 255) * 3;
+  return [t[k], t[k + 1], t[k + 2]];
+}
+// An index as a picture. Cloud is drawn flat grey (it hides the ground: its number means nothing);
+// for the burn ratio water is drawn flat too (two near-zero bands give a random ratio).
+function indexImage(values, kind, scl) {
+  const r = RAMPS[kind], t = rampTable(kind), n = values.length, out = new Uint8ClampedArray(n * 4), k = 255 / (r.max - r.min);
+  for (let i = 0, o = 0; i < n; i++, o += 4) {
+    const c = scl ? scl[i] : 5, v = values[i];
+    if (c === 0 || c === 1) continue;                    // nothing here: left transparent
+    let rgb = null;
+    if (c === 8 || c === 9) rgb = MASK_COLORS.cloud;
+    else if (c === 6 && kind === "nbr") rgb = MASK_COLORS.water;
+    else if (v !== v) continue;
+    if (rgb) { out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2]; }
+    else {
+      const j = (v <= r.min ? 0 : v >= r.max ? 255 : ((v - r.min) * k + 0.5) | 0) * 3;
+      out[o] = t[j]; out[o + 1] = t[j + 1]; out[o + 2] = t[j + 2];
+    }
+    out[o + 3] = 255;
+  }
+  return out;
+}
+// Any view of a scene as a picture: three bands (with the brightness range given, or the scene's
+// own), or an index with its fixed ramp (the same colours on every date, so two dates compare).
+function comboImage(scene, combo, stretch) {
+  if (COMBOS[combo].index) return indexImage(indexOf(scene, combo), combo, scene.scl);
+  const names = comboBands(combo, scene);
+  return composite(scene, names, stretch || stretchOf([scene], names));
+}
 
 /* ------------------------------------------------------------------ what changed */
 const CHANGE_BANDS = ["blue", "green", "red", "nir08", "swir22"];
@@ -955,7 +1221,131 @@ function hotSpots(scene) {
   return spots;
 }
 
+/* ------------------------------------------------------------------ burnt ground between two dates */
+// The burn ratio NBR = (B8A - B12) / (B8A + B12) is high over healthy plants and drops where they
+// burn. dNBR = NBR before - NBR after, sorted into the usual four steps (after Key and Benson, as
+// the USGS uses them): 0.10 low, 0.27 moderate, 0.44 high, 0.66 severe. It is a sign of burnt
+// ground, not a proof: harvest, ploughing, drying and flooding lower the ratio as well.
+const BURN_STEPS = [0.1, 0.27, 0.44, 0.66];
+const BURN_COLORS = ["#ffd750", "#ff8a1f", "#e8302a", "#8a1c55"];      // light to dark: low, moderate, high, severe
+const DARK = 0.06;                 // both bands together below this: water or deep shadow, the ratio means nothing
+function glowing(s, i) {            // the same test as hotSpots: band 12 far above bands 11 and 8A
+  const a = s.swir22[i], b = s.swir16[i], c = s.nir08[i];
+  if (a !== a || b !== b || c !== c) return false;
+  const lowB = Math.max(b, 0.01), lowC = Math.max(c, 0.01);
+  return (a >= 0.15 && a / lowB >= 1.4 && a / lowC >= 1.4) || (b >= 0.5 && b / lowC >= 2 && a >= 0.5);
+}
+// Compare the burn ratio of two scenes on the same grid. Left out (`skip`): 1 no data, 2 cloud, its
+// shadow or haze on either date (everything `changeOf` leaves out, and cloud on both dates too),
+// 3 water or too dark, 4 a flame at the moment of either picture (its glow is not reflectance).
+// A drift of the whole box between the dates (season, sun height) is taken out, up to 0.08; a pixel
+// counts when it is not alone. `change` is the result of changeOf for the same pair, if at hand.
+function burnOf(before, after, change) {
+  const grid = before.grid, n = grid.size, total = n * n;
+  if (after.grid.size !== n) throw new ImageryError("format", "different grids");
+  const base = change || changeOf(before, after);
+  const skip = new Uint8Array(total), dnbr = new Float32Array(total).fill(NaN), cls = new Uint8Array(total);
+  const classPx = [0, 0, 0, 0, 0];
+  const out = {grid, dnbr, cls, skip, valid: 0, compared: 0, offset: 0, steps: BURN_STEPS, classPx, classHa: [0, 0, 0, 0, 0],
+    burntPx: 0, areaHa: 0, share: 0, clouds: base.clouds};
+  const an = before.nir08, as = before.swir22, bn = after.nir08, bs = after.swir22;
+  const cloudsIn = [before, after].map(s => { let c = 0; for (let i = 0; i < total; i++) if (s.scl[i] === 8 || s.scl[i] === 9) c++; return c > total * 0.003; });
+  let glow = new Uint8Array(total), anyGlow = false;
+  if (before.swir16 && after.swir16) {
+    for (let i = 0; i < total; i++) if (glowing(before, i) || glowing(after, i)) { glow[i] = 1; anyGlow = true; }
+    if (anyGlow) glow = dilate(glow, n, Math.max(1, Math.round(30 / grid.res)));
+  }
+  const hidden = c => c === 8 || c === 9 || c === 10;
+  let valid = 0;
+  for (let i = 0; i < total; i++) {
+    const a = before.scl[i], b = after.scl[i], s0 = an[i] + as[i], s1 = bn[i] + bs[i];
+    if (a === 0 || a === 1 || b === 0 || b === 1 || s0 !== s0 || s1 !== s1) skip[i] = 1;
+    else if (base.skip[i] || hidden(a) || hidden(b) || (a === 3 && cloudsIn[0]) || (b === 3 && cloudsIn[1])) skip[i] = 2;
+    else if (a === 6 || b === 6 || s0 < DARK || s1 < DARK) skip[i] = 3;
+    else if (glow[i]) skip[i] = 4;
+    else { dnbr[i] = (an[i] - as[i]) / s0 - (bn[i] - bs[i]) / s1; valid++; }
+  }
+  out.valid = valid; out.compared = valid / total;
+  if (valid < 50) return out;
+  const step = Math.max(1, Math.floor(total / 30000)), sample = [];
+  for (let i = 0; i < total; i += step) if (!skip[i]) sample.push(dnbr[i]);
+  const drift = sample.length ? quantiles(sample, [0.5])[0] : 0;
+  const offset = out.offset = Math.min(0.08, Math.max(-0.08, drift));
+  const raw = new Uint8Array(total), [s1, s2, s3, s4] = BURN_STEPS;
+  for (let i = 0; i < total; i++) {
+    if (skip[i]) continue;
+    const v = dnbr[i] -= offset;
+    raw[i] = v >= s4 ? 4 : v >= s3 ? 3 : v >= s2 ? 2 : v >= s1 ? 1 : 0;
+  }
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const i = y * n + x;
+    if (!raw[i]) continue;
+    let near = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < n && yy < n && raw[yy * n + xx]) near++;
+    }
+    if (near < 4) continue;                              // a lone pixel or a thin line: noise
+    cls[i] = raw[i]; classPx[raw[i]]++; out.burntPx++;
+  }
+  const ha = grid.res * grid.res / 1e4;
+  out.classHa = classPx.map(px => px * ha);
+  out.areaHa = out.burntPx * ha; out.share = out.burntPx / valid;
+  return out;
+}
+// The burn classes as a see-through layer; where cloud or its shadow left nothing to compare, thin
+// diagonal lines say so.
+function burnImage(burn) {
+  const n = burn.grid.size, out = new Uint8ClampedArray(n * n * 4), colors = BURN_COLORS.map(rgbOf);
+  for (let y = 0, i = 0, o = 0; y < n; y++) for (let x = 0; x < n; x++, i++, o += 4) {
+    const c = burn.cls[i];
+    if (c) { const rgb = colors[c - 1]; out[o] = rgb[0]; out[o + 1] = rgb[1]; out[o + 2] = rgb[2]; out[o + 3] = 225; }
+    else if (burn.skip[i] === 2 && (x + y) % 6 === 0) { out[o] = 205; out[o + 1] = 212; out[o + 2] = 224; out[o + 3] = 120; }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ the numbers of one point */
+// What a scene holds at grid pixel (x, y): the reflectance of every band it has, the two indices
+// and the scene class. Null outside the picture.
+function inspect(scene, x, y) {
+  const n = scene.grid.size, px = Math.floor(x), py = Math.floor(y);
+  if (!(px >= 0 && py >= 0 && px < n && py < n)) return null;
+  const i = py * n + px, [lat, lon] = gridPoint(scene.grid, px + 0.5, py + 0.5), bands = {};
+  for (const name of ["blue", "green", "red", "nir", "nir08", "swir16", "swir22"]) {
+    if (!scene[name] || (name === "nir" && scene.from && scene.from.nir !== "nir")) continue;      // band 8A standing in is listed once
+    const v = scene[name][i];
+    bands[name] = v === v ? v : null;
+  }
+  const ratio = (a, b) => a != null && b != null && a + b > 0.02 ? (a - b) / (a + b) : null;
+  return {x: px, y: py, lat, lon, bands, scl: scene.scl ? scene.scl[i] : null,
+    ndvi: ratio(bands.nir ?? bands.nir08, bands.red), nbr: ratio(bands.nir08, bands.swir22)};
+}
+
+/* ------------------------------------------------------------------ the comparison as one job */
+// Everything that compares two dates, in one call with plain arrays in and out, so the viewer can
+// hand it to a background worker and the screen stays smooth. m: {size, res, before, after}, each
+// side holding its bands and scene classes. The results come back without their grid.
+function pairJob(m) {
+  const grid = {size: m.size, res: m.res}, before = {...m.before, grid}, after = {...m.after, grid};
+  const change = changeOf(before, after), burn = burnOf(before, after, change);
+  delete change.grid; delete burn.grid;
+  return {change, burn};
+}
+const pairBuffers = r => [r.change.mag, r.change.dir, r.change.mask, r.change.skip, r.burn.dnbr, r.burn.cls, r.burn.skip].map(a => a.buffer);
+// the worker's side of the job (the viewer builds the worker from `source`, see the top of the file)
+function serve(scope) {
+  scope.onmessage = e => {
+    const m = e.data;
+    try { const result = pairJob(m); scope.postMessage({id: m.id, result}, pairBuffers(result)); }
+    catch (err) { scope.postMessage({id: m.id, error: String(err && err.message || err)}); }
+  };
+}
+
 return {VERSION, ImageryError, UTM, projectionOf, makeGrid, gridPoint, gridPixel, gridUTM, inflate, decompress,
   createEngine, skyOf, refineSky, isClear, grade, pickPair, stretchOf, colorImage, swirImage, changeOf, changeImage,
-  hotSpots, qaClasses, COLOR_BANDS, SWIR_BANDS, CLEAR, quantiles};
+  hotSpots, qaClasses, COLOR_BANDS, SWIR_BANDS, CLEAR, quantiles,
+  SENSORS, COMBOS, RAMPS, MASK_COLORS, BURN_STEPS, BURN_COLORS, REFLECTANCE, sensorOf, comboBands, comboNames, comboAvailable,
+  hasBands, stretchRange, sharpen, bandsImage: composite, indexOf, indexImage, rampColor, comboImage, burnOf, burnImage, inspect,
+  pairJob, pairBuffers, serve};
 });
