@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import tempfile
+import time
 from pathlib import Path
 
 import requests
@@ -15,6 +16,41 @@ import requests
 VERSION = "1.0"
 UTC = dt.timezone.utc
 log = logging.getLogger("rasad")
+
+
+# ----------------------------------------------------------------- one server, two readers
+# A check and the picture worker read the same European server. The worker's requests are big (a
+# full-detail tile of a sea box each) and it works all the time; the check's reads of the official
+# fire products are small, and every alert on land waits for them. So while a check reads the
+# official products it says so in a small file, and the worker waits. The note carries its own
+# end time: a check that died cannot hold the worker back.
+def _official_note(cfg):
+    return Path(cfg["_state_dir"]).resolve().parent / ".rasad-pictures" / ".official-reads"
+
+
+def official_reads(cfg, seconds):
+    """A check says: for at most ``seconds`` from now I am reading the official products."""
+    try:
+        note = _official_note(cfg)
+        note.parent.mkdir(parents=True, exist_ok=True)
+        note.write_text(str(time.time() + max(0.0, min(180.0, float(seconds)))), encoding="utf-8")
+    except (OSError, KeyError, TypeError):
+        pass
+
+
+def official_reads_done(cfg):
+    try:
+        _official_note(cfg).unlink(missing_ok=True)
+    except (OSError, KeyError, TypeError):
+        pass
+
+
+def official_reads_left(cfg):
+    """Seconds the picture worker should still wait (0: go ahead)."""
+    try:
+        return max(0.0, min(180.0, float(_official_note(cfg).read_text(encoding="utf-8")) - time.time()))
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0.0
 
 
 # ----------------------------------------------------------------- time

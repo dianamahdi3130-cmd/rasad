@@ -14,7 +14,7 @@ from pathlib import Path
 import time
 
 from .seawatch import Pictures, box_size, tile_requests
-from .util import floor_time, iso, log, make_session, sun_elevation, utcnow
+from .util import floor_time, iso, log, make_session, official_reads_left, sun_elevation, utcnow
 from .wms import WMS
 
 
@@ -120,9 +120,16 @@ class Collector:
         budget = max(1.0, min(120.0, float(P.get("budget_s", 90))))
         timeout = max(.5, min(45.0, float(P.get("request_timeout_s", 40))))
         guard = getattr(self.wms, "budget", None)
+        attempted = []
         with self.wms.budget(budget, timeout_s=timeout) if callable(guard) else nullcontext():
             with ThreadPoolExecutor(max_workers=2) as pool:
-                list(pool.map(lambda request: pics.get(*request, channel=0), batch))
+                for at in range(0, len(batch), 2):
+                    if official_reads_left(self.cfg) > 0:
+                        break       # a check began reading the official products: the rest waits its turn
+                    pair = batch[at:at + 2]
+                    list(pool.map(lambda request: pics.get(*request, channel=0), pair))
+                    attempted += pair
+        batch = attempted           # what was not asked for has not failed
         ready = 0
         for request in batch:
             key = self.key(request)
@@ -152,6 +159,10 @@ def run_worker(cfg, interval=5.0, max_minutes=340.0, once=False):
             collector = Collector(cfg, WMS(cfg["eumetview"]["wms_url"], session))
             stop_at = time.monotonic() + max(0.0, float(max_minutes)) * 60
             while once or time.monotonic() < stop_at:
+                wait = 0.0 if once else official_reads_left(cfg)
+                if wait > 0:        # the check's own reads come first (util.official_reads)
+                    time.sleep(min(wait, 2.0))
+                    continue
                 try:
                     result = collector.process_batch()
                     if result["requested"]:

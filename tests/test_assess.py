@@ -173,7 +173,7 @@ class PlantRecord(unittest.TestCase):
     NOW = dt.datetime(2026, 11, 15, 12, tzinfo=UTC)
     LAT, LON = 30.0, 48.0
 
-    def cycle(self, measured, history):
+    def cycle(self, measured, history, during=None):
         with tempfile.TemporaryDirectory() as folder:
             cfg = copy.deepcopy(engine.DEFAULTS)
             cfg.update(_state_dir=Path(folder) / "state", _site_dir=Path(folder) / "site",
@@ -203,10 +203,20 @@ class PlantRecord(unittest.TestCase):
             with patch.multiple(engine, utcnow=Mock(return_value=self.NOW), make_session=Mock(),
                                 WMS=Mock(return_value=wms), Geo=Mock(return_value=geo),
                                 Availability=Mock(), latest_time=Mock(return_value=observed),
-                                detect_geo_layer=Mock(return_value=[detection])):
+                                detect_geo_layer=Mock(side_effect=lambda *a, **k: [during and during(cfg), [detection]][1])):
                 state = engine.run_cycle(cfg, send=False)
+                if during:
+                    during(cfg)
             feed = json.loads((cfg["_site_dir"] / "data" / "incidents.json").read_text(encoding="utf-8"))
             return state, feed
+
+    def test_the_check_says_when_it_reads_the_official_products(self):
+        # the picture worker waits meanwhile (util.official_reads); afterwards the note is gone or ended
+        from rasad import util
+        left = []
+        self.cycle(94.0, [109.0, 8.0], during=lambda cfg: left.append(util.official_reads_left(cfg)))
+        self.assertGreater(left[0], 30, "while the fire symbols are read")
+        self.assertLess(left[-1], 40, "after the check only the short note of the strength reads may remain")
 
     def test_a_surge_the_plant_has_shown_before_is_not_news(self):
         # Shedgum, 12-14 November 2026: 109 MW, then 94, then 80; three posts for one habit

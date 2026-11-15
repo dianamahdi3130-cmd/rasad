@@ -191,6 +191,42 @@ class PictureWorkerTests(unittest.TestCase):
         self.assertEqual(sum(row[-1] == self.NOW for row in self.service.calls), 2,
                          "Missing current channels should back off while older work proceeds")
 
+    def test_the_worker_waits_while_a_check_reads_the_official_products(self):
+        # 15 Nov 2026, live: with ten sea boxes at full detail the worker never rested, and the
+        # check's own reads of the official fire products (what alerts on land wait for) fell behind
+        from rasad import util
+        util.official_reads(self.cfg, 60)
+        self.assertGreater(util.official_reads_left(self.cfg), 50)
+        self.assertEqual(self.batch()["requested"], 0, "nothing is asked of the server meanwhile")
+        self.assertEqual(self.service.calls, [])
+        self.assertEqual(self.collector.failures, {}, "and what was not asked for has not failed")
+        util.official_reads_done(self.cfg)
+        self.assertEqual(util.official_reads_left(self.cfg), 0)
+        self.assertEqual(self.batch()["cached"], 4)
+
+    def test_a_batch_stops_between_pairs_when_a_check_starts_reading(self):
+        from rasad import util
+        asked = []
+
+        def getmap(layer, bbox, width, height, *, t, **kwargs):
+            asked.append(t)
+            if len(asked) == 2:                       # the check starts while the first pair is on its way
+                util.official_reads(self.cfg, 60)
+            return RasterService.getmap(self.service, layer, bbox, width, height, t=t, **kwargs)
+        with patch.object(self.service, "getmap", side_effect=getmap):
+            result = self.batch()
+        self.assertEqual((result["requested"], result["cached"], result["failed"]), (2, 2, 0))
+        self.assertEqual(len(asked), 2, "the second pair waits its turn")
+
+    def test_a_note_left_by_a_check_that_died_ends_by_itself(self):
+        from rasad import util
+        util.official_reads(self.cfg, 0.05)
+        time.sleep(.08)
+        self.assertEqual(util.official_reads_left(self.cfg), 0)
+        util.official_reads(self.cfg, 10_000)
+        self.assertLessEqual(util.official_reads_left(self.cfg), 180, "never longer than three minutes")
+        self.assertEqual(util.official_reads_left({}), 0, "no folder to look in: go ahead")
+
     def test_failed_rasters_back_off_then_retry_without_poisoning_cache(self):
         self.service.missing = lambda layer, when: True
         self.assertEqual(self.batch()["failed"], 4)

@@ -22,8 +22,8 @@ from . import acquisitions, archive, assess, flares, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
-from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_session, parse_time,
-                   save_json, utcnow)
+from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_session, official_reads,
+                   official_reads_done, parse_time, save_json, utcnow)
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
@@ -652,8 +652,13 @@ def run_cycle(cfg, send=True, alert_now=False):
     # Live tiles and outage catch-up share a bounded, resumable collector.
     slots = S.state.setdefault("slots", {})
     avail = Availability(wms, S.state, now)
-    dets, status, n_images = geocollect.collect(
-        cfg, wms, S.state, now, tiles, avail, detect=detect_geo_layer, latest=latest_time)
+    # the picture worker waits while the official products are read (util.official_reads)
+    official_reads(cfg, float(E.get("scan_budget_s", 65)) + 10)
+    try:
+        dets, status, n_images = geocollect.collect(
+            cfg, wms, S.state, now, tiles, avail, detect=detect_geo_layer, latest=latest_time)
+    finally:
+        official_reads_done(cfg)
 
     # 1b) Own sea finders: nighttime checks and separately guarded daytime candidates.
     SW = cfg["seawatch"]
@@ -743,6 +748,9 @@ def run_cycle(cfg, send=True, alert_now=False):
     for key, det in list(strength_pending.items()):
         if now - parse_time(det["t"]) > dt.timedelta(hours=24) or det.get("src") not in STRENGTH_SOURCES:
             del strength_pending[key]
+    # the strength of the fire symbols is read from the same server: the worker waits again, until
+    # the judgement below has read what it needs (the note ends by itself after that time)
+    official_reads(cfg, float(E.get("strength_retry_budget_s", 10)) + float(E.get("strength_budget_s", 20)) + 5)
     retry_deadline = time.monotonic() + float(E.get("strength_retry_budget_s", 10))
     retry_left = int(E.get("strength_retry_max", 15))
     for key, det in sorted(strength_pending.items(), key=lambda kv: kv[1]["t"], reverse=True):
