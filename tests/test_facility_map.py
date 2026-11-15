@@ -122,5 +122,83 @@ class NewsByChange(unittest.TestCase):
         self.assertTrue(engine.too_old_for_first_alert(gone, now, eight, by_change=True))
 
 
+class NewsByChangeInACheck(unittest.TestCase):
+    """The same in a whole check: a stored confirmed fire that was not important (far from every
+    mapped facility), and a map that now holds a plant one kilometre from it."""
+
+    def check(self, started_hours_ago, described_with, new_evidence=False):
+        import copy
+        import datetime as dt
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+
+        from rasad import engine
+        from rasad.brain import Memory, add_to_incident, finalize, new_incident
+        from rasad.util import iso, save_json
+        now = dt.datetime(2026, 11, 15, 21, 40, tzinfo=dt.timezone.utc)
+        lat, lon = 30.0, 48.0
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = copy.deepcopy(engine.DEFAULTS)
+            cfg.update(_state_dir=root / "state", _site_dir=root / "site", _geodata_dir=root / "geo")
+            cfg["regions"] = [{"id": "test", "name": "العراق", "bbox": [47, 29, 49, 31]}]
+            cfg["seawatch"].update(enabled=False, look_back=False)
+            cfg["clip"]["enabled"] = cfg["satpic"]["enabled"] = False
+            cfg["eumetview"]["fire_layers"] = []
+            cfg["telegram"].update(bot_token="offline-test-token", chat_id="offline-test-chat")
+            # seen when it started, then in five pictures in a row up to ten minutes ago
+            minutes = [started_hours_ago * 60, 50, 40, 30, 20, 10]
+            dets = [{"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": iso(now - dt.timedelta(minutes=m)),
+                     "lat": lat, "lon": lon, "frp": 12.0} for m in minutes]
+            inc = new_incident(dets[0], "new")
+            for d in dets:
+                add_to_incident(inc, d)
+            inc.update(place="land", facility=None, where="العراق", country="العراق", regions=["test"],
+                       region_name="العراق", known_days=0, area_days=0)
+            finalize(inc, cfg)
+            self.assertEqual((inc["verdict"], inc["priority"]), ("مؤكد", "low"), "confirmed, yet not news: no facility")
+            if described_with:
+                inc["_pos"] = [round(lat, 3), round(lon, 3), described_with]
+            save_json(cfg["_state_dir"] / "incidents.json", [inc])
+            save_json(cfg["_state_dir"] / "state.json", {
+                "schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE,
+                "sea_check": engine.SEA_CHECK, "hello_sent": "2026-11-15T10:00:00Z"})
+            memory = Memory({})
+            memory.record(31.0, 47.5, "2026-11-14", 10)
+            save_json(cfg["_state_dir"] / "memory.json", memory.cells)
+            geo = Mock(version="map-with-the-plant")
+            geo.place_kind.return_value = "land"
+            geo.facility.return_value = {"label": "محطة ضخ نفط", "code": "pumping", "km": 1.0}
+            geo.describe.return_value = ("العراق", "العراق")
+            deliver = Mock(return_value=456)
+            source = Mock(side_effect=AssertionError("No source requests in these tests"))
+            with patch.multiple(engine, utcnow=Mock(return_value=now), make_session=Mock(), WMS=Mock(),
+                                Geo=Mock(return_value=geo), Availability=Mock(), latest_time=source,
+                                detect_geo_layer=source, firms_fetch=source, deliver=deliver,
+                                tg_send=Mock(side_effect=AssertionError("No direct Telegram requests"))):
+                state = engine.run_cycle(cfg, send=True)
+            self.assertEqual(len(state.incidents), 1)
+            return state.incidents[0], deliver
+
+    def test_the_map_learns_a_plant_beside_a_fire_that_started_an_hour_ago(self):
+        inc, deliver = self.check(1, described_with="older-map")
+        self.assertEqual((inc["priority"], inc["status"]), ("high", "alerted"))
+        deliver.assert_called_once()
+        self.assertIn("حريق قرب محطة ضخ نفط", deliver.call_args.args[2])
+
+    def test_the_map_learns_a_plant_beside_heat_that_has_burnt_all_day(self):
+        inc, deliver = self.check(12, described_with="older-map")
+        self.assertEqual((inc["priority"], inc["status"]), ("high", "late"), "shown in the app, not announced")
+        deliver.assert_not_called()
+
+    def test_a_fire_whose_place_was_never_described_is_not_a_change_of_the_map(self):
+        # its description was still waiting (the naming service was slow): once it has one and it
+        # is beside a plant, it is news while it burns, however long ago it started
+        inc, deliver = self.check(12, described_with=None)
+        self.assertEqual((inc["priority"], inc["status"]), ("high", "alerted"))
+        deliver.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1052,7 +1052,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["alerted_max_frp"] = _sent_peak(inc)
             inc.setdefault("alert_updated_at", inc.get("alerted_at") or iso(now))
         recent = now - parse_time(inc["last"]) <= dt.timedelta(hours=24)
-        stale_map = recent and (inc.get("_pos") or [None])[-1] != geo.version
+        old_map = (inc.get("_pos") or [None])[-1]  # the facility map it was last described with
+        stale_map = recent and old_map != geo.version
         if inc["id"] not in touched and not (recent and inc.get("status") in ("pending", "alerted")) \
                 and not stale_map and not rejudge:
             continue
@@ -1060,7 +1061,9 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
         enrich(inc, cfg, geo)
         # important only because the rules or the facility map changed, not because of what it did
-        by_change = (rejudge or stale_map) and was_priority.get(inc["id"]) == "low" and inc["priority"] == "high"
+        # (an incident whose place was never described yet is not such a case: nothing changed for it)
+        by_change = (rejudge or (stale_map and old_map is not None)) \
+            and was_priority.get(inc["id"]) == "low" and inc["priority"] == "high"
         if look_budget > 0 and look_back(inc):
             look_budget -= 1
         if inc["priority"] != "high" or inc.get("status") == "held":
