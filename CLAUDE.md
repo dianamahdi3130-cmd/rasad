@@ -7,8 +7,11 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 ## Working with the owner
 - Reply in Arabic, in plain words. The owner is not a developer: say what changes for them.
 - Secrets live only in GitHub repository secrets: `FIRMS_MAP_KEY`, `TELEGRAM_BOT_TOKEN`,
-  `TELEGRAM_CHAT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RASAD_ADMIN_CODE` (and a
-  cron-job.org token). Never ask for their values, print them, or write them anywhere.
+  `TELEGRAM_CHAT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RASAD_ADMIN_CODE` (the
+  manager's code = the manager's own access key) and a cron-job.org token; the optional
+  repository variable `RASAD_DOMAIN` is the owner's own address for the private app. Never ask
+  for their values, print them, or write them anywhere. As of 15 Nov 2026 the Cloudflare secrets
+  are not added yet: the app is still the public GitHub Pages site.
 - Nothing is posted to the channel from a development session (no Telegram token here, and keep
   it that way). Preview messages with `deliver(..., send=False)` or the tests.
 
@@ -34,9 +37,9 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/main.py` | CLI: `cycle`, `media-worker`, `picture-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `cloud-publish`; diagnosis: `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `grab` (keep a night's pictures), `layers`, `gibs-layers` |
 | `web/index.html` | the app's page, styles and main script (Arabic RTL, Leaflet 1.9.4). The map has three backgrounds: map, satellite, and NASA's daily picture (`DAILY`, GIBS tiles, 250 m). `web/sw.js` holds the cache name |
 | `web/imagery.js`, `web/beforeafter.js` | «قبل وبعد»: Sentinel-2 pictures (10 m) of any place read in the phone itself (engine, no page code) and its screen, with Landsat 8/9 (30 m, from Microsoft's Planetary Computer, signed by a free token) as extra dates. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
-| `worker/src/index.js` | private app on Cloudflare (Worker + Durable Object `Hub`): logins bound to a device, data, clips, admin, ingest |
+| `worker/src/index.js`, `web/access.js` | private app on Cloudflare (Worker `rasad` + Durable Object `Hub`): one **access key per subscriber** tied to one device (a key pair the browser cannot export; the device proves itself every 15 minutes), validity period, forced sign-out, device-change requests, the manager's panel API, data/clips/archive/tool files only for an active subscription, ingest. `access.js` (`RasadAccess`) is the page's only way to the door. Design, API table and limits: `docs/plans/access-keys.md`; the owner's steps: `docs/private-app-setup.md` |
 | `scripts/loop.sh`, `scripts/branches.sh` | the ~5.5-hour watching loop; saving to the data branches |
-| `.github/workflows/` | `rasad.yml` monitor, `probe.yml` diagnosis on real data, `deploy-worker.yml` private app |
+| `.github/workflows/` | `rasad.yml` monitor, `probe.yml` diagnosis on real data (can be started by hand on any branch: it then follows that branch's `tools/probe-request.json`), `deploy-worker.yml` private app, `tests.yml` every test on pull requests and work branches |
 | `config.yaml` | regions and alert rules (Arabic comments); defaults are in `engine.DEFAULTS` |
 | `docs/` | `reviews/` checked cases; `plans/` agreed designs (start with `plans/before-after.md`) |
 
@@ -49,7 +52,8 @@ Big files: read by line range or grep, never whole: `engine.py` (61 KB), `web/in
 in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeOf`, `hotSpots`.
 
 ## Commands
-- Tests, ~3 seconds, all must pass: `python -m pytest -q` and `for f in tests/*.js; do node "$f"; done`
+- Tests, all must pass: `python -m pytest -q` (~10 s; `pip install pytest` once if missing) and
+  `for f in tests/*.js; do node "$f"; done` (~25 s). GitHub runs them too on every pull request.
 - The JS tests use a made-up Sentinel-2 archive (`tests/support/archive.js`): no network.
 - A check without posting: `python -m rasad --state /tmp/st --site /tmp/si cycle --no-send`
   (needs network to EUMETView/NASA; often blocked in a development session).
@@ -112,7 +116,9 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 - Before/after pictures say «تغيّر مرصود», never a cause and never «ضرر مؤكد»; cloud on one of
   the two dates is said, not counted as change. Every request to the archive has a time budget.
 - App: opens on the last 24 hours (3-day and week options); the photo button saves a portrait
-  image without the logo; the private app admits only the manager and invited staff.
+  image without the logo; the private app admits only the manager and subscribers holding a
+  valid key on their own device (never weaken: cookie flags, the proof window, the allowlist of
+  public files `isPublicPath`, constant-time comparisons).
 
 ## Git
 - Work on a branch, open a pull request, merge to `main` only with all tests passing (skill
