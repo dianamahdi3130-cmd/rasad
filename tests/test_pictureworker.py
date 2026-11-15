@@ -223,10 +223,11 @@ class PictureWorkerTests(unittest.TestCase):
     def test_night_fetches_only_required_fire_comparison(self):
         with patch.object(pictureworker, "sun_elevation", return_value=-30):
             result = self.batch()
-        self.assertEqual(result, {"requested": 2, "cached": 2, "failed": 0})
+        # the night finder compares with the pictures 30, 60 and 90 minutes before
+        self.assertEqual(result, {"requested": 4, "cached": 4, "failed": 0})
         self.assertEqual({row[0] for row in self.service.calls}, {"fire"})
         self.assertEqual({row[-1] for row in self.service.calls},
-                         {self.NOW, self.NOW - dt.timedelta(minutes=30)})
+                         {self.NOW - dt.timedelta(minutes=m) for m in (0, 30, 60, 90)})
 
     def test_disabled_prefetch_does_no_network_or_state_work(self):
         self.cfg["seawatch"]["prefetch"] = {"enabled": False}

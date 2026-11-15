@@ -49,35 +49,50 @@ jobs:
             "https://github.com/google/fonts/raw/main/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf" || true
 
       # The private app on Cloudflare (see worker/): once it answers, the data and clips go there
-      # only, the memory is stored sealed and nothing readable is left on GitHub.
+      # only, the memory is stored sealed and nothing readable is left on GitHub. It answers on its
+      # workers.dev address, and on the owner's own domain when the variable RASAD_DOMAIN is set:
+      # the monitor sends through whichever answers, and the links people open use the domain.
       - name: Private app ready?
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RASAD_DOMAIN: ${{ vars.RASAD_DOMAIN }}
           PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
         run: |
+          answers() { [ -n "$1" ] && [ "$(curl -sS --max-time 20 "$1/api/ping" || true)" = "ok" ]; }
           if [ -n "$CF_TOKEN" ] && [ -n "$CF_ACCOUNT" ]; then
             sub=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" \
               "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/subdomain" \
               | python3 -c "import sys,json; print((json.load(sys.stdin).get('result') or {}).get('subdomain') or '')" || true)
+            dev=""
             if [ -n "$sub" ]; then
-              url="https://firms.$sub.workers.dev"
+              dev="https://rasad.$sub.workers.dev"
               echo "::add-mask::$sub"
-              if [ "$(curl -sS --max-time 20 "$url/api/ping" || true)" = "ok" ]; then
-                key=$(printf '%s' "$CF_TOKEN:ingest" | sha256sum | cut -c1-64)
-                skey=$(printf '%s' "$CF_TOKEN:state" | sha256sum | cut -c1-64)
-                echo "::add-mask::$key"
-                echo "::add-mask::$skey"
-                {
-                  echo "RASAD_CLOUD_URL=$url"
-                  echo "RASAD_INGEST_KEY=$key"
-                  echo "RASAD_STATE_KEY=$skey"
-                  echo "RASAD_APP_URL=$url/"
-                  echo "RASAD_QUIET=1"
-                } >> "$GITHUB_ENV"
-                echo "private app: on"
-                exit 0
-              fi
+            fi
+            own=""
+            domain=$(printf '%s' "$RASAD_DOMAIN" | tr 'A-Z' 'a-z' | tr -d '[:space:]' | sed -E 's#^[a-z]+://##; s#/.*$##')
+            if printf '%s' "$domain" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'; then
+              own="https://$domain"
+              echo "::add-mask::$domain"
+            fi
+            url=""
+            if answers "$dev"; then url="$dev"; elif answers "$own"; then url="$own"; fi
+            if [ -n "$url" ]; then
+              app="$url"
+              if [ "$url" != "$own" ] && answers "$own"; then app="$own"; fi
+              key=$(printf '%s' "$CF_TOKEN:ingest" | sha256sum | cut -c1-64)
+              skey=$(printf '%s' "$CF_TOKEN:state" | sha256sum | cut -c1-64)
+              echo "::add-mask::$key"
+              echo "::add-mask::$skey"
+              {
+                echo "RASAD_CLOUD_URL=$url"
+                echo "RASAD_INGEST_KEY=$key"
+                echo "RASAD_STATE_KEY=$skey"
+                echo "RASAD_APP_URL=$app/"
+                echo "RASAD_QUIET=1"
+              } >> "$GITHUB_ENV"
+              echo "private app: on"
+              exit 0
             fi
           fi
           echo "RASAD_APP_URL=$PAGES_URL" >> "$GITHUB_ENV"

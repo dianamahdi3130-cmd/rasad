@@ -18,7 +18,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue, earlyalerts
-from . import acquisitions, flares, repairs, satpic, smoke
+from . import acquisitions, archive, assess, flares, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -27,7 +27,7 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 15  # bump when the importance rules change, so stored incidents are judged again
+RULES = 16  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -50,7 +50,11 @@ DEFAULTS = {
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
                                    "عُمان", "إيران", "اليمن"]},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 25,
-               "unusual_facility_km": 3},
+               "unusual_facility_km": 3,
+               # a plant's flare is news only when it burns well above its own record of the
+               # month: the same plants surge to the same level every few days, and that is
+               # their normal working, not a fire (16 of the first 25 posts were such surges)
+               "unusual_record_ratio": 2.0},
     "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7,
                   "max_polar_gap_hours": 3, "polar_relocation_km": 2},
     "firms": {"map_key": "", "base_url": "https://firms.modaps.eosdis.nasa.gov",
@@ -115,20 +119,42 @@ DEFAULTS = {
     "flares": {"enabled": True},
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
-        "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
+        "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.25,
         "early_alerts": {"enabled": True, "max_age_min": 45, "max_new_per_run": 3,
                          "match_km": 1.5, "match_minutes": 40, "keep_days": 7,
-                         "video_max_age_hours": 24},
+                         "video_max_age_hours": 24,
+                         # a first picture alone goes to the channel only when it is unmistakable
+                         # (a strong rise with a flame's glow); a fainter speck waits for the
+                         # second picture and then goes out as a normal alert
+                         "strong_only": True},
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
-        "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.5,
+        # 0.25 km per pixel: the server answers anything coarser than ~0.3 km from a blurred copy
+        # that is also one picture behind, in which a small fire all but disappears
+        # (docs/reviews/hormuz_ras_al_khaimah_20261114.md)
+        "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.25,
         # slots missed in the last hours (the source late or down) are checked later, newest first,
         # within this many seconds per run
         "catchup_hours": 3, "budget_s": 240,
-        "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
+        # Levels (0-255) of the picture's red colour (3.8 micron), never Kelvin or MW. Compared
+        # with the middle of the pictures 30, 60 and 90 minutes before. A speck needs a rise of 7,
+        # or of 4 together with a new glow of 2 in the short-wave colours (flames only, at night).
+        # Tuned on the real nights of 1, 9, 11, 13 and 14 November 2026: every real fire kept,
+        # no false pair on the cloudy and the flare-rich nights.
+        "ref_minutes": [30, 60, 90], "min_rise": 7.0, "min_z": 5.0, "flame_rise": 4.0, "flame_glow": 2.0,
+        "max_area_km2": 60, "min_area_px": 4, "max_was_hot": 12.0,
         # low cloud or fog drifting off is not a fire: the speck must be hotter than the clear sea
-        # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km)
-        "min_above_sea": 3.0, "max_warm_extent_km": 8.0,
+        # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km;
+        # the first picture of the real fire of 1 November spread 8.5 km at full detail)
+        "min_above_sea": 3.0, "max_warm_extent_km": 12.0,
+        # the sea around a fire is calm; where clouds drift, pixels for kilometres around change.
+        # Share of sea pixels 3-15 km away that changed by 3 levels: real fires 0.00-0.03, cloud
+        # specks 0.05-0.9. A blaze (rise 30 with a glow of 10) is believed in a restless sky too.
+        "max_restless": 0.05, "max_restless_strong": 0.30, "strong_rise": 30.0, "strong_glow": 10.0,
+        # the glow around a big flare brightens and fades with it: not a fire of its own
+        "halo_km": 10.0, "halo_margin": 30.0,
+        # what a single picture must show to be told at once
+        "early_min_rise": 15.0, "early_min_glow": 4.0,
         "min_coast_km": 3.0, "platform_km": 3.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
         "known_heat_min_days": 3, "known_heat_exclusion_km": 3.0,
         "prefetch": {"enabled": True, "budget_s": 90, "request_timeout_s": 40, "batch_size": 4},
@@ -138,6 +164,9 @@ DEFAULTS = {
         # Day candidates need independent official/NASA evidence before any Telegram alert.
         "daytime": {
             "enabled": True, "ref_minutes": [30, 60],
+            # the experimental day finder keeps the picture detail it was tuned on (its many
+            # sunlit-cloud tests would have to be measured again on full-detail pictures)
+            "km_per_px": 0.5,
             # from first light (where the night finder stops), not from full daylight: dawn and
             # dusk used to be watched by neither finder, about two hours around each sunrise
             "min_sun_elev": -6.0, "min_view_elev": 10.0, "min_glint_angle": 25.0,
@@ -148,17 +177,23 @@ DEFAULTS = {
             "max_candidates": 40, "burst_max": 3,
             "validation_grid": 8,
         },
-        # areas switched on only after a replay of a real night showed no false fires there
-        # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and
-        # 01:10; the northern Gulf oil fields sparkle all night, so they stay off)
+        # Seas watched at night. Each was switched on after the finder was replayed over real
+        # nights there at full detail with no false pair: Hormuz/Gulf of Oman and the southern Gulf
+        # on five nights (1-14 Nov 2026); the northern Gulf (whose oil fields used to sparkle all
+        # night in the blurred picture), the Arabian Sea and the Red Sea on the evening of 14 Nov.
+        # "day": False keeps the experimental day finder (six pictures per slot) off a box.
         "boxes": [
             {"id": "hormuz_oman", "bbox": [55.0, 22.4, 60.2, 27.2]},
             {"id": "gulf_south", "bbox": [50.5, 23.8, 55.2, 27.8]},
-            {"id": "gulf_north", "bbox": [47.8, 27.8, 51.5, 30.5], "enabled": False},
-            {"id": "arabian_sea", "bbox": [52.0, 16.4, 60.2, 22.5], "enabled": False},
-            {"id": "red_sea_north", "bbox": [32.2, 26.5, 36.0, 30.0], "enabled": False},
-            {"id": "red_sea_middle", "bbox": [34.0, 20.0, 40.5, 27.5], "enabled": False},
-            {"id": "red_sea_south", "bbox": [38.0, 12.0, 44.5, 20.5], "enabled": False},
+            {"id": "gulf_north", "bbox": [47.8, 27.8, 51.5, 30.4], "day": False},
+            # the Red Sea in pieces that follow its water (a box is read whole: less desert, less memory)
+            {"id": "red_sea_bab", "bbox": [39.2, 12.0, 44.5, 16.4], "day": False},      # Bab al-Mandab
+            {"id": "red_sea_south", "bbox": [38.0, 16.2, 42.8, 20.5], "day": False},
+            {"id": "red_sea_middle", "bbox": [35.5, 20.0, 40.4, 23.9], "day": False},
+            {"id": "red_sea_upper", "bbox": [34.0, 23.7, 38.4, 26.6], "day": False},
+            {"id": "red_sea_north", "bbox": [32.3, 26.5, 36.0, 30.0], "day": False},    # Suez and Aqaba
+            {"id": "arabian_west", "bbox": [52.5, 16.4, 56.2, 18.0], "day": False},
+            {"id": "arabian_east", "bbox": [56.1, 16.4, 60.2, 22.5], "day": False},
         ],
     },
 }
@@ -627,11 +662,16 @@ def run_cycle(cfg, send=True, alert_now=False):
         try:
             watch_cfg = cfg
             if cfg.get("_background_media"):
-                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 35),
+                # ten sea boxes at full detail: about 15 s of arithmetic per picture time
+                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 75),
                                                   slots_per_run=min(int(SW["slots_per_run"]), 2)))
             seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
+            # In the watching loop a separate worker fetches the pictures all the time; the check
+            # reads what is already there and spends only a little of its own time on the network
+            # (measured live on 15 Nov 2026: left alone it used its whole budget downloading).
+            network = min(seconds, float(SW.get("check_network_s", 25))) if cfg.get("_background_media") else seconds
             budget = getattr(type(wms), "budget", None)
-            with wms.budget(seconds, timeout_s=20) if callable(budget) else nullcontext():
+            with wms.budget(network, timeout_s=20) if callable(budget) else nullcontext():
                 spots = seawatch.watch(watch_cfg, wms, S.state, now, Memory(S.memory), geo, avail)
             ok = True
         except Exception as e:  # noqa: BLE001
@@ -802,6 +842,10 @@ def run_cycle(cfg, send=True, alert_now=False):
             frp >= max(float(M["unusual_ratio"]) * typical, typical + float(M["unusual_add_mw"])) and \
             (steady_facility if steady_facility is not None else
              geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"])))
+        # the place's own record of the month (today's earlier readings included), read before
+        # this reading is remembered: a new "unusual heat" event must clearly beat it
+        site_record = mem.peak(d["lat"], d["lon"], day, int(M["window_days"]), reach) if unusual else None
+        beats_record = site_record is None or frp >= float(M.get("unusual_record_ratio", 2.0)) * site_record
         routine = known and not unusual
         # a steady flare burning far busier than usual: noted for the app only (flares.py)
         if FL.get("enabled", True) and d["src"] == flares.SRC and steady and typical is not None \
@@ -823,6 +867,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             continue  # recovery fills missing incidents; it cannot rewrite an already-sent event
         if inc is None and (routine or learning):
             continue
+        if inc is None and unusual and not beats_record:
+            continue  # the plant has burnt this hard before within the month: its flare, not news
         if inc is not None and routine and inc["kind"] == "unusual":
             continue  # the usual flare is not evidence of the unusual heat
         if d["kind"] == "geo" and d.get("_fi"):
@@ -834,6 +880,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             if inc is None:
                 inc = fresh
                 inc["known_days"], inc["typical_frp"] = n_days, typical
+                if unusual and site_record is not None:
+                    inc["site_record"] = round(float(site_record), 1)
                 # days with heat within ~10 km: farmland burnt every season and flare fields are busy
                 inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
                 S.incidents.append(inc)
@@ -1184,6 +1232,10 @@ def run_cycle(cfg, send=True, alert_now=False):
     S.state["scan_started"] = iso(now)
     S.save()
     publish(cfg, S, status, now, learning, len(dets), finished=finished, duration=elapsed)
+    try:   # the long-term record the app searches; it must never stop a check
+        archive.update(cfg, S.incidents, finished)
+    except Exception as e:  # noqa: BLE001
+        log.warning("archive not updated: %s", e)
     return S
 
 
@@ -1192,7 +1244,23 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
           "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke",
-          "early_ids", "early_promotion_ambiguous"]
+          "early_ids", "early_promotion_ambiguous",
+          # the assessment (assess.py): what kind of event, how sure and why, how serious
+          "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
+          "known_days", "typical_frp", "site_record"]
+# the longer parts of the assessment go out only for events worth opening, to keep the feed light
+PUBLIC_DETAIL = ["evidence", "sources", "agreement"]
+
+
+def public_item(inc):
+    """What the app receives for one incident."""
+    item = {k: inc.get(k) for k in PUBLIC}
+    if inc.get("priority") == "high" or inc.get("verdict") != "يحتاج تأكيداً":
+        for k in PUBLIC_DETAIL:
+            item[k] = inc.get(k)
+        item["timeline"] = assess.timeline_of(inc)
+    item["alerted"] = bool(inc.get("alerted_at"))   # went out to the channel
+    return item
 
 
 def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=None):
@@ -1202,8 +1270,12 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
                   or (not row.get("ok", False) and key != "recovery"
                       and not row.get("experimental"))
                   for key, row in status.items() if key != "recovery")
-    items = [{k: i.get(k) for k in PUBLIC} for i in S.incidents if i.get("headline")]
-    items.extend(earlyalerts.items(cfg, S.state, S.incidents, finished))
+    items = [public_item(i) for i in S.incidents if i.get("headline")]
+    early = earlyalerts.items(cfg, S.state, S.incidents, finished)
+    for item in early:   # first night specks: shown with what they are and how little is known yet
+        assess.assess(item, cfg)
+        item.setdefault("alerted", False)
+    items.extend(early)
     for item in items:
         if (item.get("clip_video_pending") or item.get("clip_needs_refresh")) \
                 and (item.get("clip") or not item.get("clip_note")):
@@ -1235,6 +1307,9 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         "detections_this_run": n_dets, "local_offset_hours": cfg["local_time"]["offset_hours"],
         "local_name": cfg["local_time"]["name"],
         "regions": [{"id": r["id"], "name": r["name"], "bbox": r["bbox"]} for r in cfg["regions"]],
+        # the seas the night finder reads at full detail (for the app's coverage layer)
+        "sea_watch": [{"id": b["id"], "bbox": b["bbox"]} for b in cfg["seawatch"].get("boxes", [])
+                      if cfg["seawatch"].get("enabled") and b.get("enabled", True)],
         "sources": status, "telegram": bool(cfg["telegram"].get("bot_token")),
         "flare_activity": busy})
     # remove clips of incidents that are gone

@@ -197,9 +197,12 @@ class DayWatchPipelineTests(unittest.TestCase):
         found, day, night, pictures = self.run_watch(cfg, state, night=night, at_night=True)
         self.assertEqual(day.call_count, 2)
         self.assertEqual(night.call_count, 2)
-        self.assertEqual(pictures.prefetch.call_count, 2)
+        # pictures are fetched one box and one finder at a time (two times, night then day)
+        self.assertEqual(pictures.prefetch.call_count, 4)
         requests = [request for call in pictures.prefetch.call_args_list for request in call.args[0]]
-        self.assertEqual(len(requests), 16)  # two times, 2 night and 6 day images per time
+        # two times; the night finder compares with three earlier pictures (4 images), the day
+        # finder needs 6 per time
+        self.assertEqual(len(requests), 20)
         self.assertEqual(len(found), 4)
         self.assertEqual({row["src"] for row in found}, {seawatch.SRC, self.DAY})
         self.assertEqual(state["sea_day_status"]["waiting"], 16)

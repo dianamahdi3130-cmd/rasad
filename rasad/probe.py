@@ -300,3 +300,120 @@ def resolution_test(cfg, lat, lon, t, ref_minutes=30, layer=None):
             log.info("half %3d km, %.2f km/px (%dx%d): rise near the fire %.1f; strongest rise %.1f at %.3f,%.3f "
                      "(%.0f km away)", half, km, W, H, near, float(rise.max()), plat, plon,
                      haversine_km(lat, lon, plat, plon))
+
+
+def grab(cfg, start, end, bbox, layers, km=0.5, out_dir="probe-out", tag="grab", workers=3):
+    """Diagnosis: keep the pictures themselves, exactly as the finders ask for them (same grid),
+    so a missed or doubtful fire can be studied and replayed offline afterwards. Each layer is
+    read at its own cadence ("name@15" = every 15 minutes, default 10). A time the server
+    answers with another picture is not kept (it would be evidence of the wrong moment)."""
+    from concurrent.futures import ThreadPoolExecutor
+    from . import seawatch as SW
+    wms = WMS(cfg["eumetview"]["wms_url"], make_session())
+    W, H = SW.box_size({"bbox": bbox}, km)
+    out = Path(out_dir) / tag
+    index = {"bbox": [float(v) for v in bbox], "width": W, "height": H, "km_per_px": km, "layers": {}}
+    jobs = []
+    for spec in layers:
+        name, _, cad = spec.partition("@")
+        cad = int(cad or 10)
+        folder = out / re.sub(r"[^A-Za-z0-9_]+", "_", name)
+        folder.mkdir(parents=True, exist_ok=True)
+        index["layers"][name] = {"cadence_min": cad, "folder": folder.name, "times": [], "missing": []}
+        t = floor_time(start, cad)
+        while t <= end:
+            jobs.append((name, folder, t))
+            t += dt.timedelta(minutes=cad)
+
+    def one(job):
+        name, folder, t = job
+        for _ in range(3):
+            img, actual = wms.getmap(name, bbox, W, H, t=t, quiet=True, timeout=60)
+            if img is not None:
+                break
+        if img is None or (actual is not None and abs((actual - t).total_seconds()) > 120):
+            return name, t, False
+        img.save(folder / f"{t:%Y%m%dT%H%M}.png", optimize=True)
+        return name, t, True
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for name, t, ok in pool.map(one, jobs):
+            index["layers"][name]["times" if ok else "missing"].append(iso(t))
+    for name, row in index["layers"].items():
+        log.info("%s: %d picture(s) kept, %d missing %s", name, len(row["times"]), len(row["missing"]),
+                 row["missing"][:6])
+    (out / "index.json").write_text(json.dumps(index, indent=1), encoding="utf-8")
+    return index
+
+
+def list_layers(cfg, out_dir="probe-out", pattern=None):
+    """Diagnosis: every picture layer the European server offers (name, title, newest time), so a
+    new free source can be found without guessing names."""
+    import xml.etree.ElementTree as ET
+    session = make_session()
+    r = session.get(cfg["eumetview"]["wms_url"], params={"service": "WMS", "version": "1.3.0",
+                                                         "request": "GetCapabilities"}, timeout=240)
+    root = ET.fromstring(r.content)
+    rows = []
+    for el in root.iter():
+        if not el.tag.endswith("Layer"):
+            continue
+        name = title = extent = None
+        for ch in el:
+            tag = ch.tag.split("}")[-1]
+            if tag == "Name":
+                name = (ch.text or "").strip()
+            elif tag == "Title":
+                title = (ch.text or "").strip()
+            elif tag in ("Dimension", "Extent") and ch.attrib.get("name", "").lower() == "time":
+                extent = (ch.text or "").strip()
+        if not name:
+            continue
+        last = ""
+        if extent:
+            last = extent.split(",")[-1].strip()
+            last = last.split("/")[1] if "/" in last else last
+        rows.append((name, title or "", last, (extent or "")[:60]))
+    rows.sort()
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "layers.txt").write_text("\n".join("\t".join(r) for r in rows), encoding="utf-8")
+    rx = re.compile(pattern, re.I) if pattern else None
+    shown = [r for r in rows if rx is None or rx.search(r[0] + " " + r[1])]
+    log.info("%d layers on the server, %d shown", len(rows), len(shown))
+    for name, title, last, _ in shown:
+        log.info("   %s | %s | newest %s", name, title, last or "-")
+    return rows
+
+
+def gibs_layers(pattern, out_dir="probe-out", url="https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/WMTSCapabilities.xml"):
+    """Diagnosis: which of NASA's daily picture layers (GIBS) exist, with the tile grid and file
+    type each one is served in, so the app's map is given names that really answer."""
+    import xml.etree.ElementTree as ET
+    session = make_session()
+    r = session.get(url, timeout=240)
+    root = ET.fromstring(r.content)
+    rx = re.compile(pattern, re.I)
+    rows = []
+    for layer in root.iter():
+        if not layer.tag.endswith("}Layer"):
+            continue
+        ident = fmt = grid = None
+        for ch in layer.iter():
+            tag = ch.tag.split("}")[-1]
+            if tag == "Identifier" and ident is None:
+                ident = (ch.text or "").strip()
+            elif tag == "Format" and fmt is None:
+                fmt = (ch.text or "").strip()
+            elif tag == "TileMatrixSet" and grid is None and (ch.text or "").strip():
+                grid = (ch.text or "").strip()
+        if ident and rx.search(ident):
+            rows.append((ident, grid or "", fmt or ""))
+    rows.sort()
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "gibs_layers.txt").write_text("\n".join("\t".join(r) for r in rows), encoding="utf-8")
+    log.info("%d matching layer(s)", len(rows))
+    for ident, grid, fmt in rows:
+        log.info("   %s | %s | %s", ident, grid, fmt)
+    return rows

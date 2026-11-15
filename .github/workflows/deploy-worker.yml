@@ -2,7 +2,10 @@ name: ALFAQAAR FIRMS - نشر التطبيق الخاص
 
 # Puts the private app on Cloudflare (worker/ + the app files in web/). Needs the repository
 # secrets CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and RASAD_ADMIN_CODE (the manager's
-# password); without them it does nothing.
+# code: choose a long one); without them it does nothing.
+# Optional repository variable RASAD_DOMAIN (Settings > Secrets and variables > Actions >
+# Variables), for example app.example.com: the app then answers on that domain too. The domain
+# must already be on the same Cloudflare account.
 on:
   push:
     branches: [main]
@@ -30,7 +33,11 @@ jobs:
           A: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           C: ${{ secrets.RASAD_ADMIN_CODE }}
         run: |
-          if [ -n "$T" ] && [ -n "$A" ] && [ -n "$C" ]; then
+          # The door now asks for an access key tied to a device. A page that does not load the
+          # sign-in script could not get past it: the manager would be locked out of their own app.
+          if ! grep -q 'access\.js' web/index.html; then
+            echo "::notice::The app's page does not use the access keys yet: nothing to deploy"
+          elif [ -n "$T" ] && [ -n "$A" ] && [ -n "$C" ]; then
             echo "ok=1" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Cloudflare keys or the manager's code are not added yet: nothing to deploy"
@@ -49,6 +56,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_CODE: ${{ secrets.RASAD_ADMIN_CODE }}
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          RASAD_DOMAIN: ${{ vars.RASAD_DOMAIN }}
         run: |
           # the app's address stays out of this public log
           sub=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
@@ -59,6 +67,16 @@ jobs:
             exit 1
           fi
           echo "::add-mask::$sub"
+          # the owner's own domain, when one is set: written as a bare name, whatever was typed
+          domain=$(printf '%s' "$RASAD_DOMAIN" | tr 'A-Z' 'a-z' | tr -d '[:space:]' | sed -E 's#^[a-z]+://##; s#/.*$##')
+          if [ -n "$domain" ]; then
+            if ! printf '%s' "$domain" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'; then
+              echo "::error::The variable RASAD_DOMAIN is not a domain name (write it like app.example.com)"
+              exit 1
+            fi
+            echo "::add-mask::$domain"
+            printf '\n[[routes]]\npattern = "%s"\ncustom_domain = true\n' "$domain" >> wrangler.toml
+          fi
           rm -rf public && mkdir -p public && cp -r ../web/. public/
           npx -y wrangler@4 deploy
           INGEST_KEY=$(printf '%s' "$CLOUDFLARE_API_TOKEN:ingest" | sha256sum | cut -c1-64)

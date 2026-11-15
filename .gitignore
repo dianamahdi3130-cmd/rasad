@@ -14,3 +14,7 @@ _site/
 .rasad-pictures/
 .rasad-media-worker.log
 .rasad-geo-worker.log
+
+# worktrees of helper sessions
+.claude/worktrees/
+.archive_sent.json

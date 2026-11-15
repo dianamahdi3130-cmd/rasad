@@ -19,6 +19,17 @@ check goes through `WMS.budget(...)`; a check reads at most `scan_max_images` (2
 | `msg_iodc:ir039`, `mtg_fd:rgb_geocolour` | the clip's thermal and colour panels | 15 / 10 min |
 | `osmgray:land_polygons` | land/sea mask in pictures | static |
 
+- **Ask for picture layers at 0.25 km per pixel, never coarser than 0.3.** The server answers a
+  coarser request from a blurred copy (about 4 km) that is also one picture (10 minutes) behind:
+  a fire two pixels wide all but vanishes. Measured on 14 Nov 2026 at 26.02 N 55.90 E, same times:
+  0.25 km gives 25, 29, 27 (sea 21); 0.5 km gives 21, 22, 24; 1 km gives 21, 21, 21. The area
+  asked for does not matter, only the detail (`docs/reviews/hormuz_ras_al_khaimah_20261114.md`).
+  Big boxes are read as tiles of at most 1100 px (`seawatch.tile_requests`): a 2000 px picture
+  takes the server ~20 s, a quarter of it a few seconds. The fire-symbol layers (`mtg_fd:frp`,
+  `msg_iodc:fire`) are fine at their 0.9 km tiles, and `ir105_hrfi` looks the same at any detail.
+- In the Fire Temperature picture red is the 3.8 micron channel, green 2.2 and blue 1.6 micron.
+  At night green and blue are dark (1-2 of 255) except over flames (a ship fire reads 4-9, the Das
+  Island flare 35-90): a glow there is evidence no cloud can fake. The night sea sits near 21.
 - Pictures appear late: a slot is read when published and read again once settled
   (`settle_minutes` 25). Never-read slots go first (`geocollect._unread`), then settled re-reads.
 - Missing pictures are holes (`Availability`), retried later; hours after an outage are caught up
@@ -78,6 +89,19 @@ published yet answers 404. `VIIRS_SNPP_…` no longer answers (checked 11 Nov 20
      then `git show origin/probe:step1.log | tail -40` (pictures are PNG files on that branch).
 4. Write the finding as a short case in `docs/reviews/` (Arabic) and turn the cause into a test
    before changing detection.
+
+Keeping the pictures themselves (to study or replay a night offline): add a step like
+`["grab", "--tag", "night", "--start", "…Z", "--end", "…Z", "--bbox", "55.0,22.4,60.2,27.2", "--km",
+"0.25"]`; the PNG files land on the `probe` branch with an `index.json`. `["layers", "--match",
+"fire|frp"]` lists what the server offers. The workflow can also be started by hand on any branch
+(Actions tab, or `actions_run_trigger` with `workflow_id: probe.yml` and the branch as `ref`): with
+the four inputs left empty it follows that branch's `tools/probe-request.json`, so nothing has to
+be pushed to `diag`.
+
+Other layers on the same server, tried or noted (15 Nov 2026): `copernicus:sentinel3a/b_slstr_level2_frp`
+(Sentinel-3 fires; on 10 Nov slow, 500s and empty over the Gulf), `msg_fes:fire` and `msg_fes:ir039`
+(Meteosat at 0 degrees: the Gulf is near the edge of its view), `msg_iodc:ir039` (8-bit over a wide
+range: one level is more than a kelvin, a small fire shows as +1 at most), `msg_iodc:clm` (cloud mask).
 
 Known blind spots: pixels a few km wide (small or short fires), clouds, sun glint by day, fires
 inside the memory of usual flares, NASA's ~3-hour delay, hours when EUMETView serves no pictures.

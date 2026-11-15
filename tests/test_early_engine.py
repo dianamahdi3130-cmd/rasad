@@ -32,8 +32,10 @@ class EarlyEngineTests(TestCase):
         self.cfg["telegram"].update(bot_token="offline-token", chat_id="offline-chat")
         for feature in ("satpic", "watch", "smoke", "flares", "recovery"):
             self.cfg[feature]["enabled"] = False
+        # a first picture is told at once only when it is unmistakable ("strong": a big rise
+        # with a flame's glow), as the real one of 13 November was
         self.candidate = {"src": "mtg_spot", "t": "2026-11-13T18:50:00Z",
-                          "lat": 26.3716, "lon": 56.2988, "rise": 53.3}
+                          "lat": 26.3716, "lon": 56.2988, "rise": 53.3, "strong": True, "flame": True}
         save_json(self.cfg["_state_dir"] / "state.json", {
             "schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE,
             "sea_check": engine.SEA_CHECK, "hello_sent": iso(self.now),

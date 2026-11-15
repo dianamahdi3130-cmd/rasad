@@ -7,6 +7,7 @@ import math
 import re
 import statistics
 
+from . import assess
 from .util import esc, haversine_km, local_text, parse_time, size_word
 from .updates import latest_reading, peak_reading
 
@@ -50,6 +51,19 @@ class Memory:
                         per_day[day] = max(per_day.get(day, 0.0), frp)
         vals = [v for v in per_day.values() if v > 0]
         return len(per_day), (statistics.median(vals) if vals else None)
+
+    def peak(self, lat, lon, through_day, window_days, reach=1):
+        """The strongest reading here within the window, today's earlier ones included: the
+        place's own record. None when no reading with a strength is remembered."""
+        i, j = math.floor(lat / CELL), math.floor(lon / CELL)
+        lo = (dt.date.fromisoformat(through_day) - dt.timedelta(days=window_days)).isoformat()
+        best = None
+        for di in range(-reach, reach + 1):
+            for dj in range(-reach, reach + 1):
+                for day, frp in self.cells.get(f"{i + di},{j + dj}", {}).items():
+                    if lo <= day <= through_day and frp and (best is None or frp > best):
+                        best = frp
+        return best
 
     def days_known(self, before_day, window_days):
         """How many earlier days the memory actually holds (0 = still learning)."""
@@ -111,6 +125,8 @@ def add_to_incident(inc, det):
         inc["own_night_slots"] = sorted(set(inc["geo_slots"]))[-60:]
     if det["src"] == "mtg_spot" and det["kind"] == "geo":
         inc["own_night_slots"] = sorted(set(inc.get("own_night_slots") or []) | {det["t"]})[-60:]
+        if det.get("flame"):   # a glow in the short-wave colours at night: flames, not cloud
+            inc["flame_glow"] = True
     if det["src"] not in srcs:
         srcs.append(det["src"])
     if det["family"] not in inc["families"]:
@@ -394,16 +410,26 @@ def _clear(p):
     return int(c) >= 40 if c.isdigit() else True
 
 
+SEA_FAINT_MW = 2.0   # below this, one night pixel at sea is what a platform's small flare looks like
+
+
 def open_sea_fire(inc):
     """Out at sea, away from platforms and with no earlier heat there, a NASA hotspot has few
-    innocent explanations: at night none (no sun glint, no fields, no flare stacks); by day it has
-    to be a clear detection of some strength (ships hit in the Strait of Hormuz burn by day too)."""
+    innocent explanations. At night there is no sun glint and there are no fields, but there are
+    oil platforms that are on no map: a single faint pixel (under 2 MW) is how their small flares
+    look (three such posts went out on 10-12 November 2026, all in oil-field waters), so one of
+    those waits for a second look. By day it has to be a clear detection of some strength (ships
+    hit in the Strait of Hormuz burn by day too)."""
     if inc.get("place") != "sea" or inc.get("kind") != "new" or (inc.get("known_days") or 0) > 0:
         return False
     f = inc.get("facility")
     if f and f.get("nearest_km", f["km"]) <= 3:
         return False
-    return any(_clear(p) and (p.get("night") or (p.get("frp") or 0) >= 5) for p in inc["polar"])
+    clear = [p for p in inc["polar"] if _clear(p)]
+    night = [p for p in clear if p.get("night")]
+    if night and (len(night) >= 2 or max((p.get("frp") or 0) for p in night) >= SEA_FAINT_MW):
+        return True
+    return any((p.get("frp") or 0) >= 5 for p in clear)
 
 
 def nearby_confirmed(inc, incidents, km=25.0, hours=24.0):
@@ -511,6 +537,7 @@ def finalize(inc, cfg):
     inc["start_text"] = local_text(parse_time(inc["first"]), cfg)
     inc["last_text"] = local_text(parse_time(inc["last"]), cfg)
     inc["sources_text"] = "، ".join(sorted({FAMILY_AR.get(f, f) for f in inc["families"]}))
+    assess.assess(inc, cfg)   # the confidence number, its reasons, the kind of event, who saw it
     return inc
 
 
@@ -552,6 +579,21 @@ def video_note(inc):
 
 def mw_ar(v):
     return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " MW"
+
+
+def surge_note(inc):
+    """A plant whose usual flare burns harder than its own record: say what that can and cannot
+    mean. Pictures from space do not tell operational flaring from a fire, so neither is claimed."""
+    if inc.get("kind") != "unusual":
+        return ""
+    record = inc.get("site_record")
+    try:
+        record = float(record) if record else None
+    except (TypeError, ValueError):
+        record = None
+    seen = (f"شعلة هذا الموقع معتادة، وشدتها الآن أعلى مما سُجّل فيه خلال شهر (السابق {mw_ar(record)})."
+            if record else "شعلة هذا الموقع معتادة، وشدتها الآن أعلى من عادتها بكثير.")
+    return f"🏭 {seen} قد يكون حرق غاز تشغيلياً أو حريقاً؛ صور الأقمار لا تفرّق بينهما."
 
 
 def _strength_lines(inc, cfg, intensity=False, with_size=False, with_date=False):
@@ -623,6 +665,15 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     lines.append(f"{'🔴' if sure else '🟠'} <b>{esc(bidi_safe(inc['headline']))}</b>")
     if sure:
         lines.append(f"✅ <b>مؤكد</b> · {esc(bidi_safe(inc['reason']))}")
+    note = surge_note(inc)
+    if note:
+        lines.append(note)
+    confidence = assess.confidence_line(inc)
+    if confidence:
+        lines.append(f"🎯 <b>{esc(inc.get('confidence_label') or 'الثقة')}:</b> {esc(bidi_safe(confidence))}")
+        reason = assess.main_reason(inc)
+        if reason and not sure and inc.get("kind") != "unusual":   # a confirmed fire already says why
+            lines.append(f"🔎 {esc(bidi_safe(reason))}")
     lines.append("")
     lines.append(f"📍 <b>المكان:</b> {esc(bidi_safe(inc['where']))}")
     lines.append(f"🕒 <b>البداية:</b> {when}")
