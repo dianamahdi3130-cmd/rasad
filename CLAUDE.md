@@ -34,26 +34,31 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/notify.py`, `rasad/updates.py` | Telegram sending (HTML, replies under the first post); intensity updates |
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
-| `rasad/main.py` | CLI: `cycle`, `media-worker`, `picture-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `cloud-publish`; diagnosis: `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `grab` (keep a night's pictures), `layers`, `gibs-layers` |
-| `web/index.html` | the app's page, styles and main script (Arabic RTL, Leaflet 1.9.4). The map has three backgrounds: map, satellite, and NASA's daily picture (`DAILY`, GIBS tiles, 250 m). `web/sw.js` holds the cache name |
-| `web/imagery.js`, `web/beforeafter.js` | «قبل وبعد»: Sentinel-2 pictures (10 m) of any place read in the phone itself (engine, no page code) and its screen, with Landsat 8/9 (30 m, from Microsoft's Planetary Computer, signed by a free token) as extra dates. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
+| `rasad/main.py` | CLI: `cycle`, `media-worker`, `picture-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `cloud-publish`; diagnosis: `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `grab` (keep a night's pictures), `layers`, `gibs-layers`, `imagery-check` (the app's imagery engine on the real archives: `tools/imagery_check.js`) |
+| `web/index.html` | the app: one page, styles and main script (Arabic RTL, Leaflet 1.9.4), rebuilt on 15 Nov 2026 as a map-first platform. The map fills the window; one panel (docked beside it from 760 px, a bottom sheet with peek/half/full on phones) holds the tabs الأحداث / المؤشرات / الأرشيف / مواقعي / المصادر and an incident's details (confidence dial, reasons, who saw it, strength chart, printable «تقرير الحدث»); a time slider; backgrounds: map, satellite, NASA's daily picture and its false-colour and night pictures (`NASA_VIEWS`, GIBS tiles); dark and light themes; the sign-in screen and the manager's panel (`RasadAccess`). `web/sw.js` holds the cache name |
+| `web/imagery.js`, `web/beforeafter.js` | the satellite-imagery browser («صور الأقمار · قبل وبعد»): Sentinel-2 pictures (10 m) of any place read in the phone itself (engine, no page code) and its screen, with Landsat 8/9 (30 m, from Microsoft's Planetary Computer, signed by a free token) as extra dates. The place is chosen on the map (a point, a drawn rectangle up to 80 km, or «صوّر ما أراه»); a date strip with clear/partly/cloudy marks; one picture, split, blink or side by side; band views (natural, short-wave, false colour, fire) and the NBR/NDVI indices; the change layer, the «أثر احتراق محتمل» layer (dNBR classes), hot points, a point inspector, area measuring; a report as an image or a printed page. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
 | `worker/src/index.js`, `web/access.js` | private app on Cloudflare (Worker `rasad` + Durable Object `Hub`): one **access key per subscriber** tied to one device (a key pair the browser cannot export; the device proves itself every 15 minutes), validity period, forced sign-out, device-change requests, the manager's panel API, data/clips/archive/tool files only for an active subscription, ingest. `access.js` (`RasadAccess`) is the page's only way to the door. Design, API table and limits: `docs/plans/access-keys.md`; the owner's steps: `docs/private-app-setup.md` |
 | `scripts/loop.sh`, `scripts/branches.sh` | the ~5.5-hour watching loop; saving to the data branches |
 | `.github/workflows/` | `rasad.yml` monitor, `probe.yml` diagnosis on real data (can be started by hand on any branch: it then follows that branch's `tools/probe-request.json`), `deploy-worker.yml` private app, `tests.yml` every test on pull requests and work branches |
 | `config.yaml` | regions and alert rules (Arabic comments); defaults are in `engine.DEFAULTS` |
 | `docs/` | `reviews/` checked cases; `plans/` agreed designs (start with `plans/before-after.md`) |
 
-Big files: read by line range or grep, never whole: `engine.py` (61 KB), `web/index.html` (66 KB),
-`brain.py`, `seawatch.py`, `twopanel.py` (≈35 KB each), `web/imagery.js`, `web/beforeafter.js`
-(≈50 KB each). App functions to grep in `index.html`: `load`, `render`, `drawMarkers`, `route`,
-`showFocus`, `openDetail`, `renderPicture`, `presentPicture`, `startApp`, `openAdmin`; in
-`beforeafter.js`: `openViewer`, `start`, `tick`, `loadPair`, `rebuild`, `paint`, `renderFind`,
-`renderShot` (picture), `filmPlan`/`takeFilm` (video), `BA.find` (the top search field);
-in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeOf`, `hotSpots`.
+Big files: read by line range or grep, never whole: `web/index.html` (260 KB), `web/beforeafter.js`
+(180 KB), `web/imagery.js` (76 KB), `engine.py` (61 KB), `worker/src/index.js` (45 KB), `brain.py`,
+`seawatch.py`, `twopanel.py` (≈35 KB each). App functions to grep in `index.html`: `boot`,
+`startApp`, `load`, `render`, `cardHTML`, `drawMarkers`, `route`/`setRoute`, `setTab`, `sheetTo`,
+`showFocus`, `openDetail`/`detailHTML`, `reportHTML`, `dashStats`, `timelineView`, `archiveFilter`,
+`drawWatch`, `showGate`/`signIn`/`lock`, `openAdmin`/`renderAdmin`, `loadTools`, `presentPicture`;
+in `beforeafter.js`: `BA.go`/`BA.route`, `BA.here`/`BA.draw`/`BA.startPick` (the place from the
+map), `openViewer`, `loadPair`, `refresh`, `picture`, `paint`, `renderStrip`, `renderReport`,
+`printReport`, `reportModel`, `renderShot` (picture), `filmPlan`/`takeFilm` (video), `BA.find`;
+in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBand`, `changeOf`,
+`hotSpots`, `comboImage`, `indexOf`, `burnOf`, `inspect`.
 
 ## Commands
 - Tests, all must pass: `python -m pytest -q` (~10 s; `pip install pytest` once if missing) and
-  `for f in tests/*.js; do node "$f"; done` (~25 s). GitHub runs them too on every pull request.
+  `for f in tests/*.js; do node "$f"; done` (~75 s; the imagery screen's file alone takes ~50 s).
+  GitHub runs them too on every pull request.
 - The JS tests use a made-up Sentinel-2 archive (`tests/support/archive.js`): no network.
 - A check without posting: `python -m rasad --state /tmp/st --site /tmp/si cycle --no-send`
   (needs network to EUMETView/NASA; often blocked in a development session).
@@ -63,7 +68,7 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 ## How it runs (do not break it)
 - `rasad.yml` runs `scripts/loop.sh` for ~5.5 hours: a check every 150 s plus a media worker, a
   satellite-picture worker (it also runs the silent smoke checks) and a facility-map worker. Workers only write staging files
-  (`.rasad-media/`, `.rasad-satpic/`, `.rasad-smoke/`); the check alone posts and owns the incidents. cron-job.org starts the workflow every 10 minutes so the next run is
+  (`.rasad-media/`, `.rasad-satpic/`, `.rasad-smoke/`); the check alone posts and owns the incidents. The check and the picture worker read the same European server: while a check reads the official fire products it says so (`util.official_reads`) and the worker waits, and the sea finder takes at most 45 s of a check (measured live on 15 Nov 2026: without both, the official reads fell 40 minutes behind and checks took two minutes). cron-job.org starts the workflow every 10 minutes so the next run is
   always queued. `cancel-in-progress: false`: a check is never cut in half (an alert could go twice).
 - A push to `main` touching `web/`, `rasad/`, `scripts/`, `config.yaml`, `requirements.txt` or
   `rasad.yml` makes the loop stop after its current check and the queued run start with the new
@@ -110,17 +115,30 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 - Every network call inside a check has a time budget (EUMETView is often slow). No unbounded waits.
 - Bump when you change: `RULES` (importance rules) · `CLIP_STYLE` (clip look) · `SEA_CHECK`
   (sea finder's closer look) · `TIDY` (re-tidy stored incidents), all in `engine.py`; the `CACHE`
-  name in `web/sw.js` whenever `web/` changes, and with it the same number in `?v=` of
-  `imagery.js` and `beforeafter.js` (in `index.html` and in `sw.js`; a test checks they agree).
+  name in `web/sw.js` whenever `web/` changes, and with it the same number in `index.html`
+  (`APP_V`, `access.js?v=` in its script tag, `TOOLS`) and in `LATER` of `sw.js` (a test checks
+  they agree).
 - Text: «الخليج الفارسي» (never «الخليج العربي»); fire power written `MW` in Latin letters
-  (`brain.mw_ar`); times in Baghdad time (UTC+3); Latin names wrapped by `brain.bidi_safe`.
+  (`brain.mw_ar`); times in Baghdad time (UTC+3); Latin names wrapped by `brain.bidi_safe`; a sea
+  is not near itself: «حريق في مياه الخليج الفارسي», but «في البحر قرب الإمارات» (`brain.at_sea`).
   Channel rules in skill `rasad-telegram`.
 - Before/after pictures say «تغيّر مرصود», never a cause and never «ضرر مؤكد»; cloud on one of
   the two dates is said, not counted as change. Every request to the archive has a time budget.
+  The imagery browser's burn layer is the usual dNBR classes under the name «أثر احتراق محتمل»
+  (possible, never certain); the channel's pictures do not use it. Two things were measured on real
+  pairs with no fire between them (`docs/reviews/imagery_real_pairs_20261115.md`) and must stay:
+  «before» comes from the same track of the satellite as «after» when a clear pass of it is at most
+  12 days older (`sameView` in `imagery.js`, `choose` in `beforeafter.js`, `s2.before_for` for the
+  channel's fire pictures), and a burn patch counts only from half a hectare with a core of the
+  moderate class (`BURN_PATCH_HA`, `BURN_CORE_HA`). Check changes to either with `imagery-check`.
 - App: opens on the last 24 hours (3-day and week options); the photo button saves a portrait
-  image without the logo; the private app admits only the manager and subscribers holding a
-  valid key on their own device (never weaken: cookie flags, the proof window, the allowlist of
-  public files `isPublicPath`, constant-time comparisons).
+  image without the logo; the map stays the main thing (panels never cover it whole, and
+  Back/Escape always returns to it without a reload); the private app admits only the manager and
+  subscribers holding a valid key on their own device (never weaken: cookie flags, the proof
+  window, the allowlist of public files `isPublicPath`, constant-time comparisons). On the private
+  app the page adds the imagery scripts only after a sign-in, `sw.js` never keeps `/api/` or
+  `/clips/`, and what is typed in the key field goes to the door untouched (the door tidies a key
+  itself and compares the manager's code letter by letter).
 
 ## Git
 - Work on a branch, open a pull request, merge to `main` only with all tests passing (skill

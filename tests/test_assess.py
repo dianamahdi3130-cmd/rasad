@@ -144,6 +144,18 @@ class AlertLines(unittest.TestCase):
         self.assertNotIn("🏭 شعلة", message)                 # not a plant's surge
         self.assertNotIn("سبب", message)                     # never a cause
 
+    def test_a_sea_is_not_near_itself(self):
+        # the live app read «حريق في البحر قرب الخليج الفارسي» for a fire in the Gulf itself
+        self.assertEqual(brain.at_sea("حريق", "الخليج الفارسي"), "حريق في مياه الخليج الفارسي")
+        self.assertEqual(brain.at_sea("بقعة حرارية أولية", "البحر الأحمر وباب المندب"),
+                         "بقعة حرارية أولية في مياه البحر الأحمر وباب المندب")
+        self.assertEqual(brain.at_sea("حريق", "الإمارات"), "حريق في البحر قرب الإمارات")
+        self.assertEqual(brain.at_sea("حريق", "مضيق هرمز"), "حريق في البحر قرب مضيق هرمز")   # its region reaches beyond the strait
+        self.assertEqual(brain.at_sea("حريق", None), "حريق في البحر")
+        spots = [det("mtg_spot", "mtg", f"2026-11-14T{hh}:00Z", flame=True) for hh in ("15:40", "15:50")]
+        self.assertEqual(incident(spots, region_name="الخليج الفارسي")["headline"], "حريق في مياه الخليج الفارسي")
+        self.assertEqual(incident(spots)["headline"], "حريق في البحر قرب مضيق هرمز")
+
     def test_updates_stay_short(self):
         inc = incident([det("mtg_frp", "mtg", "2026-11-14T16:10:00Z", frp=40.0),
                         det("VIIRS_NOAA20_NRT", "viirs", "2026-11-14T16:40:00Z", "polar", 35.0, conf="h")])
@@ -161,7 +173,7 @@ class PlantRecord(unittest.TestCase):
     NOW = dt.datetime(2026, 11, 15, 12, tzinfo=UTC)
     LAT, LON = 30.0, 48.0
 
-    def cycle(self, measured, history):
+    def cycle(self, measured, history, during=None):
         with tempfile.TemporaryDirectory() as folder:
             cfg = copy.deepcopy(engine.DEFAULTS)
             cfg.update(_state_dir=Path(folder) / "state", _site_dir=Path(folder) / "site",
@@ -191,10 +203,20 @@ class PlantRecord(unittest.TestCase):
             with patch.multiple(engine, utcnow=Mock(return_value=self.NOW), make_session=Mock(),
                                 WMS=Mock(return_value=wms), Geo=Mock(return_value=geo),
                                 Availability=Mock(), latest_time=Mock(return_value=observed),
-                                detect_geo_layer=Mock(return_value=[detection])):
+                                detect_geo_layer=Mock(side_effect=lambda *a, **k: [during and during(cfg), [detection]][1])):
                 state = engine.run_cycle(cfg, send=False)
+                if during:
+                    during(cfg)
             feed = json.loads((cfg["_site_dir"] / "data" / "incidents.json").read_text(encoding="utf-8"))
             return state, feed
+
+    def test_the_check_says_when_it_reads_the_official_products(self):
+        # the picture worker waits meanwhile (util.official_reads); afterwards the note is gone or ended
+        from rasad import util
+        left = []
+        self.cycle(94.0, [109.0, 8.0], during=lambda cfg: left.append(util.official_reads_left(cfg)))
+        self.assertGreater(left[0], 30, "while the fire symbols are read")
+        self.assertLess(left[-1], 40, "after the check only the short note of the strength reads may remain")
 
     def test_a_surge_the_plant_has_shown_before_is_not_news(self):
         # Shedgum, 12-14 November 2026: 109 MW, then 94, then 80; three posts for one habit

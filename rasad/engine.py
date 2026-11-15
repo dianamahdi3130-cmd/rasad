@@ -22,12 +22,12 @@ from . import acquisitions, archive, assess, flares, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
-from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_session, parse_time,
-                   save_json, utcnow)
+from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_session, official_reads,
+                   official_reads_done, parse_time, save_json, utcnow)
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 16  # bump when the importance rules change, so stored incidents are judged again
+RULES = 17  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -652,8 +652,13 @@ def run_cycle(cfg, send=True, alert_now=False):
     # Live tiles and outage catch-up share a bounded, resumable collector.
     slots = S.state.setdefault("slots", {})
     avail = Availability(wms, S.state, now)
-    dets, status, n_images = geocollect.collect(
-        cfg, wms, S.state, now, tiles, avail, detect=detect_geo_layer, latest=latest_time)
+    # the picture worker waits while the official products are read (util.official_reads)
+    official_reads(cfg, float(E.get("scan_budget_s", 65)) + 10)
+    try:
+        dets, status, n_images = geocollect.collect(
+            cfg, wms, S.state, now, tiles, avail, detect=detect_geo_layer, latest=latest_time)
+    finally:
+        official_reads_done(cfg)
 
     # 1b) Own sea finders: nighttime checks and separately guarded daytime candidates.
     SW = cfg["seawatch"]
@@ -662,8 +667,11 @@ def run_cycle(cfg, send=True, alert_now=False):
         try:
             watch_cfg = cfg
             if cfg.get("_background_media"):
-                # ten sea boxes at full detail: about 15 s of arithmetic per picture time
-                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 75),
+                # Ten sea boxes at full detail: about 30 s of arithmetic for one picture time. The
+                # newest picture time comes first and always fits; an older one waiting to be caught
+                # up gets what is left. (With 75 s, live on 15 Nov 2026, every check of the first
+                # hours took two minutes, and the alerts of that check waited for it.)
+                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 45),
                                                   slots_per_run=min(int(SW["slots_per_run"]), 2)))
             seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
             # In the watching loop a separate worker fetches the pictures all the time; the check
@@ -743,6 +751,9 @@ def run_cycle(cfg, send=True, alert_now=False):
     for key, det in list(strength_pending.items()):
         if now - parse_time(det["t"]) > dt.timedelta(hours=24) or det.get("src") not in STRENGTH_SOURCES:
             del strength_pending[key]
+    # the strength of the fire symbols is read from the same server: the worker waits again, until
+    # the judgement below has read what it needs (the note ends by itself after that time)
+    official_reads(cfg, float(E.get("strength_retry_budget_s", 10)) + float(E.get("strength_budget_s", 20)) + 5)
     retry_deadline = time.monotonic() + float(E.get("strength_retry_budget_s", 10))
     retry_left = int(E.get("strength_retry_max", 15))
     for key, det in sorted(strength_pending.items(), key=lambda kv: kv[1]["t"], reverse=True):

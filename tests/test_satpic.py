@@ -106,7 +106,7 @@ class FakeArchive:
             p = dict(p)
             p.setdefault("platform", "sentinel-2b")
             p["id"] = f"S2B_T39RXX_{p['date'].replace('-', '')}T072146_L2A"
-            p["datetime"] = p["date"] + "T07:22:30.000000Z"
+            p["datetime"] = p["date"] + "T" + p.pop("at", "07:22:30") + ".000000Z"        # "at": another track's time of day
             p["dir"] = f"{s2.C1_FILES}39/R/XX/{p['date'][:4]}/{int(p['date'][5:7])}/{p['id']}/"
             self.passes.append(p)
 
@@ -228,6 +228,29 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual((before["date"], after["date"]), ("2026-10-05", "2026-11-09"))
         before, after = s2.pick_pair(passes, T("2026-11-09T12:00:00Z"), T("2026-11-09T12:00:00Z"))
         self.assertEqual((before["date"], after), ("2026-11-09", None))
+
+    def test_before_is_taken_from_the_same_track_as_after_when_a_clear_pass_of_it_is_near(self):
+        # Kuwait City, 14-15 November 2026: the clear pass of the day before came from the track
+        # beside today's (07:31 against 07:41) and its tower shadows measured as 50 ha of change
+        def choose(passes):
+            archive = s2.Archive(FakeArchive(passes))
+            found = archive.list_passes(self.grid, T("2026-10-01T00:00:00Z"), T("2026-11-16T00:00:00Z"))
+            after, older = found[0], found[1:]
+            for p in older[:1]:
+                archive.assess(p, self.grid)
+            chosen = s2.before_for(older, after, older[0], lambda p: archive.assess(p, self.grid))
+            return chosen["date"]
+        today, beside = {"date": "2026-11-15", "at": "07:41:36"}, {"date": "2026-11-14", "at": "07:31:48"}
+        self.assertEqual(choose([{"date": "2026-11-10", "at": "07:41:38"}, {"date": "2026-11-12", "at": "07:31:40"}, beside, today]),
+                         "2026-11-10", "four days older, but seen from the same side")
+        self.assertEqual(choose([{"date": "2026-11-10", "at": "07:41:38", "cloud": "all"}, beside, today]), "2026-11-14",
+                         "a cloudy pass of the same track does not take the place")
+        self.assertEqual(choose([{"date": "2026-10-31", "at": "07:41:20"}, beside, today]), "2026-11-14",
+                         "nor one more than twelve days older")
+        self.assertEqual(choose([{"date": "2026-11-10", "at": "07:41:38"}, {"date": "2026-11-13", "at": "07:41:10"}, today]),
+                         "2026-11-13", "the nearest clear pass is already of the same track")
+        a, b = {"time": T("2026-11-15T23:59:30Z")}, {"time": T("2026-11-10T00:01:00Z")}
+        self.assertTrue(s2.same_view(a, b), "the time of day wraps around midnight")
 
     def test_changed_area_and_flames(self):
         passes = self.archive.list_passes(self.grid, T("2026-08-01T00:00:00Z"), T("2026-11-10T00:00:00Z"))

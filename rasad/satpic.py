@@ -191,11 +191,15 @@ def _make(cfg, job, now, session, out):
         gone = now - last > dt.timedelta(days=float(S.get("max_days", 12)))
         return {"final": gone, "why": "no clear pass after the fire" + (" in time" if gone else " yet")}
     before = None
-    for p in (p for p in passes if p["time"] < first):                   # newest first
+    older = [p for p in passes if p["time"] < first]                      # newest first
+    for p in older:
         archive.assess(p, grid)
         if s2.is_clear(p):
             before = p
             break
+    # seen from the same side as «after» when such a clear pass is near: towers and their shadows
+    # fall differently from the track beside it, and that would be measured as change
+    before = s2.before_for(older, after, before, lambda p: archive.assess(p, grid))
     A = archive.load_scene(after, grid)
     B = archive.load_scene(before, grid) if before else None
     change = s2.change_of(B, A, grid.res) if B else None

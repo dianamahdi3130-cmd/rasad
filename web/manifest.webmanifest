@@ -1,14 +1,16 @@
 {
-  "name": "ALFAQAAR FIRMS",
-  "short_name": "FIRMS",
-  "description": "ALFAQAAR FIRMS · منصة رصد الحرائق من الأقمار الصناعية · للكادر فقط",
+  "name": "ALFAQAAR FIRMS · رصد",
+  "short_name": "رصد",
+  "description": "ALFAQAAR FIRMS · رصد · منصة رصد الحرائق من الأقمار الصناعية",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0a101c",
-  "theme_color": "#0a101c",
+  "orientation": "any",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "categories": ["news", "utilities"],
   "icons": [
     {
       "src": "icons/icon-192.png",

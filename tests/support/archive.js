@@ -12,11 +12,18 @@ const SEARCH = "https://earth-search.aws.element84.com/v1";
 const LANDSAT_API = "https://planetarycomputer.microsoft.com/api";
 const LANDSAT_FILES = "https://landsateuwest.blob.core.windows.net/test/";
 const LANDSAT_BANDS = {SR_B2: "blue", SR_B3: "green", SR_B4: "red", SR_B5: "nir08", SR_B6: "swir16", SR_B7: "swir22", QA_PIXEL: "qa"};
-const BANDS = {B02: "blue", B03: "green", B04: "red", B8A: "nir08", B11: "swir16", B12: "swir22", SCL: "scl"};
-const BASE = {blue: 0.20, green: 0.25, red: 0.30, nir08: 0.35, swir16: 0.40, swir22: 0.38};
+const BANDS = {B02: "blue", B03: "green", B04: "red", B08: "nir", B8A: "nir08", B11: "swir16", B12: "swir22", SCL: "scl"};
+const BASE = {blue: 0.20, green: 0.25, red: 0.30, nir: 0.35, nir08: 0.35, swir16: 0.40, swir22: 0.38};
+// a planted field, its singed edge and its burnt middle (reflectance per band)
+const FIELD = {
+  plants: {blue: 0.04, green: 0.08, red: 0.05, nir: 0.45, nir08: 0.45, swir16: 0.20, swir22: 0.10},
+  singed: {blue: 0.05, green: 0.08, red: 0.07, nir: 0.30, nir08: 0.30, swir16: 0.22, swir22: 0.17},
+  burnt: {blue: 0.05, green: 0.06, red: 0.07, nir: 0.12, nir08: 0.12, swir16: 0.24, swir22: 0.22},
+};
 
-// A tiled TIFF. `value(x, y)` gives the number of pixel (x, y) of the full picture; the overviews
-// take every second, fourth... pixel. Georeferenced with its top-left corner at (x0, y0).
+// A tiled TIFF. `value(x, y)` gives the number of pixel (x, y) of the full picture (fractions
+// allowed); each overview pixel holds the value at its own centre, as a real overview is centred on
+// the pixels it stands for. Georeferenced with its top-left corner at (x0, y0).
 function makeCog({size, tile, res, x0, y0, bits = 16, value, levels = 2}) {
   const bytesPer = bits / 8, plans = [];
   for (let k = 0; k < levels; k++) {
@@ -26,7 +33,7 @@ function makeCog({size, tile, res, x0, y0, bits = 16, value, levels = 2}) {
       let any = false;
       for (let y = 0; y < tile; y++) for (let x = 0; x < tile; x++) {
         const px = tx * tile + x, py = ty * tile + y;
-        if (px < w && py < w) { const v = value(px * f, py * f); data[y * tile + x] = v; if (v) any = true; }
+        if (px < w && py < w) { const v = value((px + 0.5) * f - 0.5, (py + 0.5) * f - 0.5); data[y * tile + x] = v; if (v) any = true; }
       }
       for (let y = 0; y < tile; y++) for (let x = tile - 1; x > 0; x--) data[y * tile + x] -= data[y * tile + x - 1];   // predictor 2
       blocks.push(any ? zlib.deflateSync(Buffer.from(data.buffer, 0, tile * tile * bytesPer)) : Buffer.alloc(0));     // empty tiles are left out
@@ -68,10 +75,16 @@ function makeCog({size, tile, res, x0, y0, bits = 16, value, levels = 2}) {
 }
 
 // spec: {lat, lon, passes: [{date, platform, tile, collection, cloud: "all"|"west", burn, flame,
-//        footprint: "west" (the picture stops in the middle of the box), offset, scale}]}
+//        footprint: "west"|"east" (the picture stops in the middle of the box), offset, scale,
+//        zone (the tile is in this other UTM zone), veg (a planted field), scar (its middle burnt),
+//        noNir (no band 8 file, and none in the record)}],
+//        levels (how many sizes each file holds, 2), size (metres across, 5120), pixel (metres of
+//        the sharpest bands, 10), ground(p, band, east, north) (another ground: a number, null for
+//        nothing, undefined for the usual one; in metres from the place)}
 function makeArchive(spec) {
   const zone = Math.floor((spec.lon + 180) / 6) + 1, [Ec, Nc] = I.UTM.forward(spec.lat, spec.lon, zone);
-  const x0 = Math.round((Ec - 2560) / 20) * 20, y0 = Math.round((Nc + 2560) / 20) * 20;
+  const SIZE = spec.size || 5120, HALF = SIZE / 2, PIXEL = spec.pixel || 10, LEVELS = spec.levels || 2;
+  const x0 = Math.round((Ec - HALF) / 20) * 20, y0 = Math.round((Nc + HALF) / 20) * 20;
   const passes = spec.passes.map((p, i) => {
     if (p.sensor === "landsat") {
       const id = "LC09_L2SP_163042_" + p.date.replace(/-/g, "");
@@ -89,14 +102,32 @@ function makeArchive(spec) {
   // what the ground looks like at (E, N) for a pass and a band
   function ground(p, band, E, N) {
     const west = E < Ec;
-    if (p.footprint === "west" && !west) return null;
-    if (band === "scl") return p.cloud === "all" || (p.cloud === "west" && west) ? 9 : 5;
+    // half a picture; the two halves overlap by a few pixels, as neighbouring tiles do (by kilometres)
+    if ((p.footprint === "west" && E > Ec + 60) || (p.footprint === "east" && E < Ec - 60)) return null;
+    if (spec.ground) { const v = spec.ground(p, band, E - Ec, N - Nc); if (v !== undefined) return v; }
+    const field = p.veg && Math.abs(E - Ec + 250) < 150 && Math.abs(N - Nc - 350) < 100;
+    if (band === "scl") return p.cloud === "all" || (p.cloud === "west" && west) ? 9 : field ? 4 : 5;
     if (band === "qa") return p.cloud === "all" || (p.cloud === "west" && west) ? 22280 : 21824;      // Landsat's quality bits: cloud / clear
     if (p.cloud === "all" || (p.cloud === "west" && west)) return 0.8;
+    if (field) {                       // 300 x 200 m of plants; with `scar` a burnt 100 m square inside a singed ring 30 m wide
+      const r = Math.max(Math.abs(E - Ec + 250), Math.abs(N - Nc - 350));
+      return FIELD[p.scar && r < 50 ? "burnt" : p.scar && r < 80 ? "singed" : "plants"][band];
+    }
     let v = BASE[band] + 2e-5 * (E - Ec) + 1e-5 * (N - Nc);
     if (p.burn && Math.abs(E - Ec - 300) < 50 && Math.abs(N - Nc - 200) < 50) v *= 0.4;
     if (p.flame && Math.abs(E - Ec + 400) < 20 && Math.abs(N - Nc + 400) < 20) v = band === "swir22" ? 1.2 : band === "swir16" ? 0.6 : 0.3;
     return v;
+  }
+  // a tile in another UTM zone (tiles overlap at the zone edges): its own corner, the same ground
+  const frames = new Map();
+  function frameOf(p) {
+    const z = p.zone || zone;
+    if (!frames.has(z)) {
+      const [E2, N2] = I.UTM.forward(spec.lat, spec.lon, z), own = z === zone;
+      frames.set(z, {x0: own ? x0 : Math.round((E2 - HALF) / 20) * 20, y0: own ? y0 : Math.round((N2 + HALF) / 20) * 20,
+        at: own ? (E, N) => [E, N] : (E, N) => { const [la, lo] = I.UTM.inverse(E, N, z); return I.UTM.forward(la, lo, zone); }});
+    }
+    return frames.get(z);
   }
   const files = new Map();
   function fileFor(url) {
@@ -105,7 +136,7 @@ function makeArchive(spec) {
     let buf = null;
     if (p && p.sensor === "landsat") {
       const band = LANDSAT_BANDS[url.slice(p.dir.length).replace(".TIF", "")];
-      if (band) buf = makeCog({size: 171, tile: 128, res: 30, x0, y0, value: (x, y) => {
+      if (band) buf = makeCog({size: Math.ceil(SIZE / 30), tile: 128, res: 30, x0, y0, levels: LEVELS, value: (x, y) => {
         const v = ground(p, band, x0 + (x + 0.5) * 30, y0 - (y + 0.5) * 30);
         return v == null ? (band === "qa" ? 1 : 0) : band === "qa" ? v : Math.round((v - p.offset) / p.scale);
       }});
@@ -113,10 +144,10 @@ function makeArchive(spec) {
       return buf;
     }
     const band = p && BANDS[url.slice(p.dir.length).replace(".tif", "")];
-    if (p && band && !(p.missing || []).includes(band)) {
-      const res = ["blue", "green", "red"].includes(band) ? 10 : 20;
-      buf = makeCog({size: 5120 / res, tile: 256, res, x0, y0, bits: band === "scl" ? 8 : 16, value: (x, y) => {
-        const v = ground(p, band, x0 + (x + 0.5) * res, y0 - (y + 0.5) * res);
+    if (p && band && !(p.missing || []).includes(band) && !(band === "nir" && p.noNir)) {
+      const res = Math.max(["blue", "green", "red", "nir"].includes(band) ? 10 : 20, PIXEL), f = frameOf(p);
+      buf = makeCog({size: SIZE / res, tile: 256, res, x0: f.x0, y0: f.y0, bits: band === "scl" ? 8 : 16, levels: LEVELS, value: (x, y) => {
+        const v = ground(p, band, ...f.at(f.x0 + (x + 0.5) * res, f.y0 - (y + 0.5) * res));
         return v == null ? 0 : band === "scl" ? v : Math.round((v - p.offset) / p.scale);
       }});
     }
@@ -124,12 +155,13 @@ function makeArchive(spec) {
     return buf;
   }
   const ring = (w, e) => {            // the footprint of a picture in lon/lat
-    const c = [[w, 2560], [e, 2560], [e, -2560], [w, -2560], [w, 2560]].map(([dx, dy]) => I.UTM.inverse(Ec + dx, Nc + dy, zone));
+    const c = [[w, HALF], [e, HALF], [e, -HALF], [w, -HALF], [w, HALF]].map(([dx, dy]) => I.UTM.inverse(Ec + dx, Nc + dy, zone));
     return {type: "Polygon", coordinates: [c.map(([la, lo]) => [lo, la])]};
   };
-  const feature = p => ({id: p.id, collection: p.collection, geometry: ring(-2560, p.footprint === "west" ? 0 : 2560),
+  const feature = p => ({id: p.id, collection: p.collection,
+    geometry: ring(p.footprint === "east" ? 0 : -HALF, p.footprint === "west" ? 0 : HALF),
     properties: {datetime: p.datetime, platform: p.platform, "eo:cloud_cover": p.cloud ? 80 : 1, "grid:code": "MGRS-" + p.tile,
-      [p.collection === "sentinel-2-c1-l2a" ? "proj:code" : "proj:epsg"]: p.collection === "sentinel-2-c1-l2a" ? "EPSG:326" + zone : 32600 + zone}});
+      [p.collection === "sentinel-2-c1-l2a" ? "proj:code" : "proj:epsg"]: p.collection === "sentinel-2-c1-l2a" ? "EPSG:326" + (p.zone || zone) : 32600 + (p.zone || zone)}});
   const archive = {passes, calls: [], fail: null, pageSize: 0, Ec, Nc, x0, y0, zone, ground, tokens: 0};
   const answer = (status, body, headers = {}) => ({ok: status >= 200 && status < 300, status, headers: {get: k => headers[k.toLowerCase()] ?? null},
     body: {cancel() {}}, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length), text: async () => body.toString("utf8")});
@@ -173,7 +205,7 @@ function makeArchive(spec) {
       const p = passes.find(q => q.id === item[2] && q.collection === item[1]);
       if (!p) return resolve(answer(404, Buffer.from("no")));
       const assets = {};
-      for (const [file, name] of Object.entries(BANDS)) assets[name] = {href: (p.realDir || p.dir) + file + ".tif",
+      for (const [file, name] of Object.entries(BANDS)) if (!(name === "nir" && p.noNir)) assets[name] = {href: (p.realDir || p.dir) + file + ".tif",
         "raster:bands": name === "scl" ? [{nodata: 0}] : [{scale: p.scale, offset: p.offset, nodata: 0}]};
       return resolve(answer(200, Buffer.from(JSON.stringify({...feature(p), assets}))));
     }
@@ -187,4 +219,4 @@ function makeArchive(spec) {
   return archive;
 }
 
-module.exports = {makeCog, makeArchive, SEARCH, FILES, BASE, LANDSAT_API, LANDSAT_FILES};
+module.exports = {makeCog, makeArchive, SEARCH, FILES, BASE, FIELD, LANDSAT_API, LANDSAT_FILES};

@@ -158,6 +158,36 @@ def pick_pair(passes, start, end):
     return before, after
 
 
+SAME_VIEW_S = 180              # the same track of the satellite: the same time of day within three minutes
+SAME_VIEW_REACH_DAYS = 12      # how much older «before» may be for the sake of the same track
+
+
+def same_view(a, b):
+    """Two passes that look at the ground from the same place in the sky: flown at the same time of
+    day. The track beside it passes ten minutes apart and sees towers and their shadows from the
+    other side. Measured on real pairs with nothing between them (15 Nov 2026, the imagery-check
+    diagnosis): two tracks on consecutive days over Kuwait City showed 50 ha of change that never
+    happened; pairs from one track showed 0.5 ha (Basra) and 7 ha (Fujairah)."""
+    d = abs((a["time"] - b["time"]).total_seconds()) % 86400
+    return min(d, 86400 - d) <= SAME_VIEW_S
+
+
+def before_for(older, other, first, assess):
+    """«before» for the picture ``other``: ``first`` (the nearest clear pass before the event), or a
+    clear pass of the same track as ``other`` at most twelve days older than it. ``older`` newest
+    first; ``assess(p)`` fills in the sky of a pass that was not looked at yet."""
+    if first is None or other is None or same_view(first, other):
+        return first
+    for p in older:
+        age = (first["time"] - p["time"]).total_seconds()
+        if age <= 0 or age > SAME_VIEW_REACH_DAYS * 86400 or not same_view(p, other):
+            continue
+        assess(p)
+        if is_clear(p):
+            return p
+    return first
+
+
 # ---------------------------------------------------------------- pictures
 def stretch_of(scenes, bands):
     """One brightness range for both dates: the 0.5 % and 99.5 % points of the bands together."""

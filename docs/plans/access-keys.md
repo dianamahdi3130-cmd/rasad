@@ -1,9 +1,15 @@
 # Subscriber access keys (the private app's door)
 
-Status: **built and tested, not yet wired into the page** (15 Nov 2026). Server: `worker/src/index.js`.
-Client library: `web/access.js` (`RasadAccess`). Tests: `tests/test_worker_access.js`,
-`tests/test_access_client.js` (no network). The page (`web/index.html`) still has the old staff
-login and must switch to `RasadAccess`; nothing was ever deployed, so there is nothing to migrate.
+Status: **built, tested and wired into the page** (15 Nov 2026); not deployed until the owner adds
+the Cloudflare secrets (`docs/private-app-setup.md`). Server: `worker/src/index.js`. Client library:
+`web/access.js` (`RasadAccess`). The page (`web/index.html`): the sign-in screen (`showGate`, `signIn`,
+`lock`) and the manager's panel (`openAdmin`, `renderAdmin`). Tests: `tests/test_worker_access.js`,
+`tests/test_access_client.js`, `tests/test_platform_ui.js` (no network). On 15 Nov 2026 the whole
+path (this page, `access.js` and the door's code behind a local server) was walked in Chromium with
+several browsers standing for several devices, 29 steps: a visitor gets no data and no tool files;
+the manager's code as typed; a key made once; a second device refused and asked for; copied
+cookies dead at the next proof; the key moved on approval; forced sign-out; stop; a 7-day
+subscription ending by itself. Nothing was ever deployed before, so there is nothing to migrate.
 
 ## What the manager gets
 One key per subscriber, under the subscriber's name, that works on **one device**; a second device

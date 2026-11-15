@@ -153,7 +153,7 @@ class DayConfidenceTests(unittest.TestCase):
 
         title = headline(inc, {"alerts": {"near_facility_km": 5}})
 
-        self.assertEqual(title, "بقعة حرارية نهارية في البحر قرب خليج عُمان")
+        self.assertEqual(title, "بقعة حرارية نهارية في مياه خليج عُمان")          # a sea is not "near" itself
         self.assertNotIn("حريق", title)
 
     def test_low_nasa_confidence_keeps_experimental_thermal_spot_headline(self):
@@ -162,7 +162,7 @@ class DayConfidenceTests(unittest.TestCase):
 
         title = headline(inc, {"alerts": {"near_facility_km": 5}})
 
-        self.assertTrue(title.startswith("بقعة حرارية نهارية في البحر"))
+        self.assertTrue(title.startswith("بقعة حرارية نهارية في مياه"))
         self.assertNotIn("حريق", title)
 
     def test_doubt_applies_to_both_own_finders_and_their_combination(self):
