@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write    # only to move the mark that tells the watching loop a deploy happened (last step)
 
 jobs:
   deploy:
@@ -90,3 +90,13 @@ jobs:
           npx -y wrangler@4 secret bulk secrets.json
           rm -f secrets.json
           echo "deployed"
+
+      # A watching loop that still publishes on GitHub stops after its current check when this mark
+      # moves (scripts/loop.sh), and the next run sends to the private app: minutes after the first
+      # deploy, not hours. A loop that already sends to the private app does not look at it.
+      - name: Tell the monitor
+        if: steps.ready.outputs.ok == '1'
+        run: |
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            tag -f -a private-app-deployed -m "private app deployed $(date -u +%FT%TZ)"
+          git push -f origin refs/tags/private-app-deployed

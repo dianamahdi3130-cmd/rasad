@@ -16,6 +16,15 @@ GEO_LIMIT=${RASAD_GEO_TIMEOUT_SECONDS:-60}
 LOCKED=${RASAD_CLOUD_URL:+1}
 WATCHED="web rasad scripts config.yaml requirements.txt .github/workflows/rasad.yml"
 start_sha=$(git rev-parse HEAD)
+# The deploy of the private app moves this mark (deploy-worker.yml). A run that still publishes on
+# GitHub stops when it moves, so the next run finds the app and sends to it within minutes, instead
+# of at the end of this six-hour run. (The run cannot ask Cloudflare itself: the secrets the owner
+# adds while it is running are not in its hands.)
+MARK=refs/tags/private-app-deployed
+mark_of() {  # never a long wait
+  timeout --signal=TERM --kill-after=5s 20s git ls-remote origin "$MARK" 2>/dev/null | cut -f1
+}
+start_mark=$(mark_of)
 end=$((SECONDS + MINUTES * 60))
 n=0
 closed=""
@@ -138,6 +147,13 @@ while [ "$SECONDS" -lt "$end" ]; do
         break
       fi
       start_sha=$new_sha
+    fi
+  fi
+  if [ -z "$LOCKED" ]; then
+    mark=$(mark_of)
+    if [ -n "$mark" ] && [ "$mark" != "$start_mark" ]; then
+      echo "the private app was deployed: stopping so the next run sends to it"
+      break
     fi
   fi
   wait=$((EVERY - (SECONDS - t0)))

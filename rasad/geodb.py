@@ -23,8 +23,16 @@ FACILITY_QUERY = """[out:json][timeout:90];
   nwr["industrial"="port"]({b});
   nwr["man_made"="storage_tank"]["content"~"oil|fuel|gas|crude|petrol",i]({b});
   nwr["man_made"="pumping_station"]["substance"~"oil|gas",i]({b});
+  nwr["landuse"="industrial"]["name"~"{names}",i]({b});
+  nwr["landuse"="industrial"]["operator"~"{owners}",i]({b});
 );
 out center tags;"""
+# Many oil and gas plants are drawn on the map only as industrial land with a name: «محطة ضخ أرامكو
+# السعودية 1», where a fire on 15 Nov 2026 was confirmed and never posted because the tool knew no
+# facility there (docs/reviews/judah_pumping_station_20261115.md). Named so, they are facilities.
+OIL_OWNERS = "aramco|أرامكو|ارامكو|adnoc|أدنوك|ادنوك|kuwait oil|نفط الكويت|knpc|qatarenergy|قطر للطاقة|bapco|بابكو|petroleum development oman|تنمية نفط عمان|sabic|سابك"
+OIL_NAMES = OIL_OWNERS + "|pump station|pumping station|محطة ضخ|gosp|فرز الغاز|عزل الغاز|نفط|بترول|petrol|crude|refiner|مصفا|مصفى|gas plant|معمل غاز|معمل الغاز|tank farm"
+FACILITY_QUERY = FACILITY_QUERY.replace("{names}", OIL_NAMES).replace("{owners}", OIL_OWNERS)
 
 PLACE_QUERY = """[out:json][timeout:90];
 (
@@ -51,6 +59,10 @@ NOT_ENERGY = ("edible", "food", "vegetable", "cooking", "palm", "olive", "sunflo
               "زيوت", "زيت الطعام", "صابون", "أغذية")
 
 
+OIL_COMPANIES = ("aramco", "أرامكو", "ارامكو", "adnoc", "أدنوك", "ادنوك", "kuwait oil", "نفط الكويت", "knpc",
+                 "qatarenergy", "قطر للطاقة", "bapco", "بابكو", "petroleum development oman", "تنمية نفط عمان")
+
+
 def facility_category(tags):
     """(Arabic category, short code) for an OSM energy/industrial feature, or None if not energy."""
     mm, ind = tags.get("man_made", ""), tags.get("industrial", "")
@@ -75,12 +87,22 @@ def facility_category(tags):
         return "خزانات وقود", "tanks"
     if mm == "pumping_station":
         return "محطة ضخ نفط وغاز", "pumping"
+    if "محطة ضخ" in names or "pump station" in names or "pumping station" in names:
+        # industrial land named as a pumping station; one for water or sewage is not an energy site
+        if any(w in names for w in ("مياه", "ماء", "صرف", "water", "sewage", "irrigation", "ري ")):
+            return None
+        return "محطة ضخ نفط وغاز", "pumping"
     if tags.get("landuse") == "port" or ind == "port" or tags.get("harbour") == "yes":
         return "ميناء", "port"
     if ind == "gas" or "gas" in prod or "gas" in names or "غاز" in names:
         return "منشأة غاز", "gas"
     if ind in ("oil", "petroleum", "fuel") or any(k in prod for k in ("oil", "petrol", "fuel")) \
             or any(k in names for k in ("oil", "petrol", "نفط", "بترول")):
+        return "منشأة نفطية", "oil"
+    if "sabic" in names or "سابك" in names:
+        return "مصنع بتروكيماويات", "petrochem"
+    # industrial land of an oil company, or named as a separation plant: an oil site
+    if any(w in names for w in OIL_COMPANIES) or "gosp" in names:
         return "منشأة نفطية", "oil"
     return "منشأة صناعية", "industrial"
 
@@ -109,7 +131,8 @@ def short_country(name):
     return name
 
 
-GEO_VERSION = 2  # 2: facilities also keep their operator, so unnamed ones can still be told apart
+GEO_VERSION = 3  # 2: facilities also keep their operator, so unnamed ones can still be told apart
+                 # 3: industrial land named or operated as an oil or gas site (pumping stations...)
 
 
 def osm_name(tags):
@@ -270,14 +293,41 @@ class GeoIndex:
         return (best, best_d) if best else (None, None)
 
 
+def extra_facilities(cfg):
+    """The hand-kept list as facility items [lat, lon, name, category, code, owner]; an entry
+    without a usable position is left out."""
+    out = []
+    for e in (cfg.get("geodata") or {}).get("extra_facilities") or []:
+        try:
+            lat, lon = float(e["lat"]), float(e["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        out.append([round(lat, 5), round(lon, 5), str(e.get("name") or ""), str(e.get("category") or "منشأة نفطية"),
+                    str(e.get("code") or "oil"), str(e.get("owner") or "")])
+    return out
+
+
+def _extra_mark(items):
+    """Short and stable: changes whenever the hand-kept list changes."""
+    import hashlib
+    return f"{len(items)}:{hashlib.sha256(repr(items).encode()).hexdigest()[:6]}"
+
+
 class Geo:
     def __init__(self, cfg, session, wms, state):
         self.cfg, self.s, self.wms, self.state = cfg, session, wms, state
         d = Path(cfg["_geodata_dir"])
         fac = load_json(d / "facilities.json", {"items": []})
-        self.fac = GeoIndex(fac["items"])
+        # Facilities added by hand (config: geodata.extra_facilities): places the owner knows, or
+        # that the open map holds and the built map does not have yet. They count at once, without
+        # waiting for the map to be built again, and a change of the list describes the recent
+        # incidents again (the version below).
+        extra = extra_facilities(cfg)
+        self.fac = GeoIndex(fac["items"] + extra)
         self.places = GeoIndex(load_json(d / "places.json", {"items": []})["items"])
-        self.version = f"{fac.get('built')}|{len(fac['items'])}"
+        self.version = f"{fac.get('built')}|{len(fac['items'])}" + (f"|+{_extra_mark(extra)}" if extra else "")
         self.broken = False
         self._last_nominatim = 0.0
 
