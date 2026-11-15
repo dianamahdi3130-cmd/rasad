@@ -58,6 +58,10 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     16 of the first 25 posts were the same few plants surging to levels they reach every few days.
     The owner's worry (15 Nov 2026): a plant that is attacked must not be silenced by its own flare.
     The bar is therefore a habit, not one spike, and never today's own earlier readings.
+17. A fire on land far from every mapped facility is posted when it is confirmed and there was no
+    heat there or around for a month, in the dry Gulf countries (`brain.new_heat`): the headline
+    stays «حريق جديد في <الدولة>», and one line says why it is posted and what it may be, never a
+    cause: «🗺 لا منشأة مسجّلة في الخريطة هنا… قد يكون موقعاً غير مرسوم (محطة ضخ، بئر، خط أنابيب).»
     Its post says so in one line (`brain.surge_note`): the flare is usual, the level is a record,
     and pictures cannot tell operational flaring from a fire. Never a cause.
 17. A first sea sighting from ONE picture («رصد حراري أولي») is posted only when unmistakable

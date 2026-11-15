@@ -533,9 +533,35 @@ def alert_worthy(inc, cfg):
     busy = (inc.get("area_days") or 0) >= int(A.get("busy_area_days", 2))
     if busy:
         return False
+    if new_heat(inc, cfg):
+        return True
     if f and f["km"] <= float(A["near_facility_km"]) and frp >= float(A.get("near_facility_min_mw", big)):
         return True
     return frp >= float(A.get("big_fire_far_mw", big)) and in_focus(inc, cfg)
+
+
+def new_heat(inc, cfg):
+    """A confirmed fire on land where no heat was seen for a month, neither here nor around, in
+    the dry countries of the Gulf. The desert does not burn by itself: it is most likely something
+    the map does not hold (a pumping station, a well site, a pipeline). On 15 Nov 2026 a fire at
+    an oil pumping station that OpenStreetMap does not have (28 km south of Judah, Saudi Arabia:
+    seven pictures in a row, 14 MW) was confirmed at once and never posted, because away from a
+    mapped facility only 100 MW made a fire on land news. Farm countries are left out (their
+    fields burn every season), and so is a short weak flicker: four pictures in a row, or 20 MW."""
+    A = cfg["alerts"]
+    names = A.get("new_heat_countries") or []
+    country = inc.get("country") or ""
+    if inc.get("kind") != "new" or inc.get("place") != "land" or inc.get("verdict") != "مؤكد":
+        return False
+    if not any(n in country for n in names):
+        return False
+    if (inc.get("known_days") or 0) > 0 or (inc.get("area_days") or 0) > 0:
+        return False
+    frp = inc.get("max_frp") or 0
+    if frp < float(A.get("new_heat_min_mw", 5)):
+        return False
+    return (len(inc.get("geo_slots") or []) >= int(A.get("new_heat_min_pictures", 4))
+            or frp >= float(A.get("new_heat_strong_mw", 20)))
 
 
 def in_focus(inc, cfg):
@@ -561,6 +587,10 @@ def finalize(inc, cfg):
     if inc.get("correction_note"):
         inc["reason"] = inc["correction_note"] + " " + inc["reason"]
     inc["priority"] = "high" if alert_worthy(inc, cfg) else "low"
+    if new_heat(inc, cfg) and not (inc.get("facility") and inc["facility"].get("km", 99) <= float(cfg["alerts"]["near_facility_km"])):
+        inc["new_heat"] = True       # said in the post and in the app's reasons
+    else:
+        inc.pop("new_heat", None)
     inc["start_text"] = local_text(parse_time(inc["first"]), cfg)
     inc["last_text"] = local_text(parse_time(inc["last"]), cfg)
     inc["sources_text"] = "، ".join(sorted({FAMILY_AR.get(f, f) for f in inc["families"]}))
@@ -606,6 +636,14 @@ def video_note(inc):
 
 def mw_ar(v):
     return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " MW"
+
+
+def new_heat_note(inc):
+    """Why a fire far from every mapped facility is posted: what is known, and nothing more."""
+    if not inc.get("new_heat"):
+        return ""
+    return ("🗺 لا منشأة مسجّلة في الخريطة هنا، ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر. "
+            "قد يكون موقعاً غير مرسوم (محطة ضخ، بئر، خط أنابيب).")
 
 
 def surge_note(inc):
@@ -697,7 +735,7 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     lines.append(f"{'🔴' if sure else '🟠'} <b>{esc(bidi_safe(inc['headline']))}</b>")
     if sure:
         lines.append(f"✅ <b>مؤكد</b> · {esc(bidi_safe(inc['reason']))}")
-    note = surge_note(inc)
+    note = surge_note(inc) or new_heat_note(inc)
     if note:
         lines.append(note)
     confidence = assess.confidence_line(inc)
