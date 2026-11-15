@@ -122,14 +122,24 @@ test("flames already there before are told apart from new ones", () => {
 });
 
 /* ---------- the app's side ---------- */
-test("the app loads both scripts, with one version shared by the page and the offline cache", () => {
+test("the app adds both scripts itself, with one version shared by the page and the offline cache", () => {
   const html = web("index.html"), sw = web("sw.js");
-  const tags = [...html.matchAll(/<script src="(imagery|beforeafter)\.js\?v=(\d+)"><\/script>/g)];
-  assert.deepEqual(tags.map(t => t[1]), ["imagery", "beforeafter"]);
-  const version = tags[0][2];
-  assert.equal(tags[1][2], version);
-  assert.ok(sw.includes(`"imagery.js?v=${version}"`) && sw.includes(`"beforeafter.js?v=${version}"`), "the offline cache holds the same versions");
+  // Behind the private app's door the two scripts answer 401 until somebody is signed in, so the
+  // page never asks for them with plain script tags: it names them and adds them once it may run.
+  assert.doesNotMatch(html, /<script[^>]*src="(imagery|beforeafter)\.js/);
+  const tools = /const TOOLS = \["imagery\.js\?v=(\d+)", "beforeafter\.js\?v=(\d+)"\];/.exec(html);
+  assert.ok(tools, "the page names the two scripts, the picture engine first");
+  const version = tools[1];
+  assert.equal(tools[2], version);
+  assert.ok(html.includes(`<script src="access.js?v=${version}"></script>`), "the sign-in script carries the same version");
+  assert.ok(html.indexOf(`access.js?v=${version}`) < html.indexOf("const S ="), "and is there before the app starts");
+  assert.ok(sw.includes(`"imagery.js?v=${version}"`) && sw.includes(`"beforeafter.js?v=${version}"`) && sw.includes(`"access.js?v=${version}"`), "the offline cache holds the same versions");
   assert.ok(sw.includes(`const CACHE = "firms-v${version}"`), "and the cache name moves with them");
+  // a file that may answer 401 (before sign-in) or 404 (no private app) is never in the install's all-or-nothing list
+  const shell = /const SHELL = \[([^\]]*)\]/.exec(sw)[1];
+  for (const file of ["imagery.js", "beforeafter.js", "access.js"]) assert.ok(!shell.includes(file), file + " is not pre-cached with the shell");
+  assert.match(sw, /LATER\.map\(file => c\.add\(file\)\.catch\(/, "each is tried on its own, and a failure stops nothing");
+  assert.match(sw, /includes\("\/api\/"\) \|\| url\.pathname\.includes\("\/clips\/"\)\) return;/, "the door's answers and the clips are never kept");
   // the page knows its own version, to tell when the site has a newer one (an installed app stays open for days)
   assert.ok(html.includes(`const APP_V = ${version};`), "APP_V in index.html is the same number");
   const newer = new Function("APP_V", "return " + /function newerVersion\(swText\)\{[^\n]*\}/.exec(html)[0])(+version);
@@ -137,8 +147,7 @@ test("the app loads both scripts, with one version shared by the page and the of
   assert.equal(newer(`const CACHE = "firms-v${+version + 1}";`), true);
   assert.equal(newer("something else"), false);
   for (const id of ["finder", "finderQ", "update", "updateBtn"]) assert.ok(html.includes(`id="${id}"`), id);
-  assert.ok(html.indexOf("beforeafter.js") < html.indexOf("const S ="), "loaded before the app starts");
-  for (const id of ["baBtn", "baSheet", "pickBar", "pickCancel"]) assert.ok(html.includes(`id="${id}"`), id);
+  for (const id of ["baBtn", "baSheet", "pickBar", "pickCancel", "shot", "toast", "map"]) assert.ok(html.includes(`id="${id}"`), id);
   for (const file of ["imagery.js", "beforeafter.js"]) assert.ok(!web(file).includes("الخليج العربي"));
 });
 
@@ -178,13 +187,12 @@ test("an incident carries the «قبل وبعد» button, and its route goes to 
   const seen = [];
   const ba = {available: true, route: h => { seen.push(h); return h.startsWith("ba"); }, leave: () => seen.push("leave"), go: h => seen.push("go " + h)};
   const {app, elements} = appPage([incident], ba);
+  // an opened incident is its details in the panel beside the map (the old card over the map is gone)
   app.showFocus(incident.id);
-  assert.match(elements.get("#focusCard").innerHTML, /id="fBA">🛰 قبل وبعد</);
-  elements.get("#fBA").onclick();
   app.openDetail(incident.id);
   assert.match(elements.get("#detail").innerHTML, /id="dBA">🛰 قبل وبعد</);
   elements.get("#dBA").onclick();
-  assert.deepEqual(seen.filter(s => s.startsWith("go")), ["go ba:i:" + incident.id, "go ba:i:" + incident.id]);
+  assert.deepEqual(seen.filter(s => s.startsWith("go")), ["go ba:i:" + incident.id]);
   seen.length = 0;
   app.setRoute("ba:26.2,50.8,2");
   assert.deepEqual(seen, ["ba:26.2,50.8,2"], "the viewer's routes are handed to it");
@@ -209,7 +217,9 @@ test("NASA's daily picture: the newest one that is published by now, a day at a 
 test("without the imagery scripts the app works as before, with no button", () => {
   const {app, elements} = appPage([incident], undefined);
   app.showFocus(incident.id);
-  assert.doesNotMatch(elements.get("#focusCard").innerHTML, /قبل وبعد/);
+  app.openDetail(incident.id);
+  assert.equal(elements.get("#sheet").hidden, false);
+  assert.doesNotMatch(elements.get("#detail").innerHTML, /قبل وبعد/);
   app.setRoute("ba:26.2,50.8,2");       // an old link: ignored, back to the list
   assert.equal(elements.get("#sheet").hidden, true);
 });
