@@ -161,6 +161,18 @@ def main(argv=None):
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
     p.add_argument("--bbox", default="55.0,25.0,57.6,27.3", help="west,south,east,north")
+    p = sub.add_parser("grab", help="diagnosis: keep the finder's pictures of an area and period for offline study")
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--bbox", required=True, help="west,south,east,north")
+    p.add_argument("--layers", default="mtg_fd:rgb_firetemperature,mtg_fd:ir105_hrfi,msg_iodc:ir039@15",
+                   help="comma separated; name@15 = a picture every 15 minutes (default 10)")
+    p.add_argument("--km", type=float, default=0.5, help="km per pixel")
+    p.add_argument("--tag", default="grab")
+    p.add_argument("--out", default="probe-out")
+    p = sub.add_parser("layers", help="diagnosis: the picture layers the European server offers")
+    p.add_argument("--match", help="only names or titles matching this (regular expression)")
+    p.add_argument("--out", default="probe-out")
     sub.add_parser("test-telegram")
     sub.add_parser("cloud-publish", help="send the app's data and clips to the private app (Cloudflare)")
     args = ap.parse_args(argv)
@@ -211,6 +223,15 @@ def main(argv=None):
                          d.get("frp"), d.get("conf"), d.get("night"))
             day += dt.timedelta(days=1)
         hotspots(cfg, WMS(cfg["eumetview"]["wms_url"], session), start, end, bb)
+        return
+    if args.cmd == "grab":
+        from .probe import grab
+        grab(cfg, parse_time(args.start), parse_time(args.end), [float(x) for x in args.bbox.split(",")],
+             [x.strip() for x in args.layers.split(",") if x.strip()], args.km, args.out, args.tag)
+        return
+    if args.cmd == "layers":
+        from .probe import list_layers
+        list_layers(cfg, args.out, args.match)
         return
     if args.cmd == "pictures":
         from .probe import pictures

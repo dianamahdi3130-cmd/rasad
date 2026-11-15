@@ -1,5 +1,10 @@
-{"mode": "steps", "try": 8,
+{"mode": "steps", "try": 9,
  "steps": [
-  ["hotspots", "--start", "2026-11-14T14:00Z", "--end", "2026-11-14T17:30Z", "--bbox", "55.0,24.5,58.5,27.3"],
-  ["seascan", "--start", "2026-11-14T14:00Z", "--end", "2026-11-14T18:00Z", "--boxes", "hormuz_oman"]
+  ["layers", "--match", "fire|frp|ir_?3|hot|therm|slstr|viirs|modis|iodc|mtg_fd|ash|dust"],
+  ["grab", "--tag", "n14_hormuz", "--start", "2026-11-14T14:00Z", "--end", "2026-11-14T18:00Z", "--bbox", "55.0,22.4,60.2,27.2", "--layers", "mtg_fd:rgb_firetemperature,mtg_fd:ir105_hrfi"],
+  ["grab", "--tag", "n14_iodc", "--start", "2026-11-14T14:00Z", "--end", "2026-11-14T18:00Z", "--bbox", "55.0,24.8,57.2,27.2", "--km", "1", "--layers", "msg_iodc:ir039@15"],
+  ["grab", "--tag", "n14_zoom", "--start", "2026-11-14T15:00Z", "--end", "2026-11-14T17:30Z", "--bbox", "55.4,25.5,56.4,26.5", "--km", "0.25", "--layers", "mtg_fd:rgb_firetemperature"],
+  ["grab", "--tag", "n13_hormuz", "--start", "2026-11-13T17:30Z", "--end", "2026-11-13T19:40Z", "--bbox", "55.0,22.4,60.2,27.2", "--layers", "mtg_fd:rgb_firetemperature"],
+  ["grab", "--tag", "n14_gulf_south", "--start", "2026-11-14T17:00Z", "--end", "2026-11-14T19:00Z", "--bbox", "50.5,23.8,55.2,27.8", "--layers", "mtg_fd:rgb_firetemperature"],
+  ["grab", "--tag", "n01_hormuz", "--start", "2026-11-01T00:00Z", "--end", "2026-11-01T02:00Z", "--bbox", "55.0,22.4,60.2,27.2", "--layers", "mtg_fd:rgb_firetemperature"]
  ]}
