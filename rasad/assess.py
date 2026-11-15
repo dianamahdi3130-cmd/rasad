@@ -275,8 +275,15 @@ def assess(inc, cfg):
 
 
 def confidence_line(inc):
-    """One line for a channel post: the number, its level and the strongest reason for it."""
+    """For a channel post: the confidence number with its level, and how serious it would be."""
     if inc.get("confidence") is None:
         return ""
-    main = next((e["text"] for e in inc.get("evidence") or [] if e.get("s") == "+"), "")
-    return f"{inc['confidence']}% ({inc['confidence_level']})" + (f" · {main}" if main else "")
+    line = f"{inc['confidence']}% ({inc['confidence_level']})"
+    if inc.get("severity"):
+        line += f" · الخطورة: {inc['severity']}"
+    return line
+
+
+def main_reason(inc):
+    """The strongest thing that speaks for the event, in one sentence (empty when none)."""
+    return next((e["text"] for e in inc.get("evidence") or [] if e.get("s") == "+"), "")

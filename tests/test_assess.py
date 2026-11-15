@@ -137,15 +137,20 @@ class AlertLines(unittest.TestCase):
         inc = incident([det("mtg_spot", "mtg", "2026-11-14T15:40:00Z", flame=True),
                         det("mtg_spot", "mtg", "2026-11-14T15:50:00Z", flame=True)])
         message = alert_message(inc, config())
-        line = next(row for row in message.split("\n") if row.startswith("🎯"))
-        self.assertEqual(line, f"🎯 <b>الثقة:</b> {inc['confidence']}% (متوسطة) · باحث رصد وجد بقعة حرارية ثابتة "
-                               "ليلاً في صورتين متتاليتين")
+        rows = message.split("\n")
+        at = next(k for k, row in enumerate(rows) if row.startswith("🎯"))
+        self.assertEqual(rows[at], f"🎯 <b>الثقة:</b> {inc['confidence']}% (متوسطة) · الخطورة: مرتفع")
+        self.assertEqual(rows[at + 1], "🔎 باحث رصد وجد بقعة حرارية ثابتة ليلاً في صورتين متتاليتين")
         self.assertNotIn("🏭 شعلة", message)                 # not a plant's surge
         self.assertNotIn("سبب", message)                     # never a cause
 
     def test_updates_stay_short(self):
         inc = incident([det("mtg_frp", "mtg", "2026-11-14T16:10:00Z", frp=40.0),
                         det("VIIRS_NOAA20_NRT", "viirs", "2026-11-14T16:40:00Z", "polar", 35.0, conf="h")])
+        first = alert_message(inc, config())
+        self.assertIn("✅ <b>مؤكد</b>", first)
+        self.assertIn("🎯 <b>الثقة:</b>", first)
+        self.assertNotIn("🔎", first)                        # the confirmed line already says why
         inc["alerted_verdict"] = "مرجّح"
         update = alert_message(inc, config(), update=True, threaded=True)
         self.assertNotIn("🎯", update)

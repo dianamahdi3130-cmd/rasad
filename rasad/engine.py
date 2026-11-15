@@ -666,8 +666,12 @@ def run_cycle(cfg, send=True, alert_now=False):
                 watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 75),
                                                   slots_per_run=min(int(SW["slots_per_run"]), 2)))
             seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
+            # In the watching loop a separate worker fetches the pictures all the time; the check
+            # reads what is already there and spends only a little of its own time on the network
+            # (measured live on 15 Nov 2026: left alone it used its whole budget downloading).
+            network = min(seconds, float(SW.get("check_network_s", 25))) if cfg.get("_background_media") else seconds
             budget = getattr(type(wms), "budget", None)
-            with wms.budget(seconds, timeout_s=20) if callable(budget) else nullcontext():
+            with wms.budget(network, timeout_s=20) if callable(budget) else nullcontext():
                 spots = seawatch.watch(watch_cfg, wms, S.state, now, Memory(S.memory), geo, avail)
             ok = True
         except Exception as e:  # noqa: BLE001

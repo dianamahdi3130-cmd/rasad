@@ -671,6 +671,9 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     confidence = assess.confidence_line(inc)
     if confidence:
         lines.append(f"🎯 <b>الثقة:</b> {esc(bidi_safe(confidence))}")
+        reason = assess.main_reason(inc)
+        if reason and not sure and inc.get("kind") != "unusual":   # a confirmed fire already says why
+            lines.append(f"🔎 {esc(bidi_safe(reason))}")
     lines.append("")
     lines.append(f"📍 <b>المكان:</b> {esc(bidi_safe(inc['where']))}")
     lines.append(f"🕒 <b>البداية:</b> {when}")

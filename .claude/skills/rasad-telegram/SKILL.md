@@ -32,8 +32,9 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
 6. «فتح الحدث في التطبيق» opens the app on that incident: `app_link` → `?e=<id>#<id>`.
 7. Only a confirmed fire is called «مؤكد»; other verdicts are not named in the post. Since
    15 Nov 2026 (the owner asked for a clear confidence level with its reasons on every alert) a
-   first post also carries one line `🎯 الثقة: 62% (متوسطة) · <the strongest reason>`
-   (`assess.confidence_line`); updates do not repeat it.
+   first post also carries `🎯 الثقة: 62% (متوسطة) · الخطورة: مرتفع` (`assess.confidence_line`) and,
+   when the fire is not confirmed, `🔎 <the strongest reason>` (`assess.main_reason`); updates do
+   not repeat them.
 8. The day finder never posts on its own; the sea finder alone is at most «مرجّح».
 9. Recovered past events and readings older than `max_age_hours` (8) appear in the app only.
    A late reading for a fire already posted goes as a reply marked as a late update.
