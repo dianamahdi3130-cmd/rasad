@@ -142,7 +142,7 @@ DEFAULTS = {
         # Tuned on the real nights of 1, 9, 11, 13 and 14 November 2026: every real fire kept,
         # no false pair on the cloudy and the flare-rich nights.
         "ref_minutes": [30, 60, 90], "min_rise": 7.0, "min_z": 5.0, "flame_rise": 4.0, "flame_glow": 2.0,
-        "max_area_km2": 60, "max_was_hot": 12.0,
+        "max_area_km2": 60, "min_area_px": 4, "max_was_hot": 12.0,
         # low cloud or fog drifting off is not a fire: the speck must be hotter than the clear sea
         # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km;
         # the first picture of the real fire of 1 November spread 8.5 km at full detail)
@@ -177,17 +177,23 @@ DEFAULTS = {
             "max_candidates": 40, "burst_max": 3,
             "validation_grid": 8,
         },
-        # areas switched on only after a replay of a real night showed no false fires there
-        # (1 Nov 2026: Hormuz/Gulf of Oman and the southern Gulf clean, the fire caught at 00:50 and
-        # 01:10; the northern Gulf oil fields sparkle all night, so they stay off)
+        # Seas watched at night. Each was switched on after the finder was replayed over real
+        # nights there at full detail with no false pair: Hormuz/Gulf of Oman and the southern Gulf
+        # on five nights (1-14 Nov 2026); the northern Gulf (whose oil fields used to sparkle all
+        # night in the blurred picture), the Arabian Sea and the Red Sea on the evening of 14 Nov.
+        # "day": False keeps the experimental day finder (six pictures per slot) off a box.
         "boxes": [
             {"id": "hormuz_oman", "bbox": [55.0, 22.4, 60.2, 27.2]},
             {"id": "gulf_south", "bbox": [50.5, 23.8, 55.2, 27.8]},
-            {"id": "gulf_north", "bbox": [47.8, 27.8, 51.5, 30.5], "enabled": False},
-            {"id": "arabian_sea", "bbox": [52.0, 16.4, 60.2, 22.5], "enabled": False},
-            {"id": "red_sea_north", "bbox": [32.2, 26.5, 36.0, 30.0], "enabled": False},
-            {"id": "red_sea_middle", "bbox": [34.0, 20.0, 40.5, 27.5], "enabled": False},
-            {"id": "red_sea_south", "bbox": [38.0, 12.0, 44.5, 20.5], "enabled": False},
+            {"id": "gulf_north", "bbox": [47.8, 27.8, 51.5, 30.4], "day": False},
+            # the Red Sea in pieces that follow its water (a box is read whole: less desert, less memory)
+            {"id": "red_sea_bab", "bbox": [39.2, 12.0, 44.5, 16.4], "day": False},      # Bab al-Mandab
+            {"id": "red_sea_south", "bbox": [38.0, 16.2, 42.8, 20.5], "day": False},
+            {"id": "red_sea_middle", "bbox": [35.5, 20.0, 40.4, 23.9], "day": False},
+            {"id": "red_sea_upper", "bbox": [34.0, 23.7, 38.4, 26.6], "day": False},
+            {"id": "red_sea_north", "bbox": [32.3, 26.5, 36.0, 30.0], "day": False},    # Suez and Aqaba
+            {"id": "arabian_west", "bbox": [52.5, 16.4, 56.2, 18.0], "day": False},
+            {"id": "arabian_east", "bbox": [56.1, 16.4, 60.2, 22.5], "day": False},
         ],
     },
 }
@@ -656,7 +662,8 @@ def run_cycle(cfg, send=True, alert_now=False):
         try:
             watch_cfg = cfg
             if cfg.get("_background_media"):
-                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 35),
+                # seven seas at full detail: about 15 s of arithmetic per picture time
+                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 75),
                                                   slots_per_run=min(int(SW["slots_per_run"]), 2)))
             seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
             budget = getattr(type(wms), "budget", None)

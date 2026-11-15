@@ -63,7 +63,8 @@ class Collector:
             for index, box in enumerate(boxes):
                 w, s, e, n = box["bbox"]
                 elevations = [sun_elevation(lat, lon, when) for lat in (s, n) for lon in (w, e)]
-                day = D.get("enabled") and max(elevations) >= float(D.get("min_sun_elev", -6))
+                day = (D.get("enabled") and box.get("day", True)
+                       and max(elevations) >= float(D.get("min_sun_elev", -6)))
                 night = min(elevations) <= float(C.get("sun_max_elev", -6))
                 refs = [int(m) for m in (D.get("ref_minutes", [30, 60]) if day else C["ref_minutes"])]
                 if not (day or night) or not refs or any(m <= 0 for m in refs):

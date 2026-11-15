@@ -227,7 +227,7 @@ class Pictures:
                 if base + ("rgba",) not in self.cache:
                     todo.setdefault(base, part)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            list(pool.map(lambda r: self.get(*r), todo.values()))
+            list(pool.map(lambda r: self.get(*r, 0), todo.values()))
 
     @contextmanager
     def cached_only(self):
@@ -528,12 +528,18 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
 
     mask_fn = land_mask_points()
     strong_rise, strong_glow = float(C.get("strong_rise", 30.0)), float(C.get("strong_glow", 10.0))
+    min_area = int(C.get("min_area_px", 4))
     for pts in components(cand, limit=limit):
         notes["candidates"] += 1
         if len(pts) > max_area:
             reject("too big (clouds)")
             continue
         vals = spot[pts[:, 0], pts[:, 1]]
+        if len(pts) < min_area and float(vals.max()) < 2 * fmin:
+            # one of the satellite's own pixels covers some twenty of the picture's: a lone
+            # picture pixel just at the threshold is the noise floor (or a pilot flame's flicker)
+            reject("a lone pixel at the threshold (noise)")
+            continue
         k = int(np.argmax(vals))
         r, c = int(pts[k, 0]), int(pts[k, 1])
         lat, lon = px_to_latlon(bbox, W, H, c, r)
@@ -691,7 +697,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         day_boxes = []
         if day_enabled:
             for box in live:
-                if f"day:{box['id']}|{iso(t)}" in done:
+                if not box.get("day", True) or f"day:{box['id']}|{iso(t)}" in done:
                     continue
                 w, s, e, n = box["bbox"]
                 if any(sun_elevation(lat, lon, t) >= float(D.get("min_sun_elev", -6))
@@ -757,20 +763,20 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
             continue
         if any(src == day_src for _, src, _ in jobs):
             day_attempted.add(iso(t))
-        requests = []
-        for box, src, refs in jobs:
-            for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]:
-                size = box_size(box, day_km if src == day_src else km)
-                requests.append((C["layer"], box["bbox"], *size, tt, 0))
-                if src == day_src:
-                    requests.append((C["check_layer"], box["bbox"], *size, tt))
-        pics.prefetch(requests)
         checked.append(t)
         for box, src, refs in jobs:
             is_day = src == day_src
             if not is_day and time.time() - t_start > budget:
-                day_status["waiting"] += int(is_day)
                 continue
+            # One box at a time: a sea box at full detail is tens of megabytes per picture, and
+            # seven of them times four picture times would not fit a small machine at once.
+            size = box_size(box, day_km if is_day else km)
+            requests = []
+            for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]:
+                requests.append((C["layer"], box["bbox"], *size, tt, 0))
+                if is_day:
+                    requests.append((C["check_layer"], box["bbox"], *size, tt))
+            pics.prefetch(requests)
             key = ("day:" if is_day else "") + f"{box['id']}|{iso(t)}"
             finder = find_day_spots if is_day else find_spots
             if is_day:
@@ -780,6 +786,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                     spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
             else:
                 spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
+            pics.cache = {}  # this box's pictures are done with
             if spots is None:
                 log.info("sea watch %s %s: %s", box["id"], iso(t), notes)
                 day_status["missing"] += int(is_day)
