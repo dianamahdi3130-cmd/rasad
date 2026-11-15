@@ -76,6 +76,12 @@ def parse_time(s):
     return (t.replace(tzinfo=UTC) if t.tzinfo is None else t).astimezone(UTC)
 
 
+def in_a_row(slots, step_min=15):
+    """Pictures one after the other, none skipped (the satellites take one every 10 or 15 minutes)."""
+    times = sorted(parse_time(t) for t in slots)
+    return all((b - a).total_seconds() <= step_min * 60 for a, b in zip(times, times[1:]))
+
+
 def local_text(t, cfg, with_date=True):
     """'2026-11-02 الساعة 01:10 (بغداد)' in the configured local time."""
     lt = cfg["local_time"]

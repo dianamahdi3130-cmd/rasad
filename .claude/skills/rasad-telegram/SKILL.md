@@ -39,7 +39,9 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
    first post also carries `🎯 الثقة: 62% (متوسطة) · الخطورة: مرتفع` (`assess.confidence_line`) and,
    when the fire is not confirmed, `🔎 <the strongest reason>` (`assess.main_reason`); updates do
    not repeat them.
-8. The day finder never posts on its own; the sea finder alone is at most «مرجّح».
+8. The day finder never posts on its own; the sea finder alone is at most «مرجّح», and what it
+   finds alone goes out only after its closer look shows it, with the video (not shown: the app
+   only; no answer in 15 minutes: text, as before). `engine` → `waits_for_closer_look`.
 9. Recovered past events and readings older than `max_age_hours` (8) appear in the app only.
    A late reading for a fire already posted goes as a reply marked as a late update.
 10. Intensity update: peak ≥ 1.5 × the peak at the last post and at least +1 MW, 30 minutes or

@@ -8,7 +8,7 @@ import re
 import statistics
 
 from . import assess
-from .util import esc, haversine_km, local_text, parse_time, size_word
+from .util import esc, haversine_km, in_a_row, local_text, parse_time, size_word
 from .updates import latest_reading, peak_reading
 
 CELL = 0.02  # ~2 km memory cells
@@ -328,10 +328,16 @@ def count_ar(n, one, two, many):
     return one if n == 1 else two if n == 2 else f"{n} {many}"
 
 
-def in_a_row(slots, step_min=15):
-    """Pictures one after the other, none skipped (the satellites take one every 10 or 15 minutes)."""
-    times = sorted(parse_time(t) for t in slots)
-    return all((b - a).total_seconds() <= step_min * 60 for a, b in zip(times, times[1:]))
+def pictures_ar(times):
+    """«صورتين متتاليتين», «5 صور متتالية» for an unbroken run of pictures; with a gap between
+    them only the count («3 صور»): the Taqah speck of 16 Nov 2026 was seen at 20:50, 21:10 and
+    21:40 UTC and went out as «3 صور متتالية»."""
+    n, row = len(times), in_a_row(times)
+    if n <= 1:
+        return "صورة"
+    if n == 2:
+        return "صورتين متتاليتين" if row else "صورتين"
+    return f"{n} صور متتالية" if row else f"{n} صور"
 
 
 def verdict_of(inc):
@@ -349,9 +355,8 @@ def verdict_of(inc):
     if "mtg_day_spot" in srcs and not _day_corroborated(inc):
         # Experimental day pictures cannot weaken established night evidence or
         # promote it through their own slot count or low-confidence polar families.
-        night_slots = len(set(inc.get("own_night_slots") or []))
         return "مرجّح", (f"وجده الباحث الحراري ليلاً في "
-                         f"{count_ar(night_slots, 'صورة', 'صورتين متتاليتين', 'صور متتالية')} "
+                         f"{pictures_ar(sorted(set(inc.get('own_night_slots') or [])))} "
                          "للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
     if len(fams) >= 2:
         return "مؤكد", f"رصده {count_ar(len(fams), 'قمر', 'قمران مختلفان', 'أقمار مختلفة')} ({names})"
@@ -360,7 +365,7 @@ def verdict_of(inc):
     if slots >= 2 and srcs and srcs <= OWN_SEA_SOURCES:
         # Rasad's own sea finder alone, on one satellite's pictures: those pictures sometimes carry
         # small blocks and streaks that look like new heat, so it is never "confirmed" by itself
-        return "مرجّح", (f"وجده الباحث الحراري في {count_ar(slots, 'صورة', 'صورتين متتاليتين', 'صور متتالية')} "
+        return "مرجّح", (f"وجده الباحث الحراري في {pictures_ar(inc['geo_slots'])} "
                          "للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
     if slots >= 3:
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60

@@ -13,7 +13,7 @@ import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
                     nearby_confirmed, new_incident, day_requires_confirmation, association_requires_confirmation,
-                    video_note)
+                    sea_finder_doubt, video_note)
 from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
@@ -128,6 +128,10 @@ DEFAULTS = {
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
         "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.25,
+        # What the finder alone found is posted only once its closer look at the pictures shows
+        # it (the alert then carries the video); what the closer look does not show stays in the
+        # app. Without an answer within this many minutes the alert goes out as text, as before.
+        "closer_look_first": True, "closer_look_wait_min": 15,
         "early_alerts": {"enabled": True, "max_age_min": 45, "max_new_per_run": 3,
                          "match_km": 1.5, "match_minutes": 40, "keep_days": 7,
                          "video_max_age_hours": 24,
@@ -977,6 +981,27 @@ def run_cycle(cfg, send=True, alert_now=False):
             return mediaqueue.request_clip(cfg, inc, now, refresh=refresh)
         return add_clip(cfg, wms, S, inc, now, refresh=refresh)
 
+    def waits_for_closer_look(inc):
+        """Found by Rasad's own sea finder alone: its closer look speaks before the channel hears.
+        Two of its first three alerts were doubted by that very look a minute after they were
+        posted (the last one: a faint line off Taqah, Oman, 16 Nov 2026). Shown by the pictures,
+        it goes out with its video; not shown, it is doubted and stays in the app."""
+        if not SW.get("closer_look_first", True) or not cfg["clip"].get("enabled", True):
+            return False
+        srcs = set(inc.get("srcs") or [])
+        if not srcs or not srcs <= seawatch.FINDER_SOURCES or inc.get("early_ids") or inc.get("clip"):
+            return False   # others saw it too, or it was told at once as unmistakable, or the look showed it
+        asked = inc.setdefault("closer_look_asked", iso(now))
+        prepare_clip(inc)
+        if inc.get("clip"):
+            return False                   # made on the spot (one process): out with its video
+        if sea_finder_doubt(inc):
+            return True                    # the look just said no: the incident is doubted now
+        if now - parse_time(asked) >= dt.timedelta(minutes=float(SW.get("closer_look_wait_min", 15))):
+            return False                   # no answer in time (a slow source): out as text, as before
+        inc["status"] = "pending"          # looked at again in the next checks, sighting or not
+        return True
+
     def look_back(inc):
         """NASA saw a fire at sea hours late: find when it first showed on Meteosat-12."""
         fac = inc.get("facility")
@@ -1072,6 +1097,8 @@ def run_cycle(cfg, send=True, alert_now=False):
         if look_budget > 0 and look_back(inc):
             look_budget -= 1
         if inc["priority"] != "high" or inc.get("status") == "held":
+            if inc.get("status") == "pending" and inc.get("alerted_verdict") is None and sea_finder_doubt(inc):
+                inc["status"] = "new"      # it waited for the closer look, which did not show it
             continue
         if inc.get("early_promotion_ambiguous"):
             continue  # several original spots cannot be assigned to one Telegram thread safely
@@ -1086,6 +1113,8 @@ def run_cycle(cfg, send=True, alert_now=False):
                 # e.g. the first run after installing: shown in the app, not pushed as news
                 inc["alerted_verdict"], inc["status"] = inc["verdict"], "late"
                 log.info("not alerting %s: too old to be news (%s)", inc["id"], max_age)
+                continue
+            if waits_for_closer_look(inc):
                 continue
             first_alerts.append(inc)
         elif inc.get("alerted_verdict"):
