@@ -1307,6 +1307,9 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         "detections_this_run": n_dets, "local_offset_hours": cfg["local_time"]["offset_hours"],
         "local_name": cfg["local_time"]["name"],
         "regions": [{"id": r["id"], "name": r["name"], "bbox": r["bbox"]} for r in cfg["regions"]],
+        # the seas the night finder reads at full detail (for the app's coverage layer)
+        "sea_watch": [{"id": b["id"], "bbox": b["bbox"]} for b in cfg["seawatch"].get("boxes", [])
+                      if cfg["seawatch"].get("enabled") and b.get("enabled", True)],
         "sources": status, "telegram": bool(cfg["telegram"].get("bot_token")),
         "flare_activity": busy})
     # remove clips of incidents that are gone
