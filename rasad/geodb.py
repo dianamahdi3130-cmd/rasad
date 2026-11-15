@@ -23,8 +23,16 @@ FACILITY_QUERY = """[out:json][timeout:90];
   nwr["industrial"="port"]({b});
   nwr["man_made"="storage_tank"]["content"~"oil|fuel|gas|crude|petrol",i]({b});
   nwr["man_made"="pumping_station"]["substance"~"oil|gas",i]({b});
+  nwr["landuse"="industrial"]["name"~"{names}",i]({b});
+  nwr["landuse"="industrial"]["operator"~"{owners}",i]({b});
 );
 out center tags;"""
+# Many oil and gas plants are drawn on the map only as industrial land with a name: «محطة ضخ أرامكو
+# السعودية 1», where a fire on 15 Nov 2026 was confirmed and never posted because the tool knew no
+# facility there (docs/reviews/judah_pumping_station_20261115.md). Named so, they are facilities.
+OIL_OWNERS = "aramco|أرامكو|ارامكو|adnoc|أدنوك|ادنوك|kuwait oil|نفط الكويت|knpc|qatarenergy|قطر للطاقة|bapco|بابكو|petroleum development oman|تنمية نفط عمان|sabic|سابك"
+OIL_NAMES = OIL_OWNERS + "|pump station|pumping station|محطة ضخ|gosp|فرز الغاز|عزل الغاز|نفط|بترول|petrol|crude|refiner|مصفا|مصفى|gas plant|معمل غاز|معمل الغاز|tank farm"
+FACILITY_QUERY = FACILITY_QUERY.replace("{names}", OIL_NAMES).replace("{owners}", OIL_OWNERS)
 
 PLACE_QUERY = """[out:json][timeout:90];
 (
@@ -51,6 +59,10 @@ NOT_ENERGY = ("edible", "food", "vegetable", "cooking", "palm", "olive", "sunflo
               "زيوت", "زيت الطعام", "صابون", "أغذية")
 
 
+OIL_COMPANIES = ("aramco", "أرامكو", "ارامكو", "adnoc", "أدنوك", "ادنوك", "kuwait oil", "نفط الكويت", "knpc",
+                 "qatarenergy", "قطر للطاقة", "bapco", "بابكو", "petroleum development oman", "تنمية نفط عمان")
+
+
 def facility_category(tags):
     """(Arabic category, short code) for an OSM energy/industrial feature, or None if not energy."""
     mm, ind = tags.get("man_made", ""), tags.get("industrial", "")
@@ -75,12 +87,22 @@ def facility_category(tags):
         return "خزانات وقود", "tanks"
     if mm == "pumping_station":
         return "محطة ضخ نفط وغاز", "pumping"
+    if "محطة ضخ" in names or "pump station" in names or "pumping station" in names:
+        # industrial land named as a pumping station; one for water or sewage is not an energy site
+        if any(w in names for w in ("مياه", "ماء", "صرف", "water", "sewage", "irrigation", "ري ")):
+            return None
+        return "محطة ضخ نفط وغاز", "pumping"
     if tags.get("landuse") == "port" or ind == "port" or tags.get("harbour") == "yes":
         return "ميناء", "port"
     if ind == "gas" or "gas" in prod or "gas" in names or "غاز" in names:
         return "منشأة غاز", "gas"
     if ind in ("oil", "petroleum", "fuel") or any(k in prod for k in ("oil", "petrol", "fuel")) \
             or any(k in names for k in ("oil", "petrol", "نفط", "بترول")):
+        return "منشأة نفطية", "oil"
+    if "sabic" in names or "سابك" in names:
+        return "مصنع بتروكيماويات", "petrochem"
+    # industrial land of an oil company, or named as a separation plant: an oil site
+    if any(w in names for w in OIL_COMPANIES) or "gosp" in names:
         return "منشأة نفطية", "oil"
     return "منشأة صناعية", "industrial"
 
@@ -109,7 +131,8 @@ def short_country(name):
     return name
 
 
-GEO_VERSION = 2  # 2: facilities also keep their operator, so unnamed ones can still be told apart
+GEO_VERSION = 3  # 2: facilities also keep their operator, so unnamed ones can still be told apart
+                 # 3: industrial land named or operated as an oil or gas site (pumping stations...)
 
 
 def osm_name(tags):

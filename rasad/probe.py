@@ -391,7 +391,7 @@ def osm_near(cfg, lat, lon, km=5.0, out_dir="probe-out"):
     things), nearest first, and whether the facility map of the tool would take each one. For a
     fire at a place the tool called "no facility": is the place missing from the map, or only
     tagged in a way the facility query does not ask for?"""
-    from .geodb import _center, facility_category, overpass
+    from .geodb import OIL_NAMES, OIL_OWNERS, _center, facility_category, overpass
     from .util import haversine_km
 
     def asked_for(tags):                 # the same conditions as geodb.FACILITY_QUERY
@@ -402,7 +402,8 @@ def osm_near(cfg, lat, lon, km=5.0, out_dir="probe-out"):
                 or tags.get("power") == "plant" or tags.get("water_works") == "desalination"
                 or tags.get("landuse") == "port"
                 or (tags.get("man_made") == "storage_tank" and has("content", r"oil|fuel|gas|crude|petrol"))
-                or (tags.get("man_made") == "pumping_station" and has("substance", r"oil|gas")))
+                or (tags.get("man_made") == "pumping_station" and has("substance", r"oil|gas"))
+                or (tags.get("landuse") == "industrial" and (has("name", OIL_NAMES) or has("operator", OIL_OWNERS))))
     r = int(float(km) * 1000)
     around = f"(around:{r},{lat},{lon})"
     query = ("[out:json][timeout:60];(" +
