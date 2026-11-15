@@ -132,6 +132,10 @@ def overview():
         verdicts = collections.Counter(i.get("verdict") for i in items)
         print(f"  incidents in the app: {len(items)} · ids unique: {unique(items)} · "
               + " · ".join(f"{k} {v}" for k, v in verdicts.most_common()))
+        kinds = collections.Counter(i.get("category") or "?" for i in items)
+        levels = collections.Counter(i.get("confidence_level") or "?" for i in items)
+        print("  kinds: " + " · ".join(f"{k} {v}" for k, v in kinds.most_common())
+              + "   confidence: " + " · ".join(f"{k} {v}" for k, v in levels.most_common()))
         print(f"  videos: being made {sum(1 for i in items if i.get('clip_video_pending'))}"
               f" · to refresh {sum(1 for i in items if i.get('clip_needs_refresh'))}"
               f" · with a note {sum(1 for i in items if i.get('clip_note'))}"
@@ -172,9 +176,18 @@ def overview():
     times = sorted(d.get("t", "") for d in sp.values())
     span = f" (newest {when(times[-1])}, oldest {when(times[0])})" if times else ""
     print(f"  symbols waiting for their strength {len(sp)}{span}")
-    print(f"  sea candidates {len(st.get('sea_candidates') or {})}"
+    cands = st.get("sea_candidates") or []
+    early = st.get("early_night") or {}
+    print(f"  sea candidates {len(cands)} (unmistakable {sum(1 for c in cands if isinstance(c, dict) and c.get('strong'))})"
+          f" · first-picture posts kept {len(early)} (sent {sum(1 for r in early.values() if r.get('sent_at'))})"
           f" · missing pictures {len(st.get('missing_pictures') or {})}"
           f" · last run {when(st.get('last_run'))}")
+    seas = collections.Counter(k.split("|")[0].replace("day:", "day ") for k in (st.get("seawatch") or {}))
+    if seas:
+        print("  sea pictures checked in the last 6 h: " + " · ".join(f"{k} {v}" for k, v in sorted(seas.items())))
+    months = sorted(p.split("/")[-1][:-5] for p in git("ls-tree", "-r", "--name-only", "origin/state", "archive/").stdout.split())
+    if months:
+        print(f"  archive months: {', '.join(months)}")
     code = code_versions()
     print("  versions (stored / code): " + " · ".join(
         f"{k} {st.get(k)}/{v}" + ("" if st.get(k) == v else " ← differs (migration due)") for k, v in code.items()))
