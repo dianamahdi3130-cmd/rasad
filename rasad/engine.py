@@ -667,8 +667,11 @@ def run_cycle(cfg, send=True, alert_now=False):
         try:
             watch_cfg = cfg
             if cfg.get("_background_media"):
-                # ten sea boxes at full detail: about 15 s of arithmetic per picture time
-                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 75),
+                # Ten sea boxes at full detail: about 30 s of arithmetic for one picture time. The
+                # newest picture time comes first and always fits; an older one waiting to be caught
+                # up gets what is left. (With 75 s, live on 15 Nov 2026, every check of the first
+                # hours took two minutes, and the alerts of that check waited for it.)
+                watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 45),
                                                   slots_per_run=min(int(SW["slots_per_run"]), 2)))
             seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
             # In the watching loop a separate worker fetches the pictures all the time; the check
