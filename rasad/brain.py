@@ -7,6 +7,7 @@ import math
 import re
 import statistics
 
+from . import assess
 from .util import esc, haversine_km, local_text, parse_time, size_word
 from .updates import latest_reading, peak_reading
 
@@ -50,6 +51,19 @@ class Memory:
                         per_day[day] = max(per_day.get(day, 0.0), frp)
         vals = [v for v in per_day.values() if v > 0]
         return len(per_day), (statistics.median(vals) if vals else None)
+
+    def peak(self, lat, lon, through_day, window_days, reach=1):
+        """The strongest reading here within the window, today's earlier ones included: the
+        place's own record. None when no reading with a strength is remembered."""
+        i, j = math.floor(lat / CELL), math.floor(lon / CELL)
+        lo = (dt.date.fromisoformat(through_day) - dt.timedelta(days=window_days)).isoformat()
+        best = None
+        for di in range(-reach, reach + 1):
+            for dj in range(-reach, reach + 1):
+                for day, frp in self.cells.get(f"{i + di},{j + dj}", {}).items():
+                    if lo <= day <= through_day and frp and (best is None or frp > best):
+                        best = frp
+        return best
 
     def days_known(self, before_day, window_days):
         """How many earlier days the memory actually holds (0 = still learning)."""
@@ -511,6 +525,7 @@ def finalize(inc, cfg):
     inc["start_text"] = local_text(parse_time(inc["first"]), cfg)
     inc["last_text"] = local_text(parse_time(inc["last"]), cfg)
     inc["sources_text"] = "، ".join(sorted({FAMILY_AR.get(f, f) for f in inc["families"]}))
+    assess.assess(inc, cfg)   # the confidence number, its reasons, the kind of event, who saw it
     return inc
 
 
@@ -552,6 +567,21 @@ def video_note(inc):
 
 def mw_ar(v):
     return (f"{v:.1f}" if v < 10 else f"{v:.0f}") + " MW"
+
+
+def surge_note(inc):
+    """A plant whose usual flare burns harder than its own record: say what that can and cannot
+    mean. Pictures from space do not tell operational flaring from a fire, so neither is claimed."""
+    if inc.get("kind") != "unusual":
+        return ""
+    record = inc.get("site_record")
+    try:
+        record = float(record) if record else None
+    except (TypeError, ValueError):
+        record = None
+    seen = (f"شعلة هذا الموقع معتادة، وشدتها الآن أعلى مما سُجّل فيه خلال شهر (السابق {mw_ar(record)})."
+            if record else "شعلة هذا الموقع معتادة، وشدتها الآن أعلى من عادتها بكثير.")
+    return f"🏭 {seen} قد يكون حرق غاز تشغيلياً أو حريقاً؛ صور الأقمار لا تفرّق بينهما."
 
 
 def _strength_lines(inc, cfg, intensity=False, with_size=False, with_date=False):
@@ -623,6 +653,12 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     lines.append(f"{'🔴' if sure else '🟠'} <b>{esc(bidi_safe(inc['headline']))}</b>")
     if sure:
         lines.append(f"✅ <b>مؤكد</b> · {esc(bidi_safe(inc['reason']))}")
+    note = surge_note(inc)
+    if note:
+        lines.append(note)
+    confidence = assess.confidence_line(inc)
+    if confidence:
+        lines.append(f"🎯 <b>الثقة:</b> {esc(bidi_safe(confidence))}")
     lines.append("")
     lines.append(f"📍 <b>المكان:</b> {esc(bidi_safe(inc['where']))}")
     lines.append(f"🕒 <b>البداية:</b> {when}")

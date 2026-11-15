@@ -18,7 +18,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue, earlyalerts
-from . import acquisitions, flares, repairs, satpic, smoke
+from . import acquisitions, archive, assess, flares, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -27,7 +27,7 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 15  # bump when the importance rules change, so stored incidents are judged again
+RULES = 16  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -50,7 +50,11 @@ DEFAULTS = {
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
                                    "عُمان", "إيران", "اليمن"]},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 25,
-               "unusual_facility_km": 3},
+               "unusual_facility_km": 3,
+               # a plant's flare is news only when it burns well above its own record of the
+               # month: the same plants surge to the same level every few days, and that is
+               # their normal working, not a fire (16 of the first 25 posts were such surges)
+               "unusual_record_ratio": 2.0},
     "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7,
                   "max_polar_gap_hours": 3, "polar_relocation_km": 2},
     "firms": {"map_key": "", "base_url": "https://firms.modaps.eosdis.nasa.gov",
@@ -802,6 +806,10 @@ def run_cycle(cfg, send=True, alert_now=False):
             frp >= max(float(M["unusual_ratio"]) * typical, typical + float(M["unusual_add_mw"])) and \
             (steady_facility if steady_facility is not None else
              geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"])))
+        # the place's own record of the month (today's earlier readings included), read before
+        # this reading is remembered: a new "unusual heat" event must clearly beat it
+        site_record = mem.peak(d["lat"], d["lon"], day, int(M["window_days"]), reach) if unusual else None
+        beats_record = site_record is None or frp >= float(M.get("unusual_record_ratio", 2.0)) * site_record
         routine = known and not unusual
         # a steady flare burning far busier than usual: noted for the app only (flares.py)
         if FL.get("enabled", True) and d["src"] == flares.SRC and steady and typical is not None \
@@ -823,6 +831,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             continue  # recovery fills missing incidents; it cannot rewrite an already-sent event
         if inc is None and (routine or learning):
             continue
+        if inc is None and unusual and not beats_record:
+            continue  # the plant has burnt this hard before within the month: its flare, not news
         if inc is not None and routine and inc["kind"] == "unusual":
             continue  # the usual flare is not evidence of the unusual heat
         if d["kind"] == "geo" and d.get("_fi"):
@@ -834,6 +844,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             if inc is None:
                 inc = fresh
                 inc["known_days"], inc["typical_frp"] = n_days, typical
+                if unusual and site_record is not None:
+                    inc["site_record"] = round(float(site_record), 1)
                 # days with heat within ~10 km: farmland burnt every season and flare fields are busy
                 inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
                 S.incidents.append(inc)
@@ -1184,6 +1196,10 @@ def run_cycle(cfg, send=True, alert_now=False):
     S.state["scan_started"] = iso(now)
     S.save()
     publish(cfg, S, status, now, learning, len(dets), finished=finished, duration=elapsed)
+    try:   # the long-term record the app searches; it must never stop a check
+        archive.update(cfg, S.incidents, finished)
+    except Exception as e:  # noqa: BLE001
+        log.warning("archive not updated: %s", e)
     return S
 
 
@@ -1192,7 +1208,23 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
           "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke",
-          "early_ids", "early_promotion_ambiguous"]
+          "early_ids", "early_promotion_ambiguous",
+          # the assessment (assess.py): what kind of event, how sure and why, how serious
+          "category", "category_text", "confidence", "confidence_level", "severity",
+          "known_days", "typical_frp", "site_record"]
+# the longer parts of the assessment go out only for events worth opening, to keep the feed light
+PUBLIC_DETAIL = ["evidence", "sources", "agreement"]
+
+
+def public_item(inc):
+    """What the app receives for one incident."""
+    item = {k: inc.get(k) for k in PUBLIC}
+    if inc.get("priority") == "high" or inc.get("verdict") != "يحتاج تأكيداً":
+        for k in PUBLIC_DETAIL:
+            item[k] = inc.get(k)
+        item["timeline"] = assess.timeline_of(inc)
+    item["alerted"] = bool(inc.get("alerted_at"))   # went out to the channel
+    return item
 
 
 def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=None):
@@ -1202,7 +1234,7 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
                   or (not row.get("ok", False) and key != "recovery"
                       and not row.get("experimental"))
                   for key, row in status.items() if key != "recovery")
-    items = [{k: i.get(k) for k in PUBLIC} for i in S.incidents if i.get("headline")]
+    items = [public_item(i) for i in S.incidents if i.get("headline")]
     items.extend(earlyalerts.items(cfg, S.state, S.incidents, finished))
     for item in items:
         if (item.get("clip_video_pending") or item.get("clip_needs_refresh")) \
