@@ -662,7 +662,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         try:
             watch_cfg = cfg
             if cfg.get("_background_media"):
-                # seven seas at full detail: about 15 s of arithmetic per picture time
+                # ten sea boxes at full detail: about 15 s of arithmetic per picture time
                 watch_cfg = dict(cfg, seawatch=dict(SW, budget_s=min(float(SW.get("budget_s", 240)), 75),
                                                   slots_per_run=min(int(SW["slots_per_run"]), 2)))
             seconds = float(watch_cfg["seawatch"].get("budget_s", 240))
@@ -1274,7 +1274,7 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
     early = earlyalerts.items(cfg, S.state, S.incidents, finished)
     for item in early:   # first night specks: shown with what they are and how little is known yet
         assess.assess(item, cfg)
-        item["alerted"] = bool(item.get("sent_at"))
+        item.setdefault("alerted", False)
     items.extend(early)
     for item in items:
         if (item.get("clip_video_pending") or item.get("clip_needs_refresh")) \

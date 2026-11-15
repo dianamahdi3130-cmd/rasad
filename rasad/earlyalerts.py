@@ -392,6 +392,7 @@ def items(cfg, state, incidents, now):
             continue
         item = {key: copy.deepcopy(record.get(key)) for key in _PUBLIC}
         item["max_frp"], item["frp_series"], item["size"] = None, None, None
+        item["alerted"] = bool(record.get("sent_at"))   # went out to the channel as a first sighting
         if now - last > _lifetime(cfg):
             item["headline"] = "رصد حراري سابق لم يتأكد" + (
                 " قرب " + item["region_name"] if item.get("region_name") else "")
