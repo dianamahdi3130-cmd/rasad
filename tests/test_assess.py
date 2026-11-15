@@ -210,6 +210,11 @@ class PlantRecord(unittest.TestCase):
         item = feed["items"][0]
         self.assertEqual((item["site_record"], item["category"], item["alerted"]), (109.0, "industrial", False))
         self.assertTrue(item["evidence"] and item["sources"] and item["timeline"])
+        # the heat at a plant is certain; its number says how far outside the plant's habits it is
+        self.assertEqual(item["confidence_label"], "الثقة بأنه خارج المعتاد")
+        self.assertTrue(40 <= item["confidence"] <= 90)
+        row = next(r for r in alert_message(inc, config()).split("\n") if r.startswith("🎯"))
+        self.assertTrue(row.startswith(f"🎯 <b>الثقة بأنه خارج المعتاد:</b> {inc['confidence']}% ("), row)
 
     def test_first_ever_surge_needs_no_record(self):
         state, _ = self.cycle(60.0, [5.0, 6.0, 7.0])          # 12 times the usual, twice the record of 7

@@ -82,6 +82,8 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
   at sea (under 2 MW) waits for a second look (unmapped platforms flare like that).
 - The confidence number (`assess.py`) lives inside its verdict's band («مؤكد» 75-99, «مرجّح» 50-74,
   «يحتاج تأكيداً» under 50) and never says a cause. Smoke and the flare markers are not counted in it.
+  At a plant («حرارة غير معتادة») the heat itself is certain, so the number says how far outside the
+  plant's habits it is (40-90) under its own label «الثقة بأنه خارج المعتاد» (`confidence_label`).
 - Picture layers are asked for at 0.25 km per pixel (never coarser than 0.3): the server answers a
   coarser request from a blurred copy one picture behind, and small fires vanish in it
   (`docs/reviews/hormuz_ras_al_khaimah_20261114.md`). The sea finder's numbers were tuned on real

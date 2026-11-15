@@ -12,7 +12,9 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
   `reply_parameters` with `allow_sending_without_reply`; text longer than a video caption's 1024
   characters goes out as the video with the first line, then the full text as a reply to it).
 - The confidence number and its reasons: `rasad/assess.py` (bands follow the verdict:
-  «مؤكد» 75-99, «مرجّح» 50-74, «يحتاج تأكيداً» below 50).
+  «مؤكد» 75-99, «مرجّح» 50-74, «يحتاج تأكيداً» below 50; a plant's unusual heat has its own
+  range 40-90 and its own label «الثقة بأنه خارج المعتاد», because there the heat is certain and
+  the doubt is whether it is outside the plant's habits).
 - When: `engine.run_cycle` (its inner `post`), `brain.alert_worthy`,
   `updates.intensity_update_due`; thresholds in `config.yaml` → `alerts`.
 - The before/after satellite picture: `satpic.caption` (text), `satpic.render` (picture), posted

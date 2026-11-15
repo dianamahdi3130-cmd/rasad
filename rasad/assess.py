@@ -21,6 +21,9 @@ LEVELS = (("عالية", 75), ("متوسطة", 50), ("منخفضة", 0))
 # the number never contradicts the verdict: each verdict has its own band, the number refines it
 BAND = {"مؤكد": (75, 99), "مرجّح": (50, 74), "يحتاج تأكيداً": (5, 49)}
 CATEGORY_AR = {"fire": "حريق", "industrial": "نشاط حراري في منشأة", "candidate": "بقعة حرارية أولية"}
+# What the number is about. At a plant the heat itself is certain (its verdict says so); the number says
+# how sure we are that it is outside the plant's habits, so it has its own label and its own range.
+CONFIDENCE_AR = {"fire": "الثقة", "industrial": "الثقة بأنه خارج المعتاد", "candidate": "الثقة"}
 SOURCE_AR = {
     "mtg_frp": "Meteosat-12 · منتج الحرائق الرسمي",
     "iodc_fire": "Meteosat-9 فوق المحيط الهندي · منتج الحرائق الرسمي",
@@ -263,6 +266,7 @@ def assess(inc, cfg):
     inc["category_text"] = CATEGORY_AR[category]
     inc["confidence"] = score
     inc["confidence_level"] = level_of(score)
+    inc["confidence_label"] = CONFIDENCE_AR[category]
     inc["evidence"] = ev[:8]
     inc["severity"] = severity_of(inc, cfg, category)
     sources = sources_of(inc)

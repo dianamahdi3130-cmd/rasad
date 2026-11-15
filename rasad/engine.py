@@ -1246,7 +1246,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke",
           "early_ids", "early_promotion_ambiguous",
           # the assessment (assess.py): what kind of event, how sure and why, how serious
-          "category", "category_text", "confidence", "confidence_level", "severity",
+          "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
           "known_days", "typical_frp", "site_record"]
 # the longer parts of the assessment go out only for events worth opening, to keep the feed light
 PUBLIC_DETAIL = ["evidence", "sources", "agreement"]
