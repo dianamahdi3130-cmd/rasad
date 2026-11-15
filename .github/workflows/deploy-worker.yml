@@ -33,7 +33,11 @@ jobs:
           A: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           C: ${{ secrets.RASAD_ADMIN_CODE }}
         run: |
-          if [ -n "$T" ] && [ -n "$A" ] && [ -n "$C" ]; then
+          # The door now asks for an access key tied to a device. A page that does not load the
+          # sign-in script could not get past it: the manager would be locked out of their own app.
+          if ! grep -q 'access\.js' web/index.html; then
+            echo "::notice::The app's page does not use the access keys yet: nothing to deploy"
+          elif [ -n "$T" ] && [ -n "$A" ] && [ -n "$C" ]; then
             echo "ok=1" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::Cloudflare keys or the manager's code are not added yet: nothing to deploy"
