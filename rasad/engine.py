@@ -459,7 +459,13 @@ def clip_for(cfg, wms, S, inc, focus_time=None):
         cad = int(L["cadence_min"])
         pbox = [inc["lon"] - 0.2, inc["lat"] - 0.2, inc["lon"] + 0.2, inc["lat"] + 0.2]
         latest = latest_time(wms, S.state, L["name"], cad, pbox)
-        if latest is None or utcnow() - latest > dt.timedelta(hours=STALE_HOURS):
+        start = floor_time(parse_time(inc["first"]), cad)
+        # A source that stopped publishing can still show a fire it has the pictures of: old
+        # pictures are refused only when they end before the fire began. (15 Nov 2026: the
+        # European server's newest picture was of 18:50 UTC; an alert sent three hours later
+        # about a fire of 17:40 got no video, though every picture of it was there.)
+        stale = latest is not None and utcnow() - latest > dt.timedelta(hours=STALE_HOURS)
+        if latest is None or (stale and latest < start):
             err = f"{L['name']}: no recent pictures"
             continue
         if focus is not None and latest < floor_time(focus, cad):
@@ -467,7 +473,6 @@ def clip_for(cfg, wms, S, inc, focus_time=None):
             continue
         C = cfg["clip"]
         after = int(C.get("frames_after", 2))
-        start = floor_time(parse_time(inc["first"]), cad)
         t_end = start + dt.timedelta(minutes=cad * after)
         # Include the strongest recorded measurement even when it arrives hours after the
         # start. The frame cap below keeps a long-running incident's update near its peak.
