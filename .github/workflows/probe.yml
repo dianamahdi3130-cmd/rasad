@@ -5,10 +5,11 @@ name: رصد - فحص حريق سابق
 on:
   workflow_dispatch:
     inputs:
-      lat: {description: "latitude", required: true}
-      lon: {description: "longitude", required: true}
-      start: {description: "start, UTC (2026-11-01T19:00Z)", required: true}
-      end: {description: "end, UTC (2026-11-01T23:00Z)", required: true}
+      # all four left empty = follow tools/probe-request.json of the branch the run is started on
+      lat: {description: "latitude (empty: use tools/probe-request.json)", required: false}
+      lon: {description: "longitude", required: false}
+      start: {description: "start, UTC (2026-11-01T19:00Z)", required: false}
+      end: {description: "end, UTC (2026-11-01T23:00Z)", required: false}
   push:
     branches: [main, diag]
     paths: ["tools/probe-request.json"]
