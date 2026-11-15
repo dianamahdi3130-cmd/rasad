@@ -73,7 +73,11 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
 - A push to `main` touching `web/`, `rasad/`, `scripts/`, `config.yaml`, `requirements.txt` or
   `rasad.yml` makes the loop stop after its current check and the queued run start with the new
   code. So `main` must only receive tested code, in as few pushes as possible.
-- A push to `main` touching `worker/` or `web/` redeploys the private app (`deploy-worker.yml`).
+- A push to `main` touching `worker/` or `web/` redeploys the private app (`deploy-worker.yml`). A real
+  deploy moves the tag `private-app-deployed`; a watching loop that still publishes on GitHub stops
+  when it moves (`scripts/loop.sh`), so the next run finds the private app and sends to it within
+  minutes of the owner's first deploy. The sealed memory's key and the ingest key come from the
+  Cloudflare API token: changing that token starts the memory afresh (the owner is told not to).
 - Data branches, written only by `scripts/branches.sh` as `rasad-bot`, never by hand:
   `state` (memory: `state.json`, `incidents.json`, `memory.json`, `geo/`), `live` (the app's
   `data/meta.json`, `data/incidents.json`), `gh-pages` (public app), `probe` (diagnosis results).
