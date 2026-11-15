@@ -55,5 +55,72 @@ class NamedIndustrialLand(unittest.TestCase):
         self.assertEqual(geodb.facility_category({"man_made": "works", "product": "cement"}), ("منشأة صناعية", "industrial"))
 
 
+class HandKeptFacilities(unittest.TestCase):
+    """config: geodata.extra_facilities. They count at once, before the map is built again."""
+
+    def geo(self, extra):
+        import copy
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+
+        from rasad import engine
+        from rasad.util import save_json
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        cfg["_geodata_dir"] = Path(folder.name)
+        cfg["geodata"]["extra_facilities"] = extra
+        save_json(Path(folder.name) / "facilities.json",
+                  {"built": "2026-11-03T06:29:09Z", "version": 2, "items": [[25.53049, 49.2103, "", "منشأة نفطية", "oil", ""]]})
+        save_json(Path(folder.name) / "places.json", {"built": "2026-11-03T06:29:09Z", "items": []})
+        return geodb.Geo(cfg, Mock(), Mock(), {})
+
+    STATION = {"lat": 25.61143, "lon": 48.88608, "name": "محطة ضخ أرامكو السعودية 1", "category": "محطة ضخ نفط وغاز", "code": "pumping"}
+
+    def test_the_station_is_found_from_the_fire_of_15_november(self):
+        before, after = self.geo([]), self.geo([self.STATION])
+        self.assertIsNone(before.facility(25.6093, 48.874), "the built map alone: nothing within 30 km")
+        found = after.facility(25.6093, 48.874)
+        self.assertEqual((found["label"], found["code"]), ("محطة ضخ أرامكو السعودية 1", "pumping"))
+        self.assertLess(found["km"], 2)
+        self.assertTrue(after.facility_within(25.6093, 48.874, 2))
+        self.assertNotEqual(before.version, after.version, "recent incidents are described again when the list changes")
+        self.assertEqual(after.version, self.geo([self.STATION]).version, "and not when it does not")
+
+    def test_an_entry_without_a_place_is_left_out(self):
+        geo = self.geo([{"name": "بلا موقع"}, {"lat": "x", "lon": 1}, {"lat": 95, "lon": 10}, {"lat": 24.0, "lon": 50.0}])
+        self.assertEqual(len(geo.fac.items), 2)
+        self.assertEqual(geo.fac.items[-1][2:5], ["", "منشأة نفطية", "oil"])
+
+    def test_the_shipped_config_holds_the_station(self):
+        from pathlib import Path
+
+        from rasad import engine
+        cfg = engine.load_config(Path(__file__).resolve().parents[1] / "config.yaml", "/tmp/unused-state", "/tmp/unused-site")
+        names = [item[2] for item in geodb.extra_facilities(cfg)]
+        self.assertIn("محطة ضخ أرامكو السعودية 1", names)
+        self.assertTrue(cfg["geodata"]["overpass_urls"], "the rest of the map settings are still there")
+
+
+class NewsByChange(unittest.TestCase):
+    """A change of rules or of the map does not announce a heat source that has burnt all day."""
+
+    def test_only_what_started_recently_is_posted_after_a_change(self):
+        import datetime as dt
+
+        from rasad import engine
+        now = dt.datetime(2026, 11, 15, 21, 40, tzinfo=dt.timezone.utc)
+        eight = dt.timedelta(hours=8)
+        station = {"first": "2026-11-15T17:40:00Z", "last": "2026-11-15T18:40:00Z"}        # the fire the owner asked to post
+        all_day = {"first": "2026-11-15T05:44:00Z", "last": "2026-11-15T21:30:00Z"}       # burning since the morning
+        gone = {"first": "2026-11-15T09:00:00Z", "last": "2026-11-15T10:20:00Z"}
+        self.assertFalse(engine.too_old_for_first_alert(station, now, eight, by_change=True))
+        self.assertTrue(engine.too_old_for_first_alert(all_day, now, eight, by_change=True))
+        self.assertFalse(engine.too_old_for_first_alert(all_day, now, eight), "by its own doing it is still news while it burns")
+        self.assertTrue(engine.too_old_for_first_alert(gone, now, eight))
+        self.assertTrue(engine.too_old_for_first_alert(gone, now, eight, by_change=True))
+
+
 if __name__ == "__main__":
     unittest.main()

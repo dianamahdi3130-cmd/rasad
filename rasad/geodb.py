@@ -293,14 +293,41 @@ class GeoIndex:
         return (best, best_d) if best else (None, None)
 
 
+def extra_facilities(cfg):
+    """The hand-kept list as facility items [lat, lon, name, category, code, owner]; an entry
+    without a usable position is left out."""
+    out = []
+    for e in (cfg.get("geodata") or {}).get("extra_facilities") or []:
+        try:
+            lat, lon = float(e["lat"]), float(e["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            continue
+        out.append([round(lat, 5), round(lon, 5), str(e.get("name") or ""), str(e.get("category") or "منشأة نفطية"),
+                    str(e.get("code") or "oil"), str(e.get("owner") or "")])
+    return out
+
+
+def _extra_mark(items):
+    """Short and stable: changes whenever the hand-kept list changes."""
+    import hashlib
+    return f"{len(items)}:{hashlib.sha256(repr(items).encode()).hexdigest()[:6]}"
+
+
 class Geo:
     def __init__(self, cfg, session, wms, state):
         self.cfg, self.s, self.wms, self.state = cfg, session, wms, state
         d = Path(cfg["_geodata_dir"])
         fac = load_json(d / "facilities.json", {"items": []})
-        self.fac = GeoIndex(fac["items"])
+        # Facilities added by hand (config: geodata.extra_facilities): places the owner knows, or
+        # that the open map holds and the built map does not have yet. They count at once, without
+        # waiting for the map to be built again, and a change of the list describes the recent
+        # incidents again (the version below).
+        extra = extra_facilities(cfg)
+        self.fac = GeoIndex(fac["items"] + extra)
         self.places = GeoIndex(load_json(d / "places.json", {"items": []})["items"])
-        self.version = f"{fac.get('built')}|{len(fac['items'])}"
+        self.version = f"{fac.get('built')}|{len(fac['items'])}" + (f"|+{_extra_mark(extra)}" if extra else "")
         self.broken = False
         self._last_nominatim = 0.0
 

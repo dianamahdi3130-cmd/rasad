@@ -27,10 +27,7 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 18  # bump when the importance rules change, so stored incidents are judged again
-# (The rule for new heat in the desert, brain.new_heat, went in on 15 Nov 2026 without a bump on
-# purpose: a bump would have posted the fire that prompted it three hours late, unasked. Stored
-# incidents take the rule when a new sighting touches them; bump with the next rule change.)
+RULES = 19  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -99,6 +96,8 @@ DEFAULTS = {
     },
     "geodata": {"facility_max_km": 30, "place_max_km": 80, "coast_km": 1.5, "query_tile_deg": 8,
                 "rebuild_days": 7,
+                # facilities added by hand: {lat, lon, name, category, code} (config.yaml)
+                "extra_facilities": [],
                 "overpass_urls": ["https://overpass-api.de/api/interpreter",
                                   "https://overpass.kumi.systems/api/interpreter"],
                 "nominatim_url": "https://nominatim.openstreetmap.org/reverse"},
@@ -391,6 +390,16 @@ def smallest_region(cfg, lat, lon):
         return None, []
     inside.sort(key=lambda r: (r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]))
     return inside[0], [r["id"] for r in inside]
+
+
+def too_old_for_first_alert(inc, now, max_age, by_change=False):
+    """A first alert is news while the newest evidence is young. An incident that became important
+    only because the rules or the facility map changed must also have *started* recently: a heat
+    source that has burnt all day is not announced the moment the map learns its facility (it is
+    shown in the app as it was)."""
+    if now - parse_time(inc["last"]) > max_age:
+        return True
+    return bool(by_change) and now - parse_time(inc["first"]) > max_age
 
 
 def enrich(inc, cfg, geo):
@@ -1005,6 +1014,8 @@ def run_cycle(cfg, send=True, alert_now=False):
                     inc.pop(k, None)
         S.state["sea_check"] = SEA_CHECK
     rejudge = S.state.get("rules") != RULES
+    # how important each stored incident was before this check changed anything (see below)
+    was_priority = {inc["id"]: inc.get("priority") for inc in S.incidents}
     if rejudge:
         keep, dropped = [], 0
         steady_days = max(3, math.ceil(0.5 * min(avail, int(M["window_days"]))))
@@ -1048,6 +1059,8 @@ def run_cycle(cfg, send=True, alert_now=False):
         if inc.get("place") == "sea":  # another fire confirmed close by shortly before this one
             inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
         enrich(inc, cfg, geo)
+        # important only because the rules or the facility map changed, not because of what it did
+        by_change = (rejudge or stale_map) and was_priority.get(inc["id"]) == "low" and inc["priority"] == "high"
         if look_budget > 0 and look_back(inc):
             look_budget -= 1
         if inc["priority"] != "high" or inc.get("status") == "held":
@@ -1061,10 +1074,10 @@ def run_cycle(cfg, send=True, alert_now=False):
                 and set(inc.get("srcs") or []) <= seawatch.FINDER_SOURCES:
             continue  # the sea finder is still on trial: shown in the app, not sent, until others confirm
         if inc.get("alerted_verdict") is None and rank >= min_rank:
-            if now - parse_time(inc["last"]) > max_age:
+            if too_old_for_first_alert(inc, now, max_age, by_change):
                 # e.g. the first run after installing: shown in the app, not pushed as news
                 inc["alerted_verdict"], inc["status"] = inc["verdict"], "late"
-                log.info("not alerting %s: its newest evidence is older than %s", inc["id"], max_age)
+                log.info("not alerting %s: too old to be news (%s)", inc["id"], max_age)
                 continue
             first_alerts.append(inc)
         elif inc.get("alerted_verdict"):
