@@ -98,6 +98,14 @@ Keeping the pictures themselves (to study or replay a night offline): add a step
 the four inputs left empty it follows that branch's `tools/probe-request.json`, so nothing has to
 be pushed to `diag`.
 
+The app's imagery browser (Sentinel-2 and Landsat read by the phone, `web/imagery.js`) has its own
+real-data check, because the session cannot reach those archives either: a step like
+`["imagery-check", "--lat", "30.4567", "--lon", "47.715", "--half", "2", "--wide", "20", "--tag",
+"basra"]` runs the same engine in Node (`tools/imagery_check.js`): the passes, the sky, the two
+pictures, change and burn layers, band 8, a wide box joined from several tiles, a Landsat date,
+with the time and megabytes of each step; small PNG pictures land on the `probe` branch
+(`<tag>_after_color.png`, `_veg`, `_nbr`, `_burn_over_after`, `_wide_color`, `_landsat_color` …).
+
 Other layers on the same server, tried or noted (15 Nov 2026): `copernicus:sentinel3a/b_slstr_level2_frp`
 (Sentinel-3 fires; on 10 Nov slow, 500s and empty over the Gulf), `msg_fes:fire` and `msg_fes:ir039`
 (Meteosat at 0 degrees: the Gulf is near the edge of its view), `msg_iodc:ir039` (8-bit over a wide
