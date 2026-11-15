@@ -10,6 +10,9 @@ on:
       lon: {description: "longitude", required: false}
       start: {description: "start, UTC (2026-11-01T19:00Z)", required: false}
       end: {description: "end, UTC (2026-11-01T23:00Z)", required: false}
+      # a whole request, written like tools/probe-request.json ({"mode": "steps", "steps": [[...], ...]}):
+      # a diagnosis can be started without committing a request file that a merge would then carry
+      request: {description: "a whole request as JSON (empty: tools/probe-request.json)", required: false}
   push:
     branches: [main, diag]
     paths: ["tools/probe-request.json"]
@@ -46,7 +49,12 @@ jobs:
           IN_LON: ${{ github.event.inputs.lon }}
           IN_START: ${{ github.event.inputs.start }}
           IN_END: ${{ github.event.inputs.end }}
+          IN_REQUEST: ${{ github.event.inputs.request }}
         run: |
+          if [ -n "$IN_REQUEST" ]; then
+            printf '%s' "$IN_REQUEST" > tools/probe-request.json
+            python3 -c 'import json; json.load(open("tools/probe-request.json"))'    # a request that is not JSON stops here
+          fi
           if [ -z "$IN_LAT" ]; then
             eval "$(python3 -c 'import json,shlex;r=json.load(open("tools/probe-request.json"));print("\n".join(f"IN_{k.upper()}={shlex.quote(str(v))}" for k,v in r.items()))')"
           fi

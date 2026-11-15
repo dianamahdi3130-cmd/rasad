@@ -218,6 +218,8 @@ def _fire_evidence(inc, cfg):
     sightings = max(int(inc.get("n") or 0), len(inc.get("observations") or []))
     if sightings <= 1 and not polar:
         add(-5, "·", "رصدة واحدة حتى الآن")
+    if inc.get("new_heat"):
+        add(0, "+", "لم تُرصد حرارة في هذا المكان ولا حوله خلال شهر، ولا منشأة مسجّلة في الخريطة: قد يكون موقعاً غير مرسوم")
     return score, ev
 
 

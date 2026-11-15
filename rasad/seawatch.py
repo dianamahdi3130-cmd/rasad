@@ -979,19 +979,17 @@ def scan_day(cfg, wms, start, end, mem=None, geo=None, boxes=None, km=None):
     day_km = float(D.get("km_per_px", C.get("km_per_px", 0.5)))
     refs = [int(m) for m in D.get("ref_minutes", [30, 60])]
     cad = int(C["cadence_min"])
-    pics = Pictures(wms)
-    rows, t = [], floor_time(start, cad)
-    while t <= end:
-        for box in C["boxes"]:
-            if boxes and box["id"] not in boxes:
-                continue
-            size = box_size(box, day_km)
+    rows = []
+    for box in C["boxes"]:                     # one box at a time: full-detail pictures are big
+        if boxes and box["id"] not in boxes:
+            continue
+        pics, size, t = Pictures(wms), box_size(box, day_km), floor_time(start, cad)
+        while t <= end:
             requests = []
             for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]:
                 requests += [(C["layer"], box["bbox"], *size, tt, 0), (C["check_layer"], box["bbox"], *size, tt)]
             pics.prefetch(requests)
             spots, notes = find_day_spots(cfg, pics, box, t, mem, geo, refs=refs)
-            pics.cache = {}                    # one box at a time: full-detail pictures are big
             if spots:
                 rows += [dict(sp, box=box["id"]) for sp in spots]
                 for sp in spots:
@@ -1000,7 +998,11 @@ def scan_day(cfg, wms, start, end, mem=None, geo=None, boxes=None, km=None):
                              sp.get("area_px"), f"  nearest facility {near['km']} km ({near['label']})" if near else "")
             log.info("%s %s at %.2f km: %s %s", iso(t), box["id"], day_km,
                      f"{len(spots)} spot(s)" if spots else ("-" if spots is not None else "not judged"), notes)
-        t += dt.timedelta(minutes=cad)
+            t += dt.timedelta(minutes=cad)
+            # the next slot uses this one's pictures as references: keep those, drop the older ones
+            oldest = iso(t - dt.timedelta(minutes=max(refs)))
+            pics.cache = {k: v for k, v in pics.cache.items() if k[4] >= oldest}
+    rows.sort(key=lambda r: r["t"])
     return rows
 
 

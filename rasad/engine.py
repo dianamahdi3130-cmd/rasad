@@ -28,6 +28,9 @@ from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
 RULES = 18  # bump when the importance rules change, so stored incidents are judged again
+# (The rule for new heat in the desert, brain.new_heat, went in on 15 Nov 2026 without a bump on
+# purpose: a bump would have posted the fire that prompted it three hours late, unasked. Stored
+# incidents take the rule when a new sighting touches them; bump with the next rule change.)
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -45,6 +48,10 @@ DEFAULTS = {
     "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
                "big_fire_mw": 50, "big_fire_far_mw": 100, "busy_area_days": 2, "faint_mw": 3,
                "max_new_per_run": 6, "max_age_hours": 8,
+               # a confirmed fire where there was no heat for a month, in the dry countries of
+               # the Gulf, is news even far from every mapped facility (brain.new_heat)
+               "new_heat_countries": ["السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان", "عُمان"],
+               "new_heat_min_mw": 5, "new_heat_min_pictures": 4, "new_heat_strong_mw": 20,
                "intensity_ratio": 1.5, "intensity_add_mw": 1, "intensity_interval_min": 30,
                "intensity_max_age_hours": 24,
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
@@ -1277,7 +1284,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "early_ids", "early_promotion_ambiguous",
           # the assessment (assess.py): what kind of event, how sure and why, how serious
           "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
-          "known_days", "typical_frp", "site_record", "site_habit"]
+          "known_days", "typical_frp", "site_record", "site_habit", "new_heat"]
 # the longer parts of the assessment go out only for events worth opening, to keep the feed light
 PUBLIC_DETAIL = ["evidence", "sources", "agreement"]
 

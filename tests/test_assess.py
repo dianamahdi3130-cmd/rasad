@@ -168,6 +168,53 @@ class AlertLines(unittest.TestCase):
         self.assertNotIn("🎯", update)
 
 
+class NewHeat(unittest.TestCase):
+    """A confirmed fire where there was no heat for a month, in the dry countries of the Gulf, is
+    news even far from every mapped facility."""
+
+    def fire(self, readings, **extra):
+        # 15 Nov 2026, 28 km south of Judah (Saudi Arabia): an oil pumping station the map does not
+        # hold. Seven pictures in a row from 17:40 UTC, up to 14 MW; confirmed and never posted.
+        times = ["17:40", "17:50", "18:00", "18:10", "18:20", "18:30", "18:40"]
+        dets = [det("mtg_frp", "mtg", f"2026-11-15T{hh}:00Z", frp=frp, lat=25.6093, lon=48.874)
+                for hh, frp in zip(times, readings)]
+        fields = dict(place="land", where="على بعد 28 كم جنوب جودة (السعودية)", country="السعودية",
+                      regions=["gulf", "saudi"], region_name="الخليج الفارسي", known_days=0, area_days=0)
+        fields.update(extra)
+        return incident(dets, **fields)
+
+    REAL = [7.7, 5.4, 13.9, 6.1, 7.7, 11.2, 7.0]
+
+    def test_the_pumping_station_fire_of_15_november_is_news(self):
+        inc = self.fire(self.REAL)
+        self.assertEqual((inc["verdict"], inc["facility"], inc["priority"], inc["new_heat"]), ("مؤكد", None, "high", True))
+        self.assertEqual(inc["headline"], "حريق جديد في السعودية")
+        message = alert_message(inc, config())
+        self.assertIn("🗺 لا منشأة مسجّلة في الخريطة هنا، ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر. "
+                      "قد يكون موقعاً غير مرسوم (محطة ضخ، بئر، خط أنابيب).", message)
+        self.assertIn("✅ <b>مؤكد</b> · ظهر في 7 صور متتالية خلال 60 دقيقة", message)
+        self.assertNotIn("استهداف", message)                       # never a cause
+        self.assertTrue(any("ولا منشأة مسجّلة في الخريطة" in e["text"] for e in inc["evidence"]))
+        self.assertGreaterEqual(inc["confidence"], 75)
+
+    def test_it_is_posted_from_the_fourth_picture_or_at_once_when_strong(self):
+        self.assertEqual(self.fire(self.REAL[:2])["priority"], "low", "two pictures: likely, not yet confirmed")
+        self.assertEqual(self.fire(self.REAL[:3])["priority"], "low", "confirmed, but a short weak flicker so far")
+        self.assertEqual(self.fire(self.REAL[:4])["priority"], "high")
+        self.assertEqual(self.fire([7.7, 25.0, 13.9])["priority"], "high", "confirmed and strong: no need to wait")
+        self.assertEqual(self.fire([2.0, 3.0, 4.0, 3.0, 2.5])["priority"], "low", "too weak to count")
+
+    def test_only_where_nothing_burns_by_itself(self):
+        self.assertEqual(self.fire(self.REAL, country="العراق")["priority"], "low", "farm country: fields burn every season")
+        self.assertEqual(self.fire(self.REAL, known_days=1)["priority"], "low", "heat was seen here before")
+        self.assertEqual(self.fire(self.REAL, area_days=1)["priority"], "low", "or around here")
+        self.assertNotIn("new_heat", self.fire(self.REAL, country="العراق"))
+        near = self.fire(self.REAL, facility={"label": "منشأة نفطية", "code": "oil", "km": 1.2})
+        self.assertEqual(near["priority"], "high")                  # a mapped facility: posted as before...
+        self.assertNotIn("new_heat", near)                          # ...without the "not on the map" note
+        self.assertNotIn("لا منشأة مسجّلة", alert_message(near, config()))
+
+
 class PlantRecord(unittest.TestCase):
     """A plant's flare is news only when it clearly beats its own habit: a level it reached on two
     different days of the month. One episode is posted once."""

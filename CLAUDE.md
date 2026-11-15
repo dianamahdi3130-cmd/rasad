@@ -103,6 +103,12 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   Shedgum 109→94→80 MW stays one post, Ahmadi 49→66→85→110 MW is posted).
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture.
+- A confirmed fire on land where no heat was seen for a month, neither there nor around
+  (`known_days` and `area_days` 0), in the dry countries of the Gulf (`alerts.new_heat_countries`)
+  is posted even far from every mapped facility, from its fourth picture in a row or at 20 MW
+  (`brain.new_heat`); its post says the map holds no facility there (`new_heat_note`). The case:
+  the pumping-station fire of 15 Nov 2026 south of Judah, confirmed at once and never posted
+  (`docs/reviews/judah_pumping_station_20261115.md`). Farm countries stay out of this rule.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when
   a clear Sentinel-2 pass comes (within `satpic.max_days`); the fire is kept in memory until then.
 - A watched place is posted only for a new clear pass with a connected patch of change of at

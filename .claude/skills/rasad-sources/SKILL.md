@@ -96,7 +96,9 @@ Keeping the pictures themselves (to study or replay a night offline): add a step
 "fire|frp"]` lists what the server offers. The workflow can also be started by hand on any branch
 (Actions tab, or `actions_run_trigger` with `workflow_id: probe.yml` and the branch as `ref`): with
 the four inputs left empty it follows that branch's `tools/probe-request.json`, so nothing has to
-be pushed to `diag`.
+be pushed to `diag`. Better still, give the whole request in the `request` input (the same JSON as
+the file): nothing is committed, and no merge can carry a changed request file to `main` (where a
+push of that file starts a probe).
 
 The experimental day finder is replayed the same way, at any picture detail, before its settings
 are changed: `["seascan", "--day", "--km", "0.25", "--start", "…Z", "--end", "…Z", "--boxes",
