@@ -386,6 +386,59 @@ def list_layers(cfg, out_dir="probe-out", pattern=None):
     return rows
 
 
+def osm_near(cfg, lat, lon, km=5.0, out_dir="probe-out"):
+    """Diagnosis: what OpenStreetMap holds around a point (industry, tanks, pipelines, power, named
+    things), nearest first, and whether the facility map of the tool would take each one. For a
+    fire at a place the tool called "no facility": is the place missing from the map, or only
+    tagged in a way the facility query does not ask for?"""
+    from .geodb import _center, facility_category, overpass
+    from .util import haversine_km
+
+    def asked_for(tags):                 # the same conditions as geodb.FACILITY_QUERY
+        has = lambda key, pattern: bool(re.search(pattern, tags.get(key, ""), re.I))   # noqa: E731
+        return (tags.get("man_made") == "offshore_platform"
+                or has("industrial", r"^(refinery|oil_refinery|oil|gas|petroleum|petrochemical|liquefied_natural_gas|fuel|port)$")
+                or (tags.get("man_made") == "works" and has("product", r"oil|gas|petrol|fuel|lng"))
+                or tags.get("power") == "plant" or tags.get("water_works") == "desalination"
+                or tags.get("landuse") == "port"
+                or (tags.get("man_made") == "storage_tank" and has("content", r"oil|fuel|gas|crude|petrol"))
+                or (tags.get("man_made") == "pumping_station" and has("substance", r"oil|gas")))
+    r = int(float(km) * 1000)
+    around = f"(around:{r},{lat},{lon})"
+    query = ("[out:json][timeout:60];(" +
+             "".join(f'nwr{around}["{key}"];' for key in ("man_made", "industrial", "power", "pipeline", "substance",
+                                                           "product", "content", "operator", "name")) +
+             f'nwr{around}["landuse"~"industrial|port|military"];' + ");out center tags;")
+    els = overpass(make_session(), cfg["geodata"]["overpass_urls"], query)
+    lines = [f"OpenStreetMap within {km} km of {lat}, {lon}:"]
+    if els is None:
+        lines.append("  the map servers did not answer")
+    rows = []
+    for el in els or []:
+        la, lo = _center(el)
+        tags = el.get("tags") or {}
+        if la is None or not tags:
+            continue
+        try:
+            category = facility_category(tags) if asked_for(tags) else None
+        except Exception:  # noqa: BLE001
+            category = None
+        taken = (category[0] if category and category[0] else "asked for, but not counted as energy") if asked_for(tags) else None
+        rows.append((haversine_km(lat, lon, la, lo), el.get("type"), el.get("id"), la, lo, taken, tags))
+    rows.sort(key=lambda row: row[0])
+    for d, kind, ident, la, lo, taken, tags in rows[:80]:
+        shown = {k: v for k, v in tags.items() if k in ("man_made", "industrial", "landuse", "power", "pipeline", "substance",
+                                                        "product", "content", "operator", "name", "name:en", "name:ar",
+                                                        "location", "plant:source", "building")}
+        lines.append(f"  {d:5.2f} km  {kind}/{ident}  {la:.5f},{lo:.5f}  in the facility map: {taken or 'no'}  {shown}")
+    lines.append(f"  {len(rows)} tagged object(s)")
+    text = "\n".join(lines)
+    print(text)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"osm_near_{lat}_{lon}.txt").write_text(text + "\n", encoding="utf-8")
+
+
 def gibs_layers(pattern, out_dir="probe-out", url="https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/WMTSCapabilities.xml"):
     """Diagnosis: which of NASA's daily picture layers (GIBS) exist, with the tile grid and file
     type each one is served in, so the app's map is given names that really answer."""

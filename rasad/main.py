@@ -178,6 +178,11 @@ def main(argv=None):
     p = sub.add_parser("gibs-layers", help="diagnosis: NASA's daily picture layers that match a name")
     p.add_argument("--match", required=True)
     p.add_argument("--out", default="probe-out")
+    p = sub.add_parser("osm-near", help="diagnosis: what OpenStreetMap holds around a point, and what the facility map takes of it")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--km", type=float, default=5.0)
+    p.add_argument("--out", default="probe-out")
     p = sub.add_parser("imagery-check", help="diagnosis: the app's imagery engine (web/imagery.js) on the real archives, for one place")
     p.add_argument("--lat", type=float, required=True)
     p.add_argument("--lon", type=float, required=True)
@@ -245,6 +250,10 @@ def main(argv=None):
     if args.cmd == "gibs-layers":
         from .probe import gibs_layers
         gibs_layers(args.match, args.out)
+        return
+    if args.cmd == "osm-near":
+        from .probe import osm_near
+        osm_near(cfg, args.lat, args.lon, args.km, args.out)
         return
     if args.cmd == "imagery-check":
         # the phone's own engine, run here by Node: it prints what it found and keeps small pictures
