@@ -197,6 +197,21 @@ class NewHeat(unittest.TestCase):
         self.assertTrue(any("ولا منشأة مسجّلة في الخريطة" in e["text"] for e in inc["evidence"]))
         self.assertGreaterEqual(inc["confidence"], 75)
 
+    def test_pictures_with_a_gap_are_not_called_an_unbroken_run(self):
+        # the source stopped publishing between 18:50 and 21:30 UTC; the fire was seen again at 21:40
+        times = ["17:40", "17:50", "18:00", "18:10", "18:20", "18:30", "18:40", "21:40"]
+        dets = [det("mtg_frp", "mtg", f"2026-11-15T{hh}:00Z", frp=frp, lat=25.6093, lon=48.874)
+                for hh, frp in zip(times, self.REAL + [6.0])]
+        inc = incident(dets, place="land", country="السعودية", known_days=0, area_days=0)
+        self.assertEqual((inc["verdict"], inc["reason"]), ("مؤكد", "ظهر في 8 صور خلال نحو 4 ساعات"))
+        self.assertEqual(self.fire(self.REAL)["reason"], "ظهر في 7 صور متتالية خلال 60 دقيقة")
+        short = incident([dets[0], dets[2], dets[6]], place="land", country="السعودية")
+        self.assertEqual(short["reason"], "ظهر في 3 صور خلال 60 دقيقة", "one hour, but pictures were skipped")
+        # the second European satellite takes a picture every 15 minutes: still one after the other
+        iodc = [det("iodc_fire", "msg_iodc", f"2026-11-15T{hh}:00Z", lat=25.6093, lon=48.874)
+                for hh in ("17:45", "18:00", "18:15")]
+        self.assertEqual(incident(iodc, place="land")["reason"], "ظهر في 3 صور متتالية خلال 30 دقيقة")
+
     def test_it_is_posted_from_the_fourth_picture_or_at_once_when_strong(self):
         self.assertEqual(self.fire(self.REAL[:2])["priority"], "low", "two pictures: likely, not yet confirmed")
         self.assertEqual(self.fire(self.REAL[:3])["priority"], "low", "confirmed, but a short weak flicker so far")
