@@ -65,6 +65,23 @@ class Memory:
                         best = frp
         return best
 
+    def habit(self, lat, lon, before_day, window_days, reach=1):
+        """(the level this place reached on at least two different earlier days, its highest
+        earlier day): the second-highest and the highest daily peak within the window, today
+        left out. A single earlier spike is not a habit, and neither are today's own earlier
+        readings: a fire that grows through the day, or over several days, must not be measured
+        against itself. (None, None) or (None, top) when fewer than two days have a strength."""
+        i, j = math.floor(lat / CELL), math.floor(lon / CELL)
+        lo = (dt.date.fromisoformat(before_day) - dt.timedelta(days=window_days)).isoformat()
+        per_day = {}
+        for di in range(-reach, reach + 1):
+            for dj in range(-reach, reach + 1):
+                for day, frp in self.cells.get(f"{i + di},{j + dj}", {}).items():
+                    if lo <= day < before_day and frp:
+                        per_day[day] = max(per_day.get(day, 0.0), frp)
+        tops = sorted(per_day.values(), reverse=True)
+        return (tops[1] if len(tops) > 1 else None), (tops[0] if tops else None)
+
     def days_known(self, before_day, window_days):
         """How many earlier days the memory actually holds (0 = still learning)."""
         lo = (dt.date.fromisoformat(before_day) - dt.timedelta(days=window_days)).isoformat()
@@ -596,13 +613,18 @@ def surge_note(inc):
     mean. Pictures from space do not tell operational flaring from a fire, so neither is claimed."""
     if inc.get("kind") != "unusual":
         return ""
-    record = inc.get("site_record")
-    try:
-        record = float(record) if record else None
-    except (TypeError, ValueError):
-        record = None
-    seen = (f"شعلة هذا الموقع معتادة، وشدتها الآن أعلى مما سُجّل فيه خلال شهر (السابق {mw_ar(record)})."
-            if record else "شعلة هذا الموقع معتادة، وشدتها الآن أعلى من عادتها بكثير.")
+    def number(key):
+        try:
+            return float(inc.get(key)) if inc.get(key) else None
+        except (TypeError, ValueError):
+            return None
+    habit, record = number("site_habit"), number("site_record")
+    if habit:
+        seen = f"شعلة هذا الموقع معتادة، وشدتها الآن أعلى بكثير مما اعتاد بلوغه خلال شهر (نحو {mw_ar(habit)})."
+    elif record:
+        seen = f"شعلة هذا الموقع معتادة، وشدتها الآن أعلى مما سُجّل فيه خلال شهر (السابق {mw_ar(record)})."
+    else:
+        seen = "شعلة هذا الموقع معتادة، وشدتها الآن أعلى من عادتها بكثير."
     return f"🏭 {seen} قد يكون حرق غاز تشغيلياً أو حريقاً؛ صور الأقمار لا تفرّق بينهما."
 
 

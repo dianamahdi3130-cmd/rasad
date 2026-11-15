@@ -39,7 +39,7 @@ and usually one `pending` (the next one, queued every 10 minutes; older pending 
 - **flares busier than usual (silent, app only)**: plants whose flare burned far busier than
   usual in the last 48 hours (`rasad/flares.py`); shown in the app as «نشاط حراري أعلى من المعتاد»,
   never posted. Review with the owner before it may do more.
-- **kinds / confidence**: `fire`, `industrial` (a plant's flare above its own record), `candidate`
+- **kinds / confidence**: `fire`, `industrial` (a plant's flare well above its own habit), `candidate`
   (a first sea speck); `?` right after the upgrade means the first check has not re-judged yet.
 - **sea pictures checked in the last 6 h**: one count per sea box (ten boxes; `day …` = the
   experimental day finder on its two). A box stuck at 0 through a night means its pictures are

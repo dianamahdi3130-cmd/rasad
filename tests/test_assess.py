@@ -169,11 +169,26 @@ class AlertLines(unittest.TestCase):
 
 
 class PlantRecord(unittest.TestCase):
-    """A plant's flare is news only when it clearly beats its own record of the month."""
+    """A plant's flare is news only when it clearly beats its own habit: a level it reached on two
+    different days of the month. One episode is posted once."""
     NOW = dt.datetime(2026, 11, 15, 12, tzinfo=UTC)
     LAT, LON = 30.0, 48.0
 
-    def cycle(self, measured, history, during=None):
+    def posted(self, days_ago, frp):
+        """An «unusual heat» incident of this plant that went out to the channel."""
+        when = iso(self.NOW - dt.timedelta(days=days_ago))
+        inc = new_incident({"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": when, "lat": self.LAT,
+                            "lon": self.LON, "frp": frp}, "unusual")
+        add_to_incident(inc, {"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": when, "lat": self.LAT,
+                              "lon": self.LON, "frp": frp})
+        inc.update(place="land", facility={"label": "معمل غاز", "code": "gas", "km": 0.4}, where="السعودية",
+                   country="السعودية", regions=["test"], region_name="العراق", known_days=6, area_days=6,
+                   typical_frp=7.5, _pos=[self.LAT, self.LON, "test"])
+        finalize(inc, config())
+        inc["alerted_verdict"], inc["alerted_at"] = "مرجّح", when
+        return inc
+
+    def cycle(self, measured, history, during=None, earlier_today=None, stored=()):
         with tempfile.TemporaryDirectory() as folder:
             cfg = copy.deepcopy(engine.DEFAULTS)
             cfg.update(_state_dir=Path(folder) / "state", _site_dir=Path(folder) / "site",
@@ -187,8 +202,12 @@ class PlantRecord(unittest.TestCase):
             memory = Memory({})
             for ago, frp in enumerate(history, 1):
                 memory.record(self.LAT, self.LON, (self.NOW - dt.timedelta(days=ago)).date().isoformat(), frp)
+            if earlier_today is not None:               # what earlier checks of today already measured here
+                memory.record(self.LAT, self.LON, self.NOW.date().isoformat(), earlier_today)
             save_json(cfg["_state_dir"] / "memory.json", memory.cells)
-            save_json(cfg["_state_dir"] / "state.json", {"schema": 3, "rules": engine.RULES})
+            save_json(cfg["_state_dir"] / "state.json", {"schema": 3, "rules": engine.RULES, "tidy": engine.TIDY})
+            if stored:
+                save_json(cfg["_state_dir"] / "incidents.json", list(stored))
             observed = self.NOW - dt.timedelta(minutes=30)
             detection = {"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": iso(observed),
                          "lat": self.LAT, "lon": self.LON, "frp": None,
@@ -218,29 +237,72 @@ class PlantRecord(unittest.TestCase):
         self.assertGreater(left[0], 30, "while the fire symbols are read")
         self.assertLess(left[-1], 40, "after the check only the short note of the strength reads may remain")
 
-    def test_a_surge_the_plant_has_shown_before_is_not_news(self):
-        # Shedgum, 12-14 November 2026: 109 MW, then 94, then 80; three posts for one habit
-        state, _ = self.cycle(94.0, [109.0, 8.0, 7.0, 6.0, 7.0, 8.0])
+    def test_a_level_the_plant_reaches_again_and_again_is_not_news(self):
+        # a plant that touched 109, 94 and 80 MW on three days of the month (8 MW on most): 150 MW
+        # is far above its usual, but within what it does again and again
+        state, _ = self.cycle(150.0, [109.0, 94.0, 80.0] + [8.0] * 9)
         self.assertEqual(state.incidents, [])
-        self.assertEqual(state.memory[Memory.key(self.LAT, self.LON)]["2026-11-15"], 94.0)
+        self.assertEqual(state.memory[Memory.key(self.LAT, self.LON)]["2026-11-15"], 150.0)
 
-    def test_a_surge_far_above_the_record_is(self):
-        state, feed = self.cycle(240.0, [109.0, 8.0, 7.0, 6.0, 7.0, 8.0])
+    def test_a_surge_far_above_the_habit_is(self):
+        state, feed = self.cycle(240.0, [109.0, 94.0, 80.0] + [8.0] * 9)
         self.assertEqual(len(state.incidents), 1)
         inc = state.incidents[0]
-        self.assertEqual((inc["kind"], inc["site_record"], inc["category"]), ("unusual", 109.0, "industrial"))
+        self.assertEqual((inc["kind"], inc["site_habit"], inc["site_record"], inc["category"]), ("unusual", 94.0, 109.0, "industrial"))
         item = feed["items"][0]
-        self.assertEqual((item["site_record"], item["category"], item["alerted"]), (109.0, "industrial", False))
+        self.assertEqual((item["site_habit"], item["site_record"], item["category"], item["alerted"]), (94.0, 109.0, "industrial", False))
         self.assertTrue(item["evidence"] and item["sources"] and item["timeline"])
         # the heat at a plant is certain; its number says how far outside the plant's habits it is
         self.assertEqual(item["confidence_label"], "الثقة بأنه خارج المعتاد")
         self.assertTrue(40 <= item["confidence"] <= 90)
-        row = next(r for r in alert_message(inc, config()).split("\n") if r.startswith("🎯"))
+        message = alert_message(inc, config())
+        row = next(r for r in message.split("\n") if r.startswith("🎯"))
         self.assertTrue(row.startswith(f"🎯 <b>الثقة بأنه خارج المعتاد:</b> {inc['confidence']}% ("), row)
+        self.assertIn("🏭 شعلة هذا الموقع معتادة، وشدتها الآن أعلى بكثير مما اعتاد بلوغه خلال شهر (نحو 94 MW).", message)
+
+    def test_one_earlier_spike_is_not_a_habit(self):
+        # the plant flared to 109 MW once (never posted) and sits at 8 MW otherwise: 94 MW is news
+        state, _ = self.cycle(94.0, [109.0, 8.0, 7.0, 6.0, 7.0, 8.0])
+        self.assertEqual([(inc["kind"], inc["site_habit"], inc["site_record"]) for inc in state.incidents], [("unusual", 8.0, 109.0)])
+
+    def test_one_episode_is_posted_once(self):
+        # Shedgum, 12-14 November 2026: 109 MW was posted, then 94 and 80 MW were posted again
+        yesterday = self.posted(1, 109.0)
+        state, _ = self.cycle(94.0, [109.0, 8.0, 7.0, 6.0, 7.0, 8.0], stored=[yesterday])
+        self.assertEqual([inc["id"] for inc in state.incidents], [yesterday["id"]], "no second post for the same episode")
+        # ...unless it now burns half as hard again as what was posted
+        state, _ = self.cycle(170.0, [109.0, 8.0, 7.0, 6.0, 7.0, 8.0], stored=[self.posted(1, 109.0)])
+        self.assertEqual(len(state.incidents), 2)
+        # and an episode posted long ago does not hold a new one back
+        state, _ = self.cycle(94.0, [8.0, 7.0, 6.0, 7.0, 8.0, 109.0], stored=[self.posted(6, 109.0)])
+        self.assertEqual(len(state.incidents), 2)
+
+    def test_a_plant_climbing_day_after_day_does_not_silence_itself(self):
+        # Ahmadi, 11-15 November 2026: usually 2 MW, then 49, 66, 85 MW on three days (none posted
+        # under the first rule, each a little above the last) and 110-118 MW on the fourth: no word
+        state, _ = self.cycle(110.0, [85.0, 52.0, 47.0, 37.0] + [2.0] * 10)
+        self.assertEqual([(inc["kind"], inc["site_habit"], inc["site_record"]) for inc in state.incidents], [("unusual", 52.0, 85.0)])
+
+    def test_a_fire_growing_through_the_day_is_not_measured_against_itself(self):
+        # earlier checks of today read 30 MW here (not yet twice the plant's habit of 18); now it is 45
+        state, _ = self.cycle(45.0, [20.0, 18.0] + [3.0] * 8, earlier_today=30.0)
+        self.assertEqual([inc["kind"] for inc in state.incidents], ["unusual"])
+        self.assertEqual(Memory({}).habit(0, 0, "2026-11-15", 30), (None, None))
 
     def test_first_ever_surge_needs_no_record(self):
-        state, _ = self.cycle(60.0, [5.0, 6.0, 7.0])          # 12 times the usual, twice the record of 7
+        state, _ = self.cycle(60.0, [5.0, 6.0, 7.0])          # 12 times the usual, far above anything seen here
         self.assertEqual([inc["kind"] for inc in state.incidents], ["unusual"])
+
+    def test_the_habit_leaves_today_out_and_looks_around(self):
+        memory = Memory({})
+        memory.record(30.0, 48.0, "2026-11-10", 40.0)
+        memory.record(30.0, 48.0, "2026-11-12", 55.0)
+        memory.record(30.02, 48.0, "2026-11-13", 70.0)        # the next cell
+        memory.record(30.0, 48.0, "2026-11-15", 300.0)        # today: not part of the habit
+        memory.record(30.0, 48.0, "2026-10-01", 500.0)        # outside the window
+        self.assertEqual(memory.habit(30.0, 48.0, "2026-11-15", 30, reach=1), (55.0, 70.0))
+        self.assertEqual(memory.habit(30.0, 48.0, "2026-11-15", 30, reach=0), (40.0, 55.0))
+        self.assertEqual(memory.habit(30.02, 48.0, "2026-11-15", 30, reach=0), (None, 70.0), "one day is no habit")
 
     def test_memory_peak_counts_today_and_the_neighbourhood(self):
         memory = Memory({})
