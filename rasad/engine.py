@@ -27,7 +27,10 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 19  # bump when the importance rules change, so stored incidents are judged again
+RULES = 18  # bump when the importance rules change, so stored incidents are judged again
+# (The rule for new heat in the desert, brain.new_heat, went in on 15 Nov 2026 without a bump on
+# purpose: a bump would have posted the fire that prompted it three hours late, unasked. Stored
+# incidents take the rule when a new sighting touches them; bump with the next rule change.)
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
