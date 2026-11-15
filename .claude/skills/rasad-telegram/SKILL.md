@@ -32,7 +32,9 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
 5. Updates are replies to the first post of that fire (`tg_msg`), say only what changed, and do
    not repeat the headline, coordinates or links.
 6. «فتح الحدث في التطبيق» opens the app on that incident: `app_link` → `?e=<id>#<id>`.
-7. Only a confirmed fire is called «مؤكد»; other verdicts are not named in the post. Since
+7. Only a confirmed fire is called «مؤكد»; other verdicts are not named in the post. Its line
+   says «N صور متتالية» only for an unbroken run of pictures; with a gap it says the count and
+   the time as they are («ظهر في 8 صور خلال نحو 4 ساعات», `brain.in_a_row`). Since
    15 Nov 2026 (the owner asked for a clear confidence level with its reasons on every alert) a
    first post also carries `🎯 الثقة: 62% (متوسطة) · الخطورة: مرتفع` (`assess.confidence_line`) and,
    when the fire is not confirmed, `🔎 <the strongest reason>` (`assess.main_reason`); updates do
@@ -44,6 +46,10 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     more after the last post, within 24 hours.
 11. A video is attached only when the pictures really show the fire; one that is ready after the
     alert goes as a reply to it. An old video is never presented as covering a newer measurement.
+    A source that has stopped publishing does not block the video of a fire whose pictures it
+    holds: old pictures are refused only when they end before the fire began (`engine.clip_for`;
+    on 15 Nov 2026 an alert sent three hours after the last picture got no video until the
+    source came back).
 13. No «سبب التأخر» line in any post (the owner removed it on 12 Nov 2026), even when the first
     report comes hours after the fire started. A fire NASA alone saw is not promised a video.
 14. The before/after picture says «تغيّر مرصود» or «لا تغيّر واضح», never a cause, never «مؤكد»,

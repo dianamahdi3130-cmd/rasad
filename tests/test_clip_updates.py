@@ -90,6 +90,41 @@ class ClipRefreshTests(unittest.TestCase):
                                 focus_time="2026-11-08T11:00:00Z")
         make.assert_not_called()
 
+    def pumping_station_fire(self):
+        # 15 Nov 2026: seen 17:40-18:40 UTC, strongest at 18:00; its alert went out at 21:51 UTC,
+        # when the European server's newest picture (18:50) was three hours and a minute old
+        self.inc.update(first="2026-11-15T17:40:00Z", last="2026-11-15T18:40:00Z", max_frp=13.9,
+                        frp_series=[["2026-11-15T17:40:00Z", 7.7, "mtg"], ["2026-11-15T18:00:00Z", 13.9, "mtg"],
+                                    ["2026-11-15T18:40:00Z", 7.0, "mtg"]])
+        for key in ("clip", "snap"):
+            self.inc.pop(key)
+
+    def render_at(self, now, latest):
+        with patch.object(engine, "clip_layers", return_value=[self.layer]), \
+                patch.object(engine, "latest_time", return_value=parse_time(latest)), \
+                patch.object(engine, "utcnow", return_value=parse_time(now)), \
+                patch.object(engine, "make_clip", return_value=("video", "picture")) as make:
+            engine.clip_for(self.cfg, Mock(), self.state, self.inc)
+        return make
+
+    def test_a_source_that_stopped_publishing_still_shows_a_fire_it_has_pictures_of(self):
+        self.pumping_station_fire()
+        make = self.render_at("2026-11-15T21:51:00Z", latest="2026-11-15T18:50:00Z")
+        self.assertEqual(make.call_args.args[4], parse_time("2026-11-15T18:10:00Z"), "up to the picture after its peak")
+        self.assertEqual(make.call_args.kwargs["frames"], 9)
+        # and hours later just the same: the pictures of the fire do not get worse with time
+        self.render_at("2026-11-16T09:00:00Z", latest="2026-11-15T18:50:00Z")
+
+    def test_old_pictures_that_end_before_the_fire_began_are_still_refused(self):
+        self.pumping_station_fire()
+        with self.assertRaisesRegex(RuntimeError, "no recent pictures"):
+            self.render_at("2026-11-15T21:51:00Z", latest="2026-11-15T17:30:00Z")
+        with self.assertRaisesRegex(RuntimeError, "no recent pictures"):   # the source did not answer at all
+            with patch.object(engine, "clip_layers", return_value=[self.layer]), \
+                    patch.object(engine, "latest_time", return_value=None), \
+                    patch.object(engine, "utcnow", return_value=parse_time("2026-11-15T21:51:00Z")):
+                engine.clip_for(self.cfg, Mock(), self.state, self.inc)
+
     def test_successful_refresh_replaces_both_assets_and_records_covered_peak(self):
         output = (self.cfg["_site_dir"] / "clips/new.mp4", self.cfg["_site_dir"] / "clips/new.jpg")
         with patch.object(engine, "clip_for", return_value=output) as render:

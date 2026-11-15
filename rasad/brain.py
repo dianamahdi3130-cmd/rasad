@@ -328,6 +328,12 @@ def count_ar(n, one, two, many):
     return one if n == 1 else two if n == 2 else f"{n} {many}"
 
 
+def in_a_row(slots, step_min=15):
+    """Pictures one after the other, none skipped (the satellites take one every 10 or 15 minutes)."""
+    times = sorted(parse_time(t) for t in slots)
+    return all((b - a).total_seconds() <= step_min * 60 for a, b in zip(times, times[1:]))
+
+
 def verdict_of(inc):
     fams = inc["families"]
     slots = len(inc["geo_slots"])
@@ -358,7 +364,11 @@ def verdict_of(inc):
                          "للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
     if slots >= 3:
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
-        return "مؤكد", f"ظهر في {slots} صور متتالية خلال {span:.0f} دقيقة"
+        if in_a_row(inc["geo_slots"]):
+            return "مؤكد", f"ظهر في {slots} صور متتالية خلال {span:.0f} دقيقة"
+        # pictures with gaps between them (the source skipped some, or the fire came back): the
+        # count and the time are said as they are, not as an unbroken run
+        return "مؤكد", f"ظهر في {slots} صور خلال " + (f"{span:.0f} دقيقة" if span < 120 else f"نحو {hours_ar(span / 60)}")
     if slots == 2:
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
         return "مرجّح", ("ظهر في صورتين متتاليتين" if span <= 15 else f"ظهر في صورتين خلال {span:.0f} دقيقة")
