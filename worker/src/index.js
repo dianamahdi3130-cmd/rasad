@@ -427,7 +427,7 @@ export class Hub {
       city: geo.city, country: geo.country }].slice(-PENDING_MAX);
     await this.save(who);
     await this.log(asked ? "blocked" : "requested", who, geo, d.label);
-    if (!asked) await this.notify(`⛔ طلب دخول بمفتاح <b>${esc(who.name)}</b> من جهاز آخر (لم يُسمح له)\n📍 ${esc(place(geo))} · ${esc(d.label)}\nإن كان المشترك نفسه قد غيّر جهازه فوافق على الطلب من لوحة المدير، وإلا فارفضه.`);
+    if (!asked) await this.notify(`⛔ طلب دخول بمفتاح <b>${esc(who.name)}</b> من جهاز أو متصفح آخر (لم يُسمح له)\n📍 ${esc(place(geo))} · ${esc(d.label)}\nإن كان المشترك نفسه قد غيّر جهازه أو متصفحه أو مسح بياناته فوافق على الطلب من لوحة المدير، وإلا فارفضه.`);
     return json({ error: "device", requested: true }, 403);
   }
 
