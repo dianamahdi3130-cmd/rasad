@@ -15,11 +15,15 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 ## Map
 | Path | What it is |
 |---|---|
-| `rasad/engine.py` | one check, `run_cycle`: collect → judge → alert → publish; `DEFAULTS` config; version constants |
-| `rasad/brain.py` | incidents: `find_incident`, `add_to_incident`, `verdict_of`, `headline`, `alert_message` (channel text), `Memory` (usual heat) |
+| `rasad/engine.py` | one check, `run_cycle`: collect → judge → alert → publish (`public_item` = what the app gets); `DEFAULTS` config; version constants |
+| `rasad/brain.py` | incidents: `find_incident`, `add_to_incident`, `verdict_of`, `headline`, `alert_message` (channel text), `surge_note`, `Memory` (usual heat, `peak` = a place's own record) |
+| `rasad/assess.py` | on top of the verdict, never against it: the kind of event (`fire` / `industrial` / `candidate`), a confidence number 0-100 with its reasons (`evidence`), seriousness, who saw it when (`sources`, `timeline`, `agreement`) |
+| `rasad/archive.py` | the long-term record the app searches: events worth keeping, one small file per month (`<state>/archive/`, copied to `<site>/data/archive/` and sent to the private app) |
 | `rasad/sources.py`, `rasad/wms.py` | EUMETView fire symbols (`detect_geo_layer`, `fetch_frp`), NASA FIRMS (`firms_fetch`); WMS client with time budgets, `Availability` |
 | `rasad/geocollect.py` | which European pictures each check reads (never-read first, then settled second reads) |
-| `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert) and experimental day finder (first light to last light, sun above −6°; never alerts alone) |
+| `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert): reads the Fire Temperature picture at **0.25 km per pixel in tiles** over ten sea boxes, red = 3.8 micron, green/blue = flame glow; and the experimental day finder (first light to last light, sun above −6°, its two boxes at 0.5 km; never alerts alone) |
+| `rasad/earlyalerts.py`, `preliminary.py`, `earlyclip.py` | the first sea sighting from one picture («رصد حراري أولي»): posted at once only when unmistakable (`strong`), shown in the app otherwise; its own short video |
+| `rasad/pictureworker.py`, `thermal_history.py` | background fetching of the finders' pictures (tiles) into `.rasad-pictures/`; "heat seen here before" for the sea finder |
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker |
 | `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after pictures for the channel: under an alert when a clear pass comes, and for the watched places of `config.yaml` → `watch.places` when a new clear pass shows a patch of change (queue, worker, picture, captions) |
 | `rasad/smoke.py` | smoke as a second witness, **silent for now**: by day, a streak in the 500 m visible pictures counts only when new, anchored at the heat, one-directional in 3+ pictures and not cold. Recorded on the incident for the app; never posted, never part of a verdict |
@@ -27,7 +31,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/notify.py`, `rasad/updates.py` | Telegram sending (HTML, replies under the first post); intensity updates |
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
-| `rasad/main.py` | CLI: `cycle`, `media-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `cloud-publish` |
+| `rasad/main.py` | CLI: `cycle`, `media-worker`, `picture-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `cloud-publish`; diagnosis: `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `grab` (keep a night's pictures), `layers`, `gibs-layers` |
 | `web/index.html` | the app's page, styles and main script (Arabic RTL, Leaflet 1.9.4). The map has three backgrounds: map, satellite, and NASA's daily picture (`DAILY`, GIBS tiles, 250 m). `web/sw.js` holds the cache name |
 | `web/imagery.js`, `web/beforeafter.js` | «قبل وبعد»: Sentinel-2 pictures (10 m) of any place read in the phone itself (engine, no page code) and its screen, with Landsat 8/9 (30 m, from Microsoft's Planetary Computer, signed by a free token) as extra dates. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
 | `worker/src/index.js` | private app on Cloudflare (Worker + Durable Object `Hub`): logins bound to a device, data, clips, admin, ingest |
@@ -70,7 +74,19 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `sampleBand`, `changeO
 - One fire = one incident record; ids unique (`tests/test_no_duplicates.py`).
 - Verdicts: «مؤكد» = two satellite families, or three consecutive pictures; «مرجّح» = two
   consecutive pictures or a clear NASA detection; «يحتاج تأكيداً» = one sighting. The sea finder
-  alone is at most «مرجّح». The day finder never alerts on its own.
+  alone is at most «مرجّح». The day finder never alerts on its own. One faint NASA pixel at night
+  at sea (under 2 MW) waits for a second look (unmapped platforms flare like that).
+- The confidence number (`assess.py`) lives inside its verdict's band («مؤكد» 75-99, «مرجّح» 50-74,
+  «يحتاج تأكيداً» under 50) and never says a cause. Smoke and the flare markers are not counted in it.
+- Picture layers are asked for at 0.25 km per pixel (never coarser than 0.3): the server answers a
+  coarser request from a blurred copy one picture behind, and small fires vanish in it
+  (`docs/reviews/hormuz_ras_al_khaimah_20261114.md`). The sea finder's numbers were tuned on real
+  nights kept as cuts in `tests/fixtures/sea_*.npz` (`tests/test_sea_real_nights.py`): change a
+  threshold only with those tests and a replay of whole nights (skill `rasad-sources`: `grab`).
+- A plant's usual flare is posted as «حرارة غير معتادة» only when a reading beats twice the
+  plant's own record of the month (`memory.unusual_record_ratio`); its post carries `surge_note`.
+- A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
+  glow of 4); a fainter one waits for its second picture.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when
   a clear Sentinel-2 pass comes (within `satpic.max_days`); the fire is kept in memory until then.
 - A watched place is posted only for a new clear pass with a connected patch of change of at
