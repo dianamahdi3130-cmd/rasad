@@ -104,6 +104,23 @@ class Confidence(unittest.TestCase):
         self.assertEqual(assess._count(25, "صورة واحدة", "صورتين", "صور", "صورة"), "25 صورة")
 
 
+class OpenSea(unittest.TestCase):
+    """NASA alone, at night, in open water."""
+
+    def sea(self, *pixels):
+        return incident([det("VIIRS_NOAA20_NRT", "viirs", "2026-11-11T22:33:00Z", "polar", frp, conf="n",
+                             night=True, lat=28.45 + k * 0.004, lon=48.91) for k, frp in enumerate(pixels)])
+
+    def test_one_faint_pixel_waits_for_a_second_look(self):
+        # 0.57 MW off Khafji on 11 November 2026: a platform's small flare, posted as a sea fire
+        inc = self.sea(0.57)
+        self.assertEqual(inc["verdict"], "يحتاج تأكيداً")
+
+    def test_a_pixel_of_some_strength_or_two_pixels_are_likely(self):
+        self.assertEqual(self.sea(5.2)["verdict"], "مرجّح")
+        self.assertEqual(self.sea(0.9, 1.1)["verdict"], "مرجّح")
+
+
 class AlertLines(unittest.TestCase):
     def test_first_post_carries_the_confidence_line(self):
         inc = incident([det("mtg_spot", "mtg", "2026-11-14T15:40:00Z", flame=True),

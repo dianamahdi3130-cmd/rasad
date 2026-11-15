@@ -410,16 +410,26 @@ def _clear(p):
     return int(c) >= 40 if c.isdigit() else True
 
 
+SEA_FAINT_MW = 2.0   # below this, one night pixel at sea is what a platform's small flare looks like
+
+
 def open_sea_fire(inc):
     """Out at sea, away from platforms and with no earlier heat there, a NASA hotspot has few
-    innocent explanations: at night none (no sun glint, no fields, no flare stacks); by day it has
-    to be a clear detection of some strength (ships hit in the Strait of Hormuz burn by day too)."""
+    innocent explanations. At night there is no sun glint and there are no fields, but there are
+    oil platforms that are on no map: a single faint pixel (under 2 MW) is how their small flares
+    look (three such posts went out on 10-12 November 2026, all in oil-field waters), so one of
+    those waits for a second look. By day it has to be a clear detection of some strength (ships
+    hit in the Strait of Hormuz burn by day too)."""
     if inc.get("place") != "sea" or inc.get("kind") != "new" or (inc.get("known_days") or 0) > 0:
         return False
     f = inc.get("facility")
     if f and f.get("nearest_km", f["km"]) <= 3:
         return False
-    return any(_clear(p) and (p.get("night") or (p.get("frp") or 0) >= 5) for p in inc["polar"])
+    clear = [p for p in inc["polar"] if _clear(p)]
+    night = [p for p in clear if p.get("night")]
+    if night and (len(night) >= 2 or max((p.get("frp") or 0) for p in night) >= SEA_FAINT_MW):
+        return True
+    return any((p.get("frp") or 0) >= 5 for p in clear)
 
 
 def nearby_confirmed(inc, incidents, km=25.0, hours=24.0):
