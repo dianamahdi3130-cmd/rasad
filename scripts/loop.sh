@@ -21,7 +21,9 @@ start_sha=$(git rev-parse HEAD)
 # of at the end of this six-hour run. (The run cannot ask Cloudflare itself: the secrets the owner
 # adds while it is running are not in its hands.)
 MARK=refs/tags/private-app-deployed
-mark_of() { git ls-remote origin "$MARK" 2>/dev/null | cut -f1; }
+mark_of() {  # never a long wait
+  timeout --signal=TERM --kill-after=5s 20s git ls-remote origin "$MARK" 2>/dev/null | cut -f1
+}
 start_mark=$(mark_of)
 end=$((SECONDS + MINUTES * 60))
 n=0
