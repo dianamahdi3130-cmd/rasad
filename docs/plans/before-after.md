@@ -1,7 +1,8 @@
 # Before / after imagery («قبل وبعد»)
 
 Status: **phase 1 is built** (10 Nov 2026), in the browser: `web/imagery.js` (engine) and
-`web/beforeafter.js` (screen). The first decision below was settled by a real test: Earth Search
+`web/beforeafter.js` (screen), and grown into an imagery browser with analysis tools on 15 Nov
+2026 (see «The imagery browser» near the end). The first decision below was settled by a real test: Earth Search
 and both picture buckets answer with `Access-Control-Allow-Origin: *`, range reads included, so
 there is no worker, no queue and no server work. See «What was built» at the end; the rest of
 this page is the design as agreed, kept for the reasons behind it.
@@ -142,7 +143,75 @@ request is closed quietly. By hand: `python -m rasad satpic --lat … --lon … 
   with `MediaRecorder` (MP4 where the browser can, else WebM): «قبل», the divider sweeps to «بعد»,
   the change is marked, and back. `filmPlan` is the script; a browser that cannot record says so.
 
+## The imagery browser (15 Nov 2026, the owner asked for "the Copernicus Browser, simpler and faster, with analysis tools")
+The same two files (`web/imagery.js` engine, `web/beforeafter.js` screen), still nothing on the
+server. The screen now brings its own stylesheet (`<style id="ba-style">`, added once by
+`BA.init`, written with the page's CSS variables) and makes all its markup inside `#baSheet`.
+
+- **The place, without typing**: tap a point (4 km box), **draw an area** on the map, or **«صوّر ما
+  أراه»** (the map as it is on screen). Drawing does not fight with moving the map: a switch
+  «تحريك / تحديد» says what a finger does; in «تحديد» a drag draws the rectangle (or two taps set two
+  corners), then the map moves again and four handles adjust it. The engine reads square boxes of
+  fixed sizes, half-width 1, 2, 3, 5, 10 and now **20 and 40 km**: a rectangle becomes the smallest
+  box that holds it (`boxOfRect`, shown dashed on the map, its size said), the map view the nearest
+  one by area (`boxOfView`). A picture never has more than 800 × 800 points (400 with «توفير
+  البيانات» on a wide box), so a wide box is read from the files' coarser overviews and the screen
+  says the true size of one point (10 m up to 6 km, 12.5 m at 10 km, 25, 50, 100 m at 20, 40,
+  80 km). Boxes of 40 and 80 km open on one picture. `BA.here()` and `BA.draw()` are there for the
+  page's own buttons.
+- **A box wider than one tile**: the tiles of the same pass are joined (`pass.parts`, also across
+  a UTM zone edge); the sky of boxes wider than 20 km is judged on 500 × 500 points. A box inside
+  one tile is read exactly as before.
+- **Dates**: one strip of all passes, Sentinel-2 and Landsat together, newest first: the day, the
+  satellite and a dot for the sky (clear / partly / cloudy, cloudy ones dimmed but still to choose);
+  «أقدم» at its end lists four more months without touching the pictures on screen. Two cards hold
+  «قبل» and «بعد» (a tap on a card says which of them a tapped date goes to), each with «أقدم /
+  أحدث»; quick choices: «أحدث صورة صافية», «قبل الحدث وبعده» / «آخر صورتين صافيتين».
+- **Four ways to show**: one picture, the divider, the blink, side by side (two panes that move
+  together: beside each other on a wide screen, one above the other on a phone). Links carry it:
+  `…,s=single|blink|side,c=swir|veg|fire|nbr|ndvi,o=change|burn` after the dates (also after an
+  incident id); a link without them opens as it always did.
+- **Bands** (Sentinel-2 / Landsat 8-9 OLI): natural colour B04·B03·B02 / B4·B3·B2; short-wave
+  infrared B12·B8A·B04 / B7·B5·B4; plants (false colour) B08·B04·B03 / B5·B4·B3; fires and burnt
+  ground B12·B11·B04 / B7·B6·B4; **NBR** = (B8A − B12)/(B8A + B12) / (B5 − B7)/(B5 + B7); **NDVI**
+  = (B08 − B04)/(B08 + B04) / (B5 − B4)/(B5 + B4). Band 8 (the only infrared band at 10 m) is
+  fetched only for a sharp plant view; until it arrives, at 20 m or coarser, and where a pass has no
+  such file, band 8A stands in and the screen says so. A view a satellite cannot show is closed
+  with a word why (`comboAvailable`). The indices are drawn with fixed ramps (lightest where there
+  is nothing to see, darker to both sides) and a legend under the picture; the label on the
+  picture gives the true sharpness of the view (a 20 m band stays 20 m in a 10 m picture).
+  «تحسين العرض» is a stronger contrast stretch and a sharpening filter, display only.
+- **Analysis**: the change layer and the flames as before; **«أثر احتراق محتمل» (dNBR)** = NBR
+  before − NBR after in the usual classes (0.10 low, 0.27 moderate, 0.44 high, 0.66 severe) with
+  the area of each (`burnOf`): left out are no data, cloud, its shadow and haze on either date
+  (everything `changeOf` leaves out, and cloud on both dates), water and deep shadow, flames and
+  30 m around them; a drift of the whole box between the dates is taken out (up to 0.08); a pixel
+  counts when it is not alone. It is worded as a sign, never a cause. A **point inspector** (tap or
+  hover: coordinates to copy, reflectance of every band on each date, NDVI, NBR, dNBR, scene
+  class), the distance measure and an **area measure** (corners by taps). One card, «ملخص
+  التحليل», holds the results, the dates with satellite and clearness, and the standing cautions.
+- **Out**: the picture and the film as before, and a **report**: one tall picture (A4 portrait,
+  1240 × 1754, twice that where the phone can) and the same on paper («طباعة / PDF»: a section
+  only the printer sees, then `window.print()`), both drawn from one model (`reportModel`): brand,
+  place, coordinates and box, the pictures with date, Baghdad and UTC time, satellite, sensor,
+  sharpness and clearness, the layers with legend and areas, the summary, the source, when it was
+  made, the cautions.
+- **Speed**: each band is asked for on its own and kept in memory within a byte budget
+  (`engine.loadBands`, 96 MB of bands and 56 MB of tiles, half on a phone with little memory), so
+  the picture appears as soon as its three bands are there (first at 20 m, then the rest, then
+  10 m), a view switches without a download, and a download two views share is cancelled only when
+  both have left it. The comparison of two dates (change and dNBR) runs in a background worker
+  made from the engine's own text (`I.source`, no second file), and on the main thread where a
+  worker cannot start.
+
+Not checked against the real archives yet (the session that built it had no network; the tests
+and the screenshots use the made-up archive): the address and name of band 8 (`B08.tif`, asset
+`nir`; if the guess is wrong the record is asked, and band 8A stands in), the overview sizes and
+tile sizes of the real files for 40 and 80 km boxes (how many megabytes a wide box costs), joining
+real neighbouring tiles of one pass, and Landsat at 60-240 m overviews.
+
 ## Not built yet
 Phases 2 and 3 above (sub-metre commercial pictures need a paid order per event); a time-lapse
 through all clear passes; partial reading of a tile (would cut the download for boxes near a tile
-corner); the picture inside the private app's clip store.
+corner); the picture inside the private app's clip store; the drawn rectangle shown inside the
+square picture; the zoom and position of the view inside a link.
