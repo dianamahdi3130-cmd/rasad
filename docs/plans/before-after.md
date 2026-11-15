@@ -215,3 +215,13 @@ Phases 2 and 3 above (sub-metre commercial pictures need a paid order per event)
 through all clear passes; partial reading of a tile (would cut the download for boxes near a tile
 corner); the picture inside the private app's clip store; the drawn rectangle shown inside the
 square picture; the zoom and position of the view inside a link.
+
+## Measured on real pairs (15 Nov 2026)
+The engine was run on the real archives for three places with no fire between the dates
+(`python -m rasad imagery-check`, see `docs/reviews/imagery_real_pairs_20261115.md`). Band 8 is
+where the guess says, an 80 km box joins four tiles, the zone edge at 48°E is whole, Landsat reads
+with its token. Two defaults were wrong and are fixed: the burn layer painted 1 to 11 ha of ground
+that only dried or of tower shadows (now a patch needs 0.5 ha with a 0.2 ha core of the moderate
+class: 0 ha at all three places), and a pair from two neighbouring tracks measured 50 ha of change
+in Kuwait City (now «before» is taken from the track of «after» when a clear pass of it is at most
+12 days older: 11 ha).

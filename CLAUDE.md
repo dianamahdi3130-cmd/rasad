@@ -119,12 +119,18 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   (`APP_V`, `access.js?v=` in its script tag, `TOOLS`) and in `LATER` of `sw.js` (a test checks
   they agree).
 - Text: «الخليج الفارسي» (never «الخليج العربي»); fire power written `MW` in Latin letters
-  (`brain.mw_ar`); times in Baghdad time (UTC+3); Latin names wrapped by `brain.bidi_safe`.
+  (`brain.mw_ar`); times in Baghdad time (UTC+3); Latin names wrapped by `brain.bidi_safe`; a sea
+  is not near itself: «حريق في مياه الخليج الفارسي», but «في البحر قرب الإمارات» (`brain.at_sea`).
   Channel rules in skill `rasad-telegram`.
 - Before/after pictures say «تغيّر مرصود», never a cause and never «ضرر مؤكد»; cloud on one of
   the two dates is said, not counted as change. Every request to the archive has a time budget.
   The imagery browser's burn layer is the usual dNBR classes under the name «أثر احتراق محتمل»
-  (possible, never certain); the channel's pictures do not use it.
+  (possible, never certain); the channel's pictures do not use it. Two things were measured on real
+  pairs with no fire between them (`docs/reviews/imagery_real_pairs_20261115.md`) and must stay:
+  «before» comes from the same track of the satellite as «after» when a clear pass of it is at most
+  12 days older (`sameView` in `imagery.js`, `choose` in `beforeafter.js`, `s2.before_for` for the
+  channel's fire pictures), and a burn patch counts only from half a hectare with a core of the
+  moderate class (`BURN_PATCH_HA`, `BURN_CORE_HA`). Check changes to either with `imagery-check`.
 - App: opens on the last 24 hours (3-day and week options); the photo button saves a portrait
   image without the logo; the map stays the main thing (panels never cover it whole, and
   Back/Escape always returns to it without a reload); the private app admits only the manager and
