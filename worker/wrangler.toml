@@ -1,16 +1,21 @@
 # ALFAQAAR FIRMS — the private Rasad app on Cloudflare (free plan).
-# Address: https://firms.<your workers.dev name>.workers.dev
-name = "firms"
+# Address: https://rasad.<your workers.dev name>.workers.dev
+# and, when the repository variable RASAD_DOMAIN is set, that domain as well (the deploy
+# workflow adds it below as a custom domain; the domain must be on the same Cloudflare account).
+name = "rasad"
 main = "src/index.js"
 compatibility_date = "2025-06-01"
 workers_dev = true
 preview_urls = false
 
-# The app's own files (copied from ../web when deploying). They hold no data: the data and the
-# clips come from the Worker below, only for signed-in staff.
+# The app's own files (copied from ../web when deploying). The Worker runs first for every
+# request: the page and the sign-in script go to anyone (they hold no data), every other file
+# only to a signed-in subscriber (isPublicPath in src/index.js). The data and the clips come from
+# the Worker itself, never from these files.
 [assets]
 directory = "./public"
 binding = "ASSETS"
+run_worker_first = true
 
 [[durable_objects.bindings]]
 name = "HUB"
