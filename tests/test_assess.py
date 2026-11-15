@@ -144,6 +144,18 @@ class AlertLines(unittest.TestCase):
         self.assertNotIn("🏭 شعلة", message)                 # not a plant's surge
         self.assertNotIn("سبب", message)                     # never a cause
 
+    def test_a_sea_is_not_near_itself(self):
+        # the live app read «حريق في البحر قرب الخليج الفارسي» for a fire in the Gulf itself
+        self.assertEqual(brain.at_sea("حريق", "الخليج الفارسي"), "حريق في مياه الخليج الفارسي")
+        self.assertEqual(brain.at_sea("بقعة حرارية أولية", "البحر الأحمر وباب المندب"),
+                         "بقعة حرارية أولية في مياه البحر الأحمر وباب المندب")
+        self.assertEqual(brain.at_sea("حريق", "الإمارات"), "حريق في البحر قرب الإمارات")
+        self.assertEqual(brain.at_sea("حريق", "مضيق هرمز"), "حريق في البحر قرب مضيق هرمز")   # its region reaches beyond the strait
+        self.assertEqual(brain.at_sea("حريق", None), "حريق في البحر")
+        spots = [det("mtg_spot", "mtg", f"2026-11-14T{hh}:00Z", flame=True) for hh in ("15:40", "15:50")]
+        self.assertEqual(incident(spots, region_name="الخليج الفارسي")["headline"], "حريق في مياه الخليج الفارسي")
+        self.assertEqual(incident(spots)["headline"], "حريق في البحر قرب مضيق هرمز")
+
     def test_updates_stay_short(self):
         inc = incident([det("mtg_frp", "mtg", "2026-11-14T16:10:00Z", frp=40.0),
                         det("VIIRS_NOAA20_NRT", "viirs", "2026-11-14T16:40:00Z", "polar", 35.0, conf="h")])

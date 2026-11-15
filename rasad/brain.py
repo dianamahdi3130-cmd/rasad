@@ -457,6 +457,16 @@ def hours_ar(h):
     return "ساعة" if n == 1 else "ساعتين" if n == 2 else f"{n} ساعات" if n <= 10 else f"{n} ساعة"
 
 
+def at_sea(what, region):
+    """«حريق في البحر قرب الإمارات», but «حريق في مياه الخليج الفارسي»: a sea is not near itself.
+    A strait stays «قرب»: its region reaches well beyond the strait proper."""
+    if not region:
+        return f"{what} في البحر"
+    if re.match(r"(ال)?(بحر|خليج)", region):
+        return f"{what} في مياه {region}"
+    return f"{what} في البحر قرب {region}"
+
+
 def headline(inc, cfg):
     f = inc.get("facility")
     region = inc.get("region_name")
@@ -465,14 +475,14 @@ def headline(inc, cfg):
         return ("بقعة حرارية في البحر قرب حدث سابق" if inc.get("place") == "sea"
                 else "بقعة حرارية قرب حدث سابق")
     if day_requires_confirmation(inc):
-        return "بقعة حرارية نهارية في البحر" + (f" قرب {region}" if region else "")
+        return at_sea("بقعة حرارية نهارية", region)
     if inc["kind"] == "unusual":
         return f"حرارة غير معتادة في {f['label']}" if f else "حرارة غير معتادة في موقع صناعي"
     if f and f["km"] < 0.8:
         # new heat right on a platform is often a flare being lit: say heat, not fire
         return f"حرارة عند {f['label']}" if f.get("code") == "platform" else f"حريق في {f['label']}"
     if inc["place"] == "sea":
-        return "حريق في البحر" + (f" قرب {region}" if region else "")
+        return at_sea("حريق", region)
     if f and f["km"] <= near:
         return f"حريق قرب {f['label']}"
     if inc["place"] == "coast":

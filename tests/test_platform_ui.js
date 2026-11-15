@@ -80,6 +80,10 @@ test("older data without the new fields still gets a kind, a level and a mark", 
   assert.equal(app.categoryOf({kind: "new"}), "fire");
   assert.deepEqual({...app.confOf({verdict: "مؤكد"})}, {n: null, level: "عالية", label: "الثقة", cls: "v-sure", lcls: "v-sure"});
   assert.equal(app.confOf({verdict: "مرجّح"}).level, "متوسطة");
+  // an archived event carries no label: at a plant the number is about the plant's habits
+  assert.equal(app.confOf({category: "industrial", verdict: "مؤكد", confidence: 60}).label, "الثقة بأنه خارج المعتاد");
+  assert.equal(app.confOf({kind: "unusual", confidence: 60}).label, "الثقة بأنه خارج المعتاد");
+  assert.equal(app.confOf({category: "industrial", confidence_label: "من البيانات"}).label, "من البيانات");
   assert.equal(app.confOf({verdict: "يحتاج تأكيداً", confidence: 140}).n, 100, "a number out of range is clamped, never shown as it is");
   assert.equal(app.confOf({confidence: 60}).level, "متوسطة", "without a level the number decides");
 });

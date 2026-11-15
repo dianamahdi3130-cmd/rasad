@@ -1071,7 +1071,8 @@ function confOf(it){   // {n: 0-100 or null when the data has no number, level, 
   const n = typeof it.confidence === "number" && Number.isFinite(it.confidence) ? Math.max(0, Math.min(100, Math.round(it.confidence))) : null;
   const byVerdict = it.verdict === "مؤكد" ? "عالية" : it.verdict === "مرجّح" ? "متوسطة" : "منخفضة";
   const level = LEVELS.includes(it.confidence_level) ? it.confidence_level : n == null ? byVerdict : n >= 75 ? "عالية" : n >= 50 ? "متوسطة" : "منخفضة";
-  return {n, level, label: (typeof it.confidence_label === "string" && it.confidence_label.trim()) || "الثقة",
+  // the archive keeps no label: at a plant the number says how far outside the plant's habits the heat is
+  return {n, level, label: (typeof it.confidence_label === "string" && it.confidence_label.trim()) || (categoryOf(it) === "industrial" ? "الثقة بأنه خارج المعتاد" : "الثقة"),
     cls: V[it.verdict] || "v-check", lcls: level === "عالية" ? "v-sure" : level === "متوسطة" ? "v-likely" : "v-check"};
 }
 const SEV = ["منخفض", "متوسط", "مرتفع", "حرج"];
@@ -3417,8 +3418,10 @@ async function boot(){
   NAV.i = (history.state && history.state.i) || 0;
   NAV.trail[NAV.i] = decodeURIComponent(location.hash.slice(1));
   sheetTo("half");
-  // on the private app the door answers (access.js); on plain static hosting there is no door
-  const A = access();
+  // on the private app the door answers (access.js); on plain static hosting there is no door.
+  // GitHub Pages can never be the private app, so the open site there starts at once instead of
+  // waiting for a door that does not exist (up to 20 seconds on a slow line).
+  const A = /\.github\.io$/i.test(location.hostname) ? null : access();
   if (A){
     A.onLocked = reason => lock(reason);
     let st = null;

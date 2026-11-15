@@ -1,6 +1,7 @@
-{"mode": "steps", "try": 8,
+{"mode": "steps", "try": 7,
  "steps": [
-  ["imagery-check", "--lat", "30.4567", "--lon", "47.715", "--half", "2", "--wide", "20", "--days", "90", "--tag", "basra"],
-  ["imagery-check", "--lat", "29.37", "--lon", "47.98", "--half", "2", "--wide", "20", "--days", "60", "--tag", "kuwait_zone_edge"],
-  ["imagery-check", "--lat", "25.12", "--lon", "56.34", "--half", "2", "--wide", "40", "--days", "60", "--tag", "fujairah"]
+  ["seascan", "--start", "2026-11-04T14:30Z", "--end", "2026-11-04T18:00Z", "--boxes", "hormuz_oman"],
+  ["pictures", "--lat", "26.0572", "--lon", "55.8089", "--start", "2026-11-04T15:00Z", "--end", "2026-11-04T16:20Z"],
+  ["pictures", "--lat", "26.3671", "--lon", "55.7298", "--start", "2026-11-04T16:40Z", "--end", "2026-11-04T17:50Z"],
+  ["pictures", "--lat", "26.018", "--lon", "56.548", "--start", "2026-11-01T21:20Z", "--end", "2026-11-01T22:40Z"]
  ]}

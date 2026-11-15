@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
+from .brain import at_sea
 from .util import haversine_km, in_bbox, iso, local_text, parse_time, sun_elevation
 
 SOURCE = "mtg_spot"
@@ -112,13 +113,12 @@ def public_candidates(cfg, state, incidents, now):
             seen.add(key)
             regions.sort(key=lambda r: (r["bbox"][2] - r["bbox"][0]) * (r["bbox"][3] - r["bbox"][1]))
             region = regions[0].get("name", "")
-            near = f" قرب {region}" if region else ""
             note = "رصد حراري أولي قيد التحقق؛ لا يتوفر فيديو لهذه البقعة حالياً"
             rows.append({
                 "id": f"candidate-{stamp[:16].replace('-', '').replace(':', '').replace('T', '-')}_{lat:.4f}_{lon:.4f}",
                 "kind": "thermal_candidate", "preliminary": True,
-                "headline": "بقعة حرارية أولية في البحر" + near,
-                "where": "في البحر" + near, "place": "sea", "country": "", "facility": None,
+                "headline": at_sea("بقعة حرارية أولية", region),
+                "where": at_sea("", region).strip(), "place": "sea", "country": "", "facility": None,
                 "first": stamp, "last": stamp, "lat": lat, "lon": lon, "best": "geo",
                 "start_text": local_text(when, cfg), "last_text": local_text(when, cfg),
                 "verdict": "يحتاج تأكيداً", "priority": "high", "size": None,

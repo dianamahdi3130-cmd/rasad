@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 
 from . import mediaqueue, preliminary
-from .brain import app_link
+from .brain import app_link, at_sea
 from .util import haversine_km, iso, local_text, parse_time
 
 DEFAULTS = {"enabled": False, "max_age_min": 45, "max_new_per_run": 3,
@@ -394,8 +394,7 @@ def items(cfg, state, incidents, now):
         item["max_frp"], item["frp_series"], item["size"] = None, None, None
         item["alerted"] = bool(record.get("sent_at"))   # went out to the channel as a first sighting
         if now - last > _lifetime(cfg):
-            item["headline"] = "رصد حراري سابق لم يتأكد" + (
-                " قرب " + item["region_name"] if item.get("region_name") else "")
+            item["headline"] = at_sea("رصد حراري سابق لم يتأكد", item.get("region_name"))
             item["reason"] = "لم يصل تأكيد إضافي لهذا الرصد الحراري"
             item["clip_status_text"] = "" if item.get("clip") else "لم يتأكد الرصد؛ لا يتوفر فيديو حالياً"
         elif item.get("clip"):
