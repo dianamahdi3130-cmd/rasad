@@ -15,7 +15,7 @@ const inline = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].m
 const declarations = inline.split("/* ---------- events ---------- */")[0];
 const NOW = Date.parse("2026-11-15T13:45:00Z");
 const NAMES = ["S", "UI", "ARC", "ADM", "WATCH", "NAV", "visible", "scoped", "passes", "shown", "render", "normAr", "kmBetween", "categoryOf", "confOf", "markerStyle",
-  "sourceTags", "timelineView", "tlRange", "dashStats", "archiveFilter", "archiveMonths", "csvOf", "nearPlace", "watchNews", "sourceState", "statusInfo", "formatKey", "gateText",
+  "sourceTags", "timelineView", "tlRange", "dashStats", "archiveFilter", "archiveMonths", "csvOf", "nearPlace", "watchNews", "sourceState", "statusInfo", "looksLikeKey", "gateText",
   "expiryInfo", "keyMessage", "subsHTML", "adminHTML", "nasaUrl", "nightDefault", "dailyUrl", "NASA_VIEWS", "chartModel", "strengthChart", "niceStep", "detailHTML", "reportHTML",
   "suggestions", "parseCoords", "route", "setRoute", "go", "leave", "setTab", "openDetail", "lock", "cardHTML", "usualHTML", "histHTML", "TOOLS", "SEV", "flareCards", "showTab"];
 
@@ -360,13 +360,19 @@ test("sections and incidents are routes: «رجوع» and Escape always end on t
 });
 
 /* ---------- the private app ---------- */
-test("the access key is shaped as it is typed, and the screen has a plain answer for every refusal", () => {
+test("what is typed in the key field goes to the door as typed, and the screen has a plain answer for every refusal", () => {
   const {app} = page();
-  assert.equal(app.formatKey("rsd abcde fghjk lmnpq rstuv"), "RSD-ABCDE-FGHJK-LMNPQ-RSTUV");
-  assert.equal(app.formatKey("RSDabcde-fgh"), "RSD-ABCDE-FGH");
-  assert.equal(app.formatKey("rs"), "rs", "not a key yet: untouched");
-  assert.equal(app.formatKey("rsd-abcde-fghjk-lmnpq-rstuv-extra"), "RSD-ABCDE-FGHJK-LMNPQ-RSTUV", "never longer than a key");
-  assert.equal(app.formatKey("My long Manager code 2026!"), "My long Manager code 2026!", "the manager's own code is compared exactly by the door: left as typed");
+  // The door tidies a subscriber's key itself and compares the manager's code letter by letter: a page
+  // that reshaped the text would lock out a manager whose code looks like a key ("rsd…", or 20 letters).
+  assert.match(html, /A\.login\(input\.value\.trim\(\)\)/, "sent exactly as typed");
+  assert.doesNotMatch(html, /normalizeKey\(input\.value\)|formatKey/, "never reshaped by the page");
+  const field = html.match(/<input id="lKey"[^>]*>/)[0];
+  assert.match(field, /autocapitalize="off"/, "a phone keyboard must not turn the manager's code into capitals");
+  assert.match(field, /autocomplete="off"/);
+  assert.equal(app.looksLikeKey("rsd abcde"), true, "a key in the making is shown in capitals (style only)");
+  assert.equal(app.looksLikeKey(" RSD-"), true);
+  assert.equal(app.looksLikeKey("My long Manager code 2026!"), false);
+  assert.match(html, /\.gate input\.keyish\{text-transform:uppercase\}/);
   const device = app.gateText("device");
   assert.match(device.state, /class="state warn"/); assert.match(device.state, /type="submit"/, "the same key can be tried again once the manager has approved");
   assert.equal(device.error, "");

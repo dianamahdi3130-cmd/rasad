@@ -654,6 +654,7 @@ details.tbl th{color:var(--muted)}
 .gate label{font-size:13px;color:var(--muted);margin-top:6px}
 .gate input{font:600 16px/1.4 var(--font-lat);letter-spacing:1px;text-align:center;color:var(--fg);background:var(--surface);border:1px solid var(--line-2);border-radius:12px;padding:13px 10px;outline:none;width:100%;margin-top:-6px}
 .gate input::placeholder{color:var(--dim);font-weight:500;letter-spacing:.5px}
+.gate input.keyish{text-transform:uppercase}
 .gate input:focus{border-color:var(--data);box-shadow:0 0 0 3px color-mix(in srgb,var(--data) 24%,transparent)}
 .gate #lBtn{font:700 16px/1 var(--font-display);padding:15px;border-radius:12px;border:0;background:var(--accent);color:var(--on-accent)}
 .gate #lBtn[disabled]{opacity:.6}
@@ -993,8 +994,8 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
     <p class="tagline">منصة رصد الحرائق من الأقمار الصناعية</p>
     <div id="lState" role="status"></div>
     <label for="lKey">مفتاح الدخول</label>
-    <input id="lKey" name="rasad-key" type="text" dir="ltr" inputmode="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"
-      maxlength="48" placeholder="RSD-XXXXX-XXXXX-XXXXX-XXXXX" aria-describedby="lErr lFine" required>
+    <input id="lKey" name="rasad-key" type="text" dir="ltr" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+      maxlength="120" placeholder="RSD-XXXXX-XXXXX-XXXXX-XXXXX" aria-describedby="lErr lFine" required>
     <div class="err" id="lErr" role="alert"></div>
     <button type="submit" id="lBtn">دخول</button>
     <p class="fine" id="lFine">يرتبط المفتاح بهذا الجهاز عند أول دخول، ولا يعمل بعدها على جهاز آخر. ادخل من الجهاز والمتصفح اللذين ستستخدمهما دائماً.</p>
@@ -2652,13 +2653,11 @@ function mapMenu(e){
 }
 
 /* ---------- the private app: a key tied to this device (access.js does the talking, this is the screen) ---------- */
-// What is typed or pasted in the key field. A subscriber's key is shaped as RSD-XXXXX-XXXXX-XXXXX-XXXXX;
-// anything else (the manager's own code, which the door compares exactly) is left as it was typed.
-function formatKey(text){
-  const typed = String(text ?? ""), raw = typed.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (!raw.startsWith("RSD")) return typed;
-  return ["RSD", ...(raw.slice(3, 23).match(/.{1,5}/g) || [])].join("-");
-}
+// What is typed or pasted in the key field goes to the door exactly as typed. The door tidies a
+// subscriber's key itself (capitals, dashes, Arabic digits) and compares the manager's own code
+// letter by letter, so the page must never reshape the text: a manager's code that happened to
+// look like a key would stop working. A key in the making is only *shown* in capitals.
+const looksLikeKey = text => /^\s*rsd/i.test(String(text ?? ""));
 // The sentences are the sign-in library's own (RasadAccess.errorText); the cards below only give the
 // states a person meets most a title and a tone: [tone, icon, title, offer to try the same key again]
 const GATE = {
@@ -3036,11 +3035,11 @@ async function signIn(){
   if (!input.value.trim()) { $("#lErr").textContent = gateText("missing").error; input.focus(); return; }
   btn.disabled = true; btn.textContent = "جارٍ التحقق…";
   let res;
-  try { res = await A.login((typeof A.normalizeKey === "function" && A.normalizeKey(input.value)) || input.value.trim()); } catch { res = {ok:false, error:"network"}; }
+  try { res = await A.login(input.value.trim()); } catch { res = {ok:false, error:"network"}; }      // as typed: the door tidies a key itself
   btn.disabled = false; btn.textContent = "دخول";
   if (res && res.ok){
     S.me = res.me || A.me || null;
-    input.value = ""; $("#lState").innerHTML = "";
+    input.value = ""; input.classList.remove("keyish"); $("#lState").innerHTML = "";
     startApp();
     if (typeof A.watch === "function") A.watch();
     return;
@@ -3244,10 +3243,7 @@ document.addEventListener("input", e => {
   else if (t.closest("#newSub")) ADM.form[t.name] = t.value;
   else if (t.id === "finderQ") renderSuggest();
   else if (t.id === "tlRange"){ play(false); setTime(+t.value); }
-  else if (t.id === "lKey"){          // a subscriber's key takes its capitals and dashes as it is typed or pasted
-    const shaped = formatKey(t.value);
-    if (shaped !== t.value && (t.selectionStart === t.value.length || e.inputType === "insertFromPaste")) t.value = shaped;
-  }
+  else if (t.id === "lKey") t.classList.toggle("keyish", looksLikeKey(t.value));     // shown in capitals; the text itself stays as typed
 });
 document.addEventListener("submit", e => {
   const t = e.target;
