@@ -27,7 +27,7 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 17  # bump when the importance rules change, so stored incidents are judged again
+RULES = 18  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -51,10 +51,12 @@ DEFAULTS = {
                                    "عُمان", "إيران", "اليمن"]},
     "memory": {"persistent_min_days": 2, "window_days": 30, "unusual_ratio": 5, "unusual_add_mw": 25,
                "unusual_facility_km": 3,
-               # a plant's flare is news only when it burns well above its own record of the
-               # month: the same plants surge to the same level every few days, and that is
-               # their normal working, not a fire (16 of the first 25 posts were such surges)
-               "unusual_record_ratio": 2.0},
+               # a plant's flare is news only when it burns well above its own habit (a level it
+               # reached on two different days of the month): the same plants surge to the same
+               # level every few days, and that is their normal working, not a fire (16 of the
+               # first 25 posts were such surges). One episode is posted once: not again within
+               # unusual_repeat_days unless unusual_repeat_ratio times what was posted.
+               "unusual_record_ratio": 2.0, "unusual_repeat_days": 3, "unusual_repeat_ratio": 1.5},
     "incidents": {"merge_km": 6, "merge_hours": 12, "keep_days": 7,
                   "max_polar_gap_hours": 3, "polar_relocation_km": 2},
     "firms": {"map_key": "", "base_url": "https://firms.modaps.eosdis.nasa.gov",
@@ -853,10 +855,25 @@ def run_cycle(cfg, send=True, alert_now=False):
             frp >= max(float(M["unusual_ratio"]) * typical, typical + float(M["unusual_add_mw"])) and \
             (steady_facility if steady_facility is not None else
              geo.facility_within(d["lat"], d["lon"], float(M["unusual_facility_km"])))
-        # the place's own record of the month (today's earlier readings included), read before
-        # this reading is remembered: a new "unusual heat" event must clearly beat it
-        site_record = mem.peak(d["lat"], d["lon"], day, int(M["window_days"]), reach) if unusual else None
-        beats_record = site_record is None or frp >= float(M.get("unusual_record_ratio", 2.0)) * site_record
+        # The plant's own habit: a level it reached on at least two different earlier days of the
+        # month. A new "unusual heat" event must clearly beat it. (Until 15 Nov 2026 the bar was
+        # the single highest reading, today's earlier ones included: a fire that grew through the
+        # day, or a plant climbing day after day, silenced itself. Ahmadi went 49, 66, 85, 118 MW
+        # on four days against a usual 2 MW without a word.)
+        site_habit, site_record = mem.habit(d["lat"], d["lon"], day, int(M["window_days"]), reach) if unusual else (None, None)
+        beats_record = site_habit is None or frp >= float(M.get("unusual_record_ratio", 2.0)) * site_habit
+        if unusual and beats_record:
+            # ...and one episode is one piece of news: the same plant is not posted again within
+            # a few days unless it now burns half as hard again as what was posted
+            again = float(M.get("unusual_repeat_ratio", 1.5))
+            since = parse_time(d["t"]) - dt.timedelta(days=float(M.get("unusual_repeat_days", 3)))
+            for other in S.incidents:
+                if other.get("kind") == "unusual" and other.get("alerted_verdict") \
+                        and parse_time(other["last"]) >= since \
+                        and haversine_km(d["lat"], d["lon"], other["lat"], other["lon"]) <= 2.0 * reach + 2.0 \
+                        and frp < again * float(other.get("max_frp") or 0.0):
+                    beats_record = False
+                    break
         routine = known and not unusual
         # a steady flare burning far busier than usual: noted for the app only (flares.py)
         if FL.get("enabled", True) and d["src"] == flares.SRC and steady and typical is not None \
@@ -879,7 +896,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         if inc is None and (routine or learning):
             continue
         if inc is None and unusual and not beats_record:
-            continue  # the plant has burnt this hard before within the month: its flare, not news
+            continue  # within the plant's habit, or the episode already posted: its flare, not news
         if inc is not None and routine and inc["kind"] == "unusual":
             continue  # the usual flare is not evidence of the unusual heat
         if d["kind"] == "geo" and d.get("_fi"):
@@ -893,6 +910,8 @@ def run_cycle(cfg, send=True, alert_now=False):
                 inc["known_days"], inc["typical_frp"] = n_days, typical
                 if unusual and site_record is not None:
                     inc["site_record"] = round(float(site_record), 1)
+                if unusual and site_habit is not None:
+                    inc["site_habit"] = round(float(site_habit), 1)
                 # days with heat within ~10 km: farmland burnt every season and flare fields are busy
                 inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
                 S.incidents.append(inc)
@@ -1258,7 +1277,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "early_ids", "early_promotion_ambiguous",
           # the assessment (assess.py): what kind of event, how sure and why, how serious
           "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
-          "known_days", "typical_frp", "site_record"]
+          "known_days", "typical_frp", "site_record", "site_habit"]
 # the longer parts of the assessment go out only for events worth opening, to keep the feed light
 PUBLIC_DETAIL = ["evidence", "sources", "agreement"]
 

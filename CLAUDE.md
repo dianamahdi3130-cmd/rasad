@@ -95,7 +95,12 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   nights kept as cuts in `tests/fixtures/sea_*.npz` (`tests/test_sea_real_nights.py`): change a
   threshold only with those tests and a replay of whole nights (skill `rasad-sources`: `grab`).
 - A plant's usual flare is posted as «حرارة غير معتادة» only when a reading beats twice the
-  plant's own record of the month (`memory.unusual_record_ratio`); its post carries `surge_note`.
+  plant's own habit: the second-highest day of the month, today left out (`Memory.habit`,
+  `memory.unusual_record_ratio`), so that neither one earlier spike nor a fire growing through the
+  day or over several days silences the plant. One episode is posted once: not again for the same
+  plant within `unusual_repeat_days` unless `unusual_repeat_ratio` times what was posted. Its post
+  carries `surge_note`. Replay any change on the real week in `tests/test_assess.py` (`PlantRecord`:
+  Shedgum 109→94→80 MW stays one post, Ahmadi 49→66→85→110 MW is posted).
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when

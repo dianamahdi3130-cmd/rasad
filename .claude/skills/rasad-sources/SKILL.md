@@ -98,6 +98,12 @@ Keeping the pictures themselves (to study or replay a night offline): add a step
 the four inputs left empty it follows that branch's `tools/probe-request.json`, so nothing has to
 be pushed to `diag`.
 
+The experimental day finder is replayed the same way, at any picture detail, before its settings
+are changed: `["seascan", "--day", "--km", "0.25", "--start", "…Z", "--end", "…Z", "--boxes",
+"hormuz_oman"]` prints for every slot what it found and why the rest was turned down (it runs at
+0.5 km for now; daytime cases to replay: 9 and 10 Nov 2026 in `docs/reviews/marine_cases_20261109.md`
+and `hormuz_ship_20261110.md`).
+
 The app's imagery browser (Sentinel-2 and Landsat read by the phone, `web/imagery.js`) has its own
 real-data check, because the session cannot reach those archives either: a step like
 `["imagery-check", "--lat", "30.4567", "--lon", "47.715", "--half", "2", "--wide", "20", "--tag",

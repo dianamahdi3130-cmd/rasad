@@ -247,5 +247,27 @@ class SparkleHistoryTests(unittest.TestCase):
         self.assertEqual(state["sea_sparkle_min_days"], 1)
 
 
+class DayReplay(unittest.TestCase):
+    def test_the_day_finder_can_be_replayed_at_any_picture_detail(self):
+        # for measuring it on real daytime pictures before its detail is changed (seascan --day --km)
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        cfg["seawatch"]["boxes"] = [{"id": "first", "bbox": [54, 25, 54.2, 25.2]}, {"id": "second", "bbox": [55, 25, 55.2, 25.2]}]
+        asked = []
+
+        def finder(c, pics, box, t, mem=None, geo=None, refs=None):
+            asked.append((box["id"], iso(t), c["seawatch"]["daytime"]["km_per_px"], tuple(refs)))
+            return [{"src": "mtg_day_spot", "t": iso(t), "lat": 25.1, "lon": 54.1, "rise": 20.0, "area_px": 5}], {"candidates": 1}
+        start = dt.datetime(2026, 11, 10, 7, 30, tzinfo=dt.timezone.utc)
+        with patch("rasad.daywatch.find_spots", side_effect=finder), patch.object(seawatch.Pictures, "prefetch") as prefetch:
+            rows = seawatch.scan_day(cfg, Mock(), start, start + dt.timedelta(minutes=10), boxes=["first"], km=0.25)
+        self.assertEqual(asked, [("first", "2026-11-10T07:30:00Z", 0.25, (30, 60)), ("first", "2026-11-10T07:40:00Z", 0.25, (30, 60))])
+        self.assertEqual([(r["box"], r["t"]) for r in rows], [("first", "2026-11-10T07:30:00Z"), ("first", "2026-11-10T07:40:00Z")])
+        requests = prefetch.call_args_list[0].args[0]
+        self.assertEqual(len(requests), 6, "the picture and its check layer, now and at the two references")
+        self.assertEqual(tuple(requests[0][2:4]), seawatch.box_size(cfg["seawatch"]["boxes"][0], 0.25))
+        self.assertEqual(cfg["seawatch"]["daytime"]["km_per_px"], 0.5, "the live setting is not touched")
+        self.assertEqual(len(seawatch.group(rows)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

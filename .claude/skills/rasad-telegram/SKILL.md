@@ -52,8 +52,12 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     new clear pass shows a patch of change: `satpic.watch_caption`. It names the place, the two
     dates and the patch, says the change may be natural, and never a cause.
 16. «حرارة غير معتادة في <منشأة>» (a plant's usual flare burning harder) goes out only when the
-    reading clearly beats the plant's own record of the month (`memory.unusual_record_ratio`, 2×):
+    reading clearly beats the plant's own habit (`memory.unusual_record_ratio`, 2× the second-highest
+    day of the month, today left out: `Memory.habit`), and one episode is posted once (not again for
+    the same plant within `unusual_repeat_days` unless `unusual_repeat_ratio` times what was posted):
     16 of the first 25 posts were the same few plants surging to levels they reach every few days.
+    The owner's worry (15 Nov 2026): a plant that is attacked must not be silenced by its own flare.
+    The bar is therefore a habit, not one spike, and never today's own earlier readings.
     Its post says so in one line (`brain.surge_note`): the flare is usual, the level is a record,
     and pictures cannot tell operational flaring from a fire. Never a cause.
 17. A first sea sighting from ONE picture («رصد حراري أولي») is posted only when unmistakable
