@@ -965,6 +965,45 @@ def scan(cfg, wms, start, end, mem=None, geo=None, boxes=None):
     return rows
 
 
+def scan_day(cfg, wms, start, end, mem=None, geo=None, boxes=None, km=None):
+    """Replay the experimental day finder over a past period, at the picture detail asked for
+    (``km`` per pixel; None = the detail it runs at). For measuring it before changing it: every
+    slot and box prints what it found and why the rest was turned down."""
+    import copy
+    from .daywatch import find_spots as find_day_spots
+    cfg = dict(cfg, seawatch=copy.deepcopy(cfg["seawatch"]))
+    C = cfg["seawatch"]
+    D = C.setdefault("daytime", {})
+    if km:
+        D["km_per_px"] = float(km)
+    day_km = float(D.get("km_per_px", C.get("km_per_px", 0.5)))
+    refs = [int(m) for m in D.get("ref_minutes", [30, 60])]
+    cad = int(C["cadence_min"])
+    pics = Pictures(wms)
+    rows, t = [], floor_time(start, cad)
+    while t <= end:
+        for box in C["boxes"]:
+            if boxes and box["id"] not in boxes:
+                continue
+            size = box_size(box, day_km)
+            requests = []
+            for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]:
+                requests += [(C["layer"], box["bbox"], *size, tt, 0), (C["check_layer"], box["bbox"], *size, tt)]
+            pics.prefetch(requests)
+            spots, notes = find_day_spots(cfg, pics, box, t, mem, geo, refs=refs)
+            pics.cache = {}                    # one box at a time: full-detail pictures are big
+            if spots:
+                rows += [dict(sp, box=box["id"]) for sp in spots]
+                for sp in spots:
+                    near = geo.facility(sp["lat"], sp["lon"]) if geo is not None else None
+                    log.info("   day spot %.4f,%.4f rise %s area %s px%s", sp["lat"], sp["lon"], sp.get("rise"),
+                             sp.get("area_px"), f"  nearest facility {near['km']} km ({near['label']})" if near else "")
+            log.info("%s %s at %.2f km: %s %s", iso(t), box["id"], day_km,
+                     f"{len(spots)} spot(s)" if spots else ("-" if spots is not None else "not judged"), notes)
+        t += dt.timedelta(minutes=cad)
+    return rows
+
+
 def group(rows, km=4.0, minutes=40):
     """Spots of the same place within a short time = one would-be incident."""
     from .util import haversine_km

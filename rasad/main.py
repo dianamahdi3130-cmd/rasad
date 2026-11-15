@@ -144,6 +144,8 @@ def main(argv=None):
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
     p.add_argument("--boxes", help="comma separated box ids (default: all)")
+    p.add_argument("--day", action="store_true", help="replay the experimental day finder instead of the night one")
+    p.add_argument("--km", type=float, help="with --day: km per pixel of the pictures (default: as it runs)")
     p = sub.add_parser("restest", help="how a small fire shows at different picture detail")
     p.add_argument("--lat", type=float, required=True)
     p.add_argument("--lon", type=float, required=True)
@@ -319,8 +321,12 @@ def main(argv=None):
         S = State(cfg)
         geo = Geo(cfg, session, wms, S.state)
         geo.self_test()
-        rows = seawatch.scan(cfg, wms, parse_time(args.start), parse_time(args.end), Memory(S.memory), geo,
-                             args.boxes.split(",") if args.boxes else None)
+        chosen = args.boxes.split(",") if args.boxes else None
+        if args.day:
+            rows = seawatch.scan_day(cfg, wms, parse_time(args.start), parse_time(args.end), Memory(S.memory), geo,
+                                     chosen, args.km)
+        else:
+            rows = seawatch.scan(cfg, wms, parse_time(args.start), parse_time(args.end), Memory(S.memory), geo, chosen)
         groups = seawatch.group(rows)
         print(f"\n{len(rows)} spot(s), {len(groups)} place(s):")
         for g in groups:
