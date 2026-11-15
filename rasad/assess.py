@@ -248,6 +248,11 @@ def assess(inc, cfg):
     if category == "industrial":
         score, ev = _industrial_evidence(inc, cfg)
         low, high = 40, 90
+    elif category == "candidate":
+        # a first night speck of the sea finder, shown before a second picture agrees
+        score, low, high = 30, 5, 49
+        ev = [{"s": "+", "text": "باحث رصد وجد بقعة حرارية جديدة ليلاً في صورة واحدة للقمر Meteosat-12"},
+              {"s": "·", "text": "ننتظر صورة ثانية أو قمراً آخر قبل الحكم عليها"}]
     else:
         score, ev = _fire_evidence(inc, cfg)
         low, high = BAND.get(inc.get("verdict"), (5, 99))   # never contradict the rule-based verdict
@@ -261,6 +266,9 @@ def assess(inc, cfg):
     inc["evidence"] = ev[:8]
     inc["severity"] = severity_of(inc, cfg, category)
     sources = sources_of(inc)
+    if not sources and category == "candidate":   # the app's preview carries no sighting list
+        sources = [{"key": "mtg_spot", "name": SOURCE_AR["mtg_spot"], "family": "mtg",
+                    "first": inc["first"], "last": inc["last"], "n": 1, "max_frp": None}]
     inc["sources"] = sources
     inc["agreement"] = agreement_of(sources)
     return inc

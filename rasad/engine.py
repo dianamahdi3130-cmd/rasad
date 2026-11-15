@@ -1267,7 +1267,11 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
                       and not row.get("experimental"))
                   for key, row in status.items() if key != "recovery")
     items = [public_item(i) for i in S.incidents if i.get("headline")]
-    items.extend(earlyalerts.items(cfg, S.state, S.incidents, finished))
+    early = earlyalerts.items(cfg, S.state, S.incidents, finished)
+    for item in early:   # first night specks: shown with what they are and how little is known yet
+        assess.assess(item, cfg)
+        item["alerted"] = bool(item.get("sent_at"))
+    items.extend(early)
     for item in items:
         if (item.get("clip_video_pending") or item.get("clip_needs_refresh")) \
                 and (item.get("clip") or not item.get("clip_note")):

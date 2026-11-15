@@ -520,6 +520,9 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
     out, notes = [], {"sigma": round(sig, 2), "candidates": 0, "rejected": {}}
     if scale > 1:
         notes["crowded"] = round(scale, 2)
+    if int(cand.sum()) > limit:   # still a sky full of them: nothing in this picture can be trusted
+        notes["rejected"]["too many warming pixels (cloud everywhere)"] = 1
+        return out, notes
     if refs != [int(m) for m in C["ref_minutes"]]:
         notes["compared_with_min_before"] = refs
 

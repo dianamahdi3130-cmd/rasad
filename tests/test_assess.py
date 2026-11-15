@@ -97,6 +97,17 @@ class Confidence(unittest.TestCase):
         big = dict(sea, max_frp=250.0)
         self.assertEqual(assess.severity_of(big, cfg), "حرج")
 
+    def test_first_unconfirmed_speck_is_a_candidate_with_low_confidence(self):
+        item = {"id": "candidate-20261114-1540_26.0197_55.9190", "kind": "thermal_candidate", "preliminary": True,
+                "first": "2026-11-14T15:40:00Z", "last": "2026-11-14T15:40:00Z", "lat": 26.0197, "lon": 55.919,
+                "place": "sea", "facility": None, "verdict": "يحتاج تأكيداً", "priority": "high", "max_frp": None}
+        assess.assess(item, config())
+        self.assertEqual((item["category"], item["category_text"]), ("candidate", "بقعة حرارية أولية"))
+        self.assertEqual((item["confidence"], item["confidence_level"]), (30, "منخفضة"))
+        self.assertEqual(item["severity"], "متوسط")
+        self.assertEqual([s["key"] for s in item["sources"]], ["mtg_spot"])
+        self.assertTrue(any("ننتظر صورة ثانية" in e["text"] for e in item["evidence"]))
+
     def test_arabic_counts(self):
         self.assertEqual(assess._count(1, "صورة واحدة", "صورتين", "صور", "صورة"), "صورة واحدة")
         self.assertEqual(assess._count(2, "صورة واحدة", "صورتين", "صور", "صورة"), "صورتين")
