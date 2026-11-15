@@ -77,6 +77,17 @@ test("the default pair is settled as soon as the nearer passes are checked, neve
   assert.equal(c.after.pass.date, "2026-11-09"); assert.equal(c.before.pass.date, "2026-10-25");
   // a pass that could not be checked is skipped, not waited for
   assert.equal(H.settle([{...pass("2026-11-09", null), failed: true}, pass("2026-11-04", 0)]).pass.date, "2026-11-04");
+  // «قبل» comes from the same track as «بعد» when a clear pass of it is near (towers and their
+  // shadows fall the other way from the track beside it), and waits while that pass is being checked
+  const at = (stamp, hidden) => ({date: stamp.slice(0, 10), time: Date.parse(stamp), cover: 1, sky: hidden == null ? null : sky(hidden)});
+  const tracks = [at("2026-11-15T07:41:36Z", 0), at("2026-11-14T07:31:48Z", 0), at("2026-11-12T07:31:40Z", 0), at("2026-11-10T07:41:38Z", null)];
+  c = H.choose(tracks, null);
+  assert.equal(c.after.pass.date, "2026-11-15"); assert.equal(c.before.done, false, "10 Nov is of today's track and not checked yet");
+  tracks[3].sky = sky(0);
+  c = H.choose(tracks, null);
+  assert.equal(c.before.pass.date, "2026-11-10"); assert.equal(c.before.done, true);
+  tracks[3].sky = sky(0.7);
+  assert.equal(H.choose(tracks, null).before.pass.date, "2026-11-14", "that one is cloudy: the nearest clear pass stays");
   // nothing clear: a partly clear pass is offered
   assert.equal(H.settle([pass("2026-11-09", 0.9), pass("2026-11-04", 0.2)]).pass.date, "2026-11-04");
   assert.deepEqual(H.settle([pass("2026-11-09", 0.9)]), {pass: null, done: true});

@@ -238,6 +238,33 @@ test("cloud is judged over the box itself, and the default pair is the nearest c
   assert.deepEqual(I.pickPair(only, null), {before: null, after: null});
 });
 
+test("the default pair comes from one track of the satellite when a clear pass of it is near", () => {
+  const sky = hidden => ({cloud: hidden, shadow: 0, cirrus: 0, nodata: 0, water: 0, hidden});
+  const pass = (stamp, hidden = 0, extra = {}) => ({time: Date.parse(stamp), date: stamp.slice(0, 10), cover: 1, sky: sky(hidden), ...extra});
+  // Kuwait City, 14 and 15 November 2026: yesterday's clear pass is from the track beside today's
+  // (07:31 against 07:41) and showed 50 ha of "change" in tower shadows
+  const today = pass("2026-11-15T07:41:36Z"), beside = pass("2026-11-14T07:31:48Z"), same = pass("2026-11-10T07:41:38Z");
+  let pair = I.pickPair([today, beside, pass("2026-11-12T07:31:40Z"), same, pass("2026-10-31T07:41:20Z")], null);
+  assert.equal(pair.after, today); assert.equal(pair.before, same, "four days older, but seen from the same side");
+  // a pass of the same track that is cloudy, or more than twelve days older, does not take the place
+  assert.equal(I.pickPair([today, beside, pass("2026-11-10T07:41:38Z", 0.9)], null).before, beside);
+  assert.equal(I.pickPair([today, beside, pass("2026-10-31T07:41:20Z")], null).before, beside);
+  // the nearest clear pass already of the same track: nothing changes
+  assert.equal(I.pickPair([today, pass("2026-11-13T07:41:10Z"), same], null).before.date, "2026-11-13");
+  // around an event: «after» is the first clear pass after it, «before» follows its track
+  const event = {start: "2026-11-11T12:00:00Z", end: "2026-11-11T18:00:00Z"};
+  const after = pass("2026-11-12T07:31:40Z"), near = pass("2026-11-10T07:41:38Z"), alike = pass("2026-11-09T07:31:50Z");
+  pair = I.pickPair([today, beside, after, near, alike], event);
+  assert.equal(pair.after, after); assert.equal(pair.before, alike);
+  assert.equal(I.pickPair([today, after, near], event).before, near, "no pass of that track before the event: the nearest clear one");
+  assert.equal(I.pickPair([near, alike], event).before, near, "nothing after the event yet: the nearest clear one");
+  // what "the same view" means: the same kind of satellite at the same time of day, also across midnight
+  assert.equal(I.sameView(today, same), true); assert.equal(I.sameView(today, beside), false);
+  assert.equal(I.sameView(today, pass("2026-11-10T07:41:30Z", 0, {sensor: "landsat"})), false);
+  assert.equal(I.sameView(pass("2026-11-15T23:59:30Z"), pass("2026-11-10T00:01:00Z")), true);
+  assert.equal(I.sameView(today, null), false);
+});
+
 test("ground that is called cloud on most dates stops counting as cloud; shadow needs cloud", () => {
   const n = 400, passes = [];
   for (let k = 0; k < 8; k++) {
@@ -635,6 +662,28 @@ test("dNBR: burnt ground is sorted into the four usual classes, each with its ar
   const job = I.pairJob({size, res: 10, before: pick(before), after: pick(after)});
   assert.deepEqual(job.burn.classPx, burn.classPx); assert.equal(job.change.changedPx, I.changeOf(before, after).changedPx);
   assert.equal(job.change.grid, undefined); assert.equal(I.pairBuffers(job).length, 7);
+});
+
+test("dNBR counts patches, not specks: half a hectare that holds a core of the moderate class", () => {
+  // What real pairs with no fire between them showed on 15 Nov 2026: ground that only dried near
+  // Basra (8.5 ha, all of the lowest class) and tower shadows in Kuwait City (specks of a few pixels).
+  const dried = {nir: 0.40, nir08: 0.40, swir22: 0.157};               // the burn ratio 0.2 lower: the lowest class
+  const {before, after, size} = burnPair(({after, paint, size}) => {
+    const fill = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) for (const b of Object.keys(dried)) after[b][y * size + x] = dried[b]; };
+    fill(10, 10, 40, 40);                                              // 9 ha that only dried
+    paint(after, "singed", 60, 10, 63, 13);                            // a speck of the moderate class: 9 pixels
+    paint(after, "burnt", 70, 10, 74, 14);                             // a severe speck: 16 pixels, 0.16 ha
+    fill(60, 60, 70, 70); paint(after, "singed", 62, 62, 67, 67);      // a scar: 1 ha with a quarter-hectare core
+    fill(20, 60, 28, 68); paint(after, "singed", 22, 62, 25, 65);      // big enough, but its core is 9 pixels
+  });
+  const burn = I.burnOf(before, after), at = (x, y) => burn.cls[y * size + x];
+  near(burn.dnbr[25 * size + 25], 0.2, 0.02, "the dried field is measured as it is");
+  assert.equal(at(25, 25), 0, "ground that only dried is not a burn");
+  assert.equal(at(61, 11), 0, "a speck is not a patch"); assert.equal(at(71, 11), 0, "however dark");
+  assert.equal(at(23, 63), 0, "a patch without a real core");
+  assert.equal(at(64, 64), 2); assert.equal(at(61, 61), 1, "the fringe of a real scar is counted with it");
+  assert.deepEqual(burn.classPx, [0, 75, 25, 0, 0]); near(burn.areaHa, 1.0, 1e-9);
+  assert.deepEqual([I.BURN_PATCH_HA, I.BURN_CORE_HA], [0.5, 0.2]);
 });
 
 test("dNBR leaves out cloud, shadow, water, missing data and flames, and takes out a drift of the whole box", () => {

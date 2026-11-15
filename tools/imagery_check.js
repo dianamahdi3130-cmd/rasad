@@ -92,7 +92,7 @@ const stat = values => {              // of a band or an index: how many points 
     for (const p of own) say(`     ${dayOf(p)} grade ${I.grade(p)} ${JSON.stringify(scalars(p.sky))}`);
   });
   const pair = I.pickPair(own);
-  say(`     pair: before ${pair.before ? dayOf(pair.before) : "-"} · after ${pair.after ? dayOf(pair.after) : "-"}`);
+  say(`     pair: before ${pair.before ? dayOf(pair.before) : "-"} · after ${pair.after ? dayOf(pair.after) : "-"} · same track: ${I.sameView(pair.before, pair.after)}`);
 
   /* ---------- 3. the two pictures at full detail, and what the viewer works out ---------- */
   let before = null, after = null;

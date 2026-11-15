@@ -133,11 +133,26 @@ function choose(all, event) {
   const passes = sharpest(all);
   if (event && event.start) {
     const s = Date.parse(event.start), e = Date.parse(event.end || event.start);
-    return {before: settle(passes.filter(p => p.time < s)), after: settle(passes.filter(p => p.time > e).reverse())};
+    const after = settle(passes.filter(p => p.time > e).reverse()), older = passes.filter(p => p.time < s);
+    return {before: after.done ? sameTrack(older, settle(older), after.pass) : settle(older), after};
   }
   const after = settle(passes);
-  const before = after.done && after.pass ? settle(passes.filter(p => p.time < after.pass.time - 36e5)) : {pass: null, done: after.done};
-  return {before, after};
+  if (!(after.done && after.pass)) return {before: {pass: null, done: after.done}, after};
+  const older = passes.filter(p => p.time < after.pass.time - 36e5);
+  return {before: sameTrack(older, settle(older), after.pass), after};
+}
+// «قبل» from the same track of the satellite as «بعد»: when the nearest clear pass was taken from
+// the track beside it (towers lean the other way, shadows fall differently: tens of hectares of
+// "change" that never happened), a clear pass of the same track at most twelve days older takes its
+// place (the engine's sameView). Not settled while such a pass is still being checked.
+function sameTrack(list, first, other) {
+  if (!first.done || !first.pass || !other || I.sameView(first.pass, other)) return first;
+  for (const p of list) {
+    if (p.time >= first.pass.time || first.pass.time - p.time > I.SAME_VIEW_REACH || !I.sameView(p, other)) continue;
+    if (!p.sky && !p.failed) return {pass: null, done: false};
+    if (p.sky && I.isClear(p)) return {pass: p, done: true};
+  }
+  return first;
 }
 // the order in which passes are checked: nearest to the event first, else newest first
 function checkOrder(passes, event) {

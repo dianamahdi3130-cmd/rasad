@@ -881,20 +881,38 @@ function grade(p) {
   if (isClear(p)) return 0;
   return p.cover >= 0.6 && p.sky.hidden <= 0.35 ? 1 : 2;
 }
+// Two passes that look at the ground from the same place in the sky: the same kind of satellite at
+// the same time of day. A Sentinel-2 track is flown again at the same minute; the track beside it
+// passes ten minutes apart and sees the ground from the other side, so towers lean and shadows fall
+// differently. Measured on real pairs with nothing between them (15 Nov 2026, tools/imagery_check.js):
+// two tracks on consecutive days over Kuwait City gave 50 ha of "change"; pairs from one track gave
+// 0.5 ha (Basra, 20 days apart) and 7 ha (Fujairah, 2 days apart).
+const SAME_VIEW_MS = 3 * 60e3;                 // time of day within three minutes
+const SAME_VIEW_REACH = 12 * 864e5;            // how much older the "before" may be for the sake of the same track
+function sameView(a, b) {
+  if (!a || !b || (a.sensor || "") !== (b.sensor || "")) return false;
+  const day = 864e5, d = Math.abs(a.time % day - b.time % day);
+  return Math.min(d, day - d) <= SAME_VIEW_MS;
+}
 // The default pair. With an event: the newest clear pass before it started and the first clear
 // pass after its last sighting. Without one: the newest clear pass and the clear pass before it.
-// `passes` newest first. Returns {before, after} (either can be null) from the assessed passes.
+// «before» gives way to a clear pass of the same track as «after» when one is at most twelve days
+// older. `passes` newest first. Returns {before, after} (either can be null) from the assessed passes.
 function pickPair(passes, event) {
   const usable = passes.filter(p => p.sky);
   const best = list => list.find(isClear) || list.filter(p => grade(p) === 1)[0] || null;
+  const partner = (list, other) => {           // `list` newest first
+    const first = best(list);
+    if (!first || !other || sameView(first, other)) return first;
+    return list.find(p => p.time < first.time && first.time - p.time <= SAME_VIEW_REACH && sameView(p, other) && isClear(p)) || first;
+  };
   if (event && event.start) {
     const start = Date.parse(event.start), end = Date.parse(event.end || event.start);
-    const before = best(usable.filter(p => p.time < start));
-    const later = usable.filter(p => p.time > end).reverse();          // oldest first
-    return {before, after: best(later)};
+    const after = best(usable.filter(p => p.time > end).reverse());    // oldest first
+    return {before: partner(usable.filter(p => p.time < start), after), after};
   }
   const after = best(usable);
-  const before = after ? best(usable.filter(p => p.time < after.time - 36e5)) : null;
+  const before = after ? partner(usable.filter(p => p.time < after.time - 36e5), after) : null;
   return {before, after};
 }
 
@@ -1228,6 +1246,12 @@ function hotSpots(scene) {
 // ground, not a proof: harvest, ploughing, drying and flooding lower the ratio as well.
 const BURN_STEPS = [0.1, 0.27, 0.44, 0.66];
 const BURN_COLORS = ["#ffd750", "#ff8a1f", "#e8302a", "#8a1c55"];      // light to dark: low, moderate, high, severe
+// What counts as a burn patch. On real pairs with no fire between them (15 Nov 2026,
+// tools/imagery_check.js) the lowest class alone covered hectares: ground that dried near Basra
+// (8.5 ha, all "low"), tower shadows in Kuwait City (10 ha in specks of a few pixels, some of them
+// "moderate"). So touching pixels count only as a patch of at least half a hectare that holds a
+// core of the moderate class or above; its "low" fringe is then counted with it.
+const BURN_PATCH_HA = 0.5, BURN_CORE_HA = 0.2;
 const DARK = 0.06;                 // both bands together below this: water or deep shadow, the ratio means nothing
 function glowing(s, i) {            // the same test as hotSpots: band 12 far above bands 11 and 8A
   const a = s.swir22[i], b = s.swir16[i], c = s.nir08[i];
@@ -1239,7 +1263,8 @@ function glowing(s, i) {            // the same test as hotSpots: band 12 far ab
 // shadow or haze on either date (everything `changeOf` leaves out, and cloud on both dates too),
 // 3 water or too dark, 4 a flame at the moment of either picture (its glow is not reflectance).
 // A drift of the whole box between the dates (season, sun height) is taken out, up to 0.08; a pixel
-// counts when it is not alone. `change` is the result of changeOf for the same pair, if at hand.
+// counts when it belongs to a patch (BURN_PATCH_HA with a core of BURN_CORE_HA, never fewer than
+// four and two pixels). `change` is the result of changeOf for the same pair, if at hand.
 function burnOf(before, after, change) {
   const grid = before.grid, n = grid.size, total = n * n;
   if (after.grid.size !== n) throw new ImageryError("format", "different grids");
@@ -1286,9 +1311,31 @@ function burnOf(before, after, change) {
       if (xx >= 0 && yy >= 0 && xx < n && yy < n && raw[yy * n + xx]) near++;
     }
     if (near < 4) continue;                              // a lone pixel or a thin line: noise
-    cls[i] = raw[i]; classPx[raw[i]]++; out.burntPx++;
+    cls[i] = raw[i];
   }
+  // patches: pixels that touch (also by a corner); the small ones and those without a core are dropped
   const ha = grid.res * grid.res / 1e4;
+  const minPx = Math.max(4, Math.ceil(BURN_PATCH_HA / ha)), corePx = Math.max(2, Math.ceil(BURN_CORE_HA / ha));
+  const seen = new Uint8Array(total), stack = new Int32Array(total);
+  for (let start = 0; start < total; start++) {
+    if (!cls[start] || seen[start]) continue;
+    let top = 0, size = 0, core = 0;
+    stack[top++] = start; seen[start] = 1;
+    const members = [];
+    while (top) {
+      const i = stack[--top], x = i % n, y = (i - x) / n;
+      members.push(i); size++;
+      if (cls[i] >= 2) core++;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+        const j = yy * n + xx;
+        if (cls[j] && !seen[j]) { seen[j] = 1; stack[top++] = j; }
+      }
+    }
+    if (size >= minPx && core >= corePx) { for (const i of members) classPx[cls[i]]++; out.burntPx += size; }
+    else for (const i of members) cls[i] = 0;
+  }
   out.classHa = classPx.map(px => px * ha);
   out.areaHa = out.burntPx * ha; out.share = out.burntPx / valid;
   return out;
@@ -1343,9 +1390,9 @@ function serve(scope) {
 }
 
 return {VERSION, ImageryError, UTM, projectionOf, makeGrid, gridPoint, gridPixel, gridUTM, inflate, decompress,
-  createEngine, skyOf, refineSky, isClear, grade, pickPair, stretchOf, colorImage, swirImage, changeOf, changeImage,
+  createEngine, skyOf, refineSky, isClear, grade, pickPair, sameView, SAME_VIEW_REACH, stretchOf, colorImage, swirImage, changeOf, changeImage,
   hotSpots, qaClasses, COLOR_BANDS, SWIR_BANDS, CLEAR, quantiles,
   SENSORS, COMBOS, RAMPS, MASK_COLORS, BURN_STEPS, BURN_COLORS, REFLECTANCE, sensorOf, comboBands, comboNames, comboAvailable,
-  hasBands, stretchRange, sharpen, bandsImage: composite, indexOf, indexImage, rampColor, comboImage, burnOf, burnImage, inspect,
+  hasBands, stretchRange, sharpen, bandsImage: composite, indexOf, indexImage, rampColor, comboImage, burnOf, burnImage, BURN_PATCH_HA, BURN_CORE_HA, inspect,
   pairJob, pairBuffers, serve};
 });
