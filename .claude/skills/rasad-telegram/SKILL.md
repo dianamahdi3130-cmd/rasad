@@ -11,6 +11,8 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
 - Sending: `notify.tg_send` / `notify.deliver` (HTML `parse_mode`; a reply carries
   `reply_parameters` with `allow_sending_without_reply`; text longer than a video caption's 1024
   characters goes out as the video with the first line, then the full text as a reply to it).
+- The confidence number and its reasons: `rasad/assess.py` (bands follow the verdict:
+  «مؤكد» 75-99, «مرجّح» 50-74, «يحتاج تأكيداً» below 50).
 - When: `engine.run_cycle` (its inner `post`), `brain.alert_worthy`,
   `updates.intensity_update_due`; thresholds in `config.yaml` → `alerts`.
 - The before/after satellite picture: `satpic.caption` (text), `satpic.render` (picture), posted
@@ -28,7 +30,10 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
 5. Updates are replies to the first post of that fire (`tg_msg`), say only what changed, and do
    not repeat the headline, coordinates or links.
 6. «فتح الحدث في التطبيق» opens the app on that incident: `app_link` → `?e=<id>#<id>`.
-7. Only a confirmed fire is called «مؤكد»; other grades are not named in the post.
+7. Only a confirmed fire is called «مؤكد»; other verdicts are not named in the post. Since
+   15 Nov 2026 (the owner asked for a clear confidence level with its reasons on every alert) a
+   first post also carries one line `🎯 الثقة: 62% (متوسطة) · <the strongest reason>`
+   (`assess.confidence_line`); updates do not repeat it.
 8. The day finder never posts on its own; the sea finder alone is at most «مرجّح».
 9. Recovered past events and readings older than `max_age_hours` (8) appear in the app only.
    A late reading for a fire already posted goes as a reply marked as a late update.
@@ -43,6 +48,14 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
 15. A watched place (`config.yaml` → `watch.places`) gets its own post, not a reply, only when a
     new clear pass shows a patch of change: `satpic.watch_caption`. It names the place, the two
     dates and the patch, says the change may be natural, and never a cause.
+16. «حرارة غير معتادة في <منشأة>» (a plant's usual flare burning harder) goes out only when the
+    reading clearly beats the plant's own record of the month (`memory.unusual_record_ratio`, 2×):
+    16 of the first 25 posts were the same few plants surging to levels they reach every few days.
+    Its post says so in one line (`brain.surge_note`): the flare is usual, the level is a record,
+    and pictures cannot tell operational flaring from a fire. Never a cause.
+17. A first sea sighting from ONE picture («رصد حراري أولي») is posted only when unmistakable
+    (`strong`: a rise of 15 with a flame glow of 4). A fainter speck waits for its second picture
+    and then goes out as a normal alert.
 12. A post that was sent is never sent again: after sending, the memory is saved at once
     (`.state_urgent` → `branches.sh save-state-if-due`).
 

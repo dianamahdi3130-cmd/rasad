@@ -4,6 +4,7 @@ The monitor (GitHub Actions) calls this after every check. Only the app behind s
 what is sent here; nothing with data is published on GitHub any more."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -47,5 +48,40 @@ def publish(site_dir, url, key, timeout=60):
             log.warning("cloud: a clip was refused (%s)", r.status_code)
     r = s.post(f"{url}/api/ingest/keep", json={"clips": sorted(want)}, timeout=timeout)
     removed = r.json().get("removed", 0) if r.ok else 0
-    log.warning("cloud: data sent (%d incidents), %d new clip file(s), %d old removed", len(items), sent, removed)
+    months = send_archive(site, s, url, timeout)
+    log.warning("cloud: data sent (%d incidents), %d new clip file(s), %d old removed, %d archive month(s)",
+                len(items), sent, removed, months)
     return True
+
+
+def send_archive(site, session, url, timeout=60):
+    """The long-term record (one file per month): a month goes up again only when it changed.
+    What was sent is remembered beside the site folder; a failure is tried again next check."""
+    folder = site / "data" / "archive"
+    if not folder.exists():
+        return 0
+    marker = site.parent / ".archive_sent.json"
+    try:
+        sent = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        sent = {}
+    count = 0
+    for path in sorted(folder.glob("????-??.json")):
+        body = path.read_bytes()
+        digest = hashlib.sha256(body).hexdigest()
+        if sent.get(path.stem) == digest:
+            continue
+        try:
+            r = session.put(f"{url}/api/ingest/archive/{path.stem}", data=body,
+                            headers={"content-type": "application/json"}, timeout=timeout)
+        except requests.RequestException:
+            log.warning("cloud: the archive of %s could not be sent", path.stem)
+            continue
+        if r.ok:
+            sent[path.stem] = digest
+            count += 1
+        else:
+            log.warning("cloud: the archive of %s was refused (%s)", path.stem, r.status_code)
+    if count:
+        marker.write_text(json.dumps(sent), encoding="utf-8")
+    return count

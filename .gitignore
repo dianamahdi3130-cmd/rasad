@@ -17,3 +17,4 @@ _site/
 
 # worktrees of helper sessions
 .claude/worktrees/
+.archive_sent.json
