@@ -176,6 +176,14 @@ def main(argv=None):
     p = sub.add_parser("gibs-layers", help="diagnosis: NASA's daily picture layers that match a name")
     p.add_argument("--match", required=True)
     p.add_argument("--out", default="probe-out")
+    p = sub.add_parser("imagery-check", help="diagnosis: the app's imagery engine (web/imagery.js) on the real archives, for one place")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--half", type=float, default=2, help="half the box, km")
+    p.add_argument("--wide", type=float, default=20, help="half the wide box, km (0: skip)")
+    p.add_argument("--days", type=int, default=90)
+    p.add_argument("--tag", default="imagery")
+    p.add_argument("--out", default="probe-out")
     sub.add_parser("test-telegram")
     sub.add_parser("cloud-publish", help="send the app's data and clips to the private app (Cloudflare)")
     args = ap.parse_args(argv)
@@ -235,6 +243,14 @@ def main(argv=None):
     if args.cmd == "gibs-layers":
         from .probe import gibs_layers
         gibs_layers(args.match, args.out)
+        return
+    if args.cmd == "imagery-check":
+        # the phone's own engine, run here by Node: it prints what it found and keeps small pictures
+        import subprocess
+        tool = Path(__file__).resolve().parent.parent / "tools" / "imagery_check.js"
+        subprocess.run(["node", str(tool), "--lat", str(args.lat), "--lon", str(args.lon), "--half", str(args.half),
+                        "--wide", str(args.wide), "--days", str(args.days), "--tag", args.tag, "--out", args.out],
+                       timeout=1500, check=False)
         return
     if args.cmd == "layers":
         from .probe import list_layers
