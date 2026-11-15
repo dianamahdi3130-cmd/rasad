@@ -144,6 +144,19 @@ class AlertLines(unittest.TestCase):
         self.assertNotIn("🏭 شعلة", message)                 # not a plant's surge
         self.assertNotIn("سبب", message)                     # never a cause
 
+    def test_the_finder_says_in_a_row_only_for_pictures_in_a_row(self):
+        # the Taqah speck of 16 Nov 2026: seen at 20:50, 21:10 and 21:40 UTC, posted as «3 صور متتالية»
+        inc = incident([det("mtg_spot", "mtg", f"2026-11-15T{hh}:00Z", flame=True, lat=16.9876, lon=54.3582)
+                        for hh in ("20:50", "21:10", "21:40")])
+        self.assertEqual(inc["reason"], "وجده الباحث الحراري في 3 صور للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
+        self.assertIn("🔎 باحث رصد وجد بقعة حرارية ثابتة ليلاً في 3 صور\n", alert_message(inc, config()))
+        row = incident([det("mtg_spot", "mtg", f"2026-11-15T{hh}:00Z", flame=True, lat=16.9876, lon=54.3582)
+                        for hh in ("20:50", "21:00", "21:10")])
+        self.assertEqual(row["reason"], "وجده الباحث الحراري في 3 صور متتالية للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
+        two = incident([det("mtg_spot", "mtg", f"2026-11-15T{hh}:00Z", flame=True, lat=16.9876, lon=54.3582)
+                        for hh in ("20:50", "21:10")])
+        self.assertEqual(two["reason"], "وجده الباحث الحراري في صورتين للقمر الأوروبي، ولم يؤكده قمر آخر بعد")
+
     def test_a_sea_is_not_near_itself(self):
         # the live app read «حريق في البحر قرب الخليج الفارسي» for a fire in the Gulf itself
         self.assertEqual(brain.at_sea("حريق", "الخليج الفارسي"), "حريق في مياه الخليج الفارسي")

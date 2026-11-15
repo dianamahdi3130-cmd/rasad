@@ -13,7 +13,7 @@ records are still under review with the owner.
 """
 from __future__ import annotations
 
-from .util import parse_time
+from .util import in_a_row, parse_time
 
 OFFICIAL = {"mtg_frp": "mtg", "iodc_fire": "msg_iodc"}
 NASA = frozenset({"viirs", "modis", "landsat"})
@@ -181,10 +181,14 @@ def _fire_evidence(inc, cfg):
         if any(p.get("night") for p in polar) and best > 1:
             add(5, "+", "رُصد ليلاً، فلا انعكاس شمس يشبه الحريق")
     # Rasad's own finders on the Meteosat-12 pictures
-    night = len(set(inc.get("own_night_slots") or [])) or len(_slots(inc, "mtg_spot"))
+    night_times = sorted(set(inc.get("own_night_slots") or [])) or _slots(inc, "mtg_spot")
+    night = len(night_times)
     if night:
+        # «متتالية» only for an unbroken run of pictures; with a gap, the count alone
+        words = (("صورة واحدة", "صورتين متتاليتين", "صور متتالية", "صورة متتالية") if in_a_row(night_times)
+                 else ("صورة واحدة", "صورتين", "صور", "صورة"))
         add(20 if night == 1 else 35 if night == 2 else 45, "+",
-            f"باحث رصد وجد بقعة حرارية ثابتة ليلاً في {_count(night, 'صورة واحدة', 'صورتين متتاليتين', 'صور متتالية', 'صورة متتالية')}")
+            f"باحث رصد وجد بقعة حرارية ثابتة ليلاً في {_count(night, *words)}")
         if inc.get("flame_glow"):
             add(15, "+", "ظهر وهج لهب في القناتين القصيرتين (1.6 و2.2 ميكرومتر)، وهذا لا تصنعه الغيوم ليلاً")
     day = len(_slots(inc, "mtg_day_spot"))
@@ -242,7 +246,8 @@ def _industrial_evidence(inc, cfg):
     slots = len(inc.get("geo_slots") or [])
     if slots >= 3:
         score += 10
-        ev.append({"s": "+", "text": f"استمر في {_count(slots, 'صورة', 'صورتين', 'صور متتالية', 'صورة متتالية')}"})
+        words = ("صور متتالية", "صورة متتالية") if in_a_row(inc["geo_slots"]) else ("صور", "صورة")
+        ev.append({"s": "+", "text": f"استمر في {_count(slots, 'صورة', 'صورتين', *words)}"})
     ev.append({"s": "-", "text": "قد يكون حرق غاز تشغيلياً أو حريقاً: صور الأقمار لا تفرّق بينهما"})
     return score, ev
 

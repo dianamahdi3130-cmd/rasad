@@ -107,6 +107,12 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   Shedgum 109→94→80 MW stays one post, Ahmadi 49→66→85→110 MW is posted).
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture.
+- What the sea finder finds alone is posted only once its closer look at the pictures shows it
+  (the alert then carries its video): `engine` → `waits_for_closer_look`, `seawatch.closer_look_first`.
+  Not shown, it is doubted and stays in the app; without an answer within
+  `seawatch.closer_look_wait_min` (15) it goes out as text as before. Two of the finder's first
+  three alerts were doubted by that look a minute after they were posted
+  (`docs/reviews/taqah_sea_speck_20261116.md`).
 - A confirmed fire on land where no heat was seen for a month, neither there nor around
   (`known_days` and `area_days` 0), in the dry countries of the Gulf (`alerts.new_heat_countries`)
   is posted even far from every mapped facility, from its fourth picture in a row or at 20 MW
