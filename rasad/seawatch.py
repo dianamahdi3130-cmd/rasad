@@ -679,7 +679,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []
     live = [b for b in C["boxes"] if b.get("enabled", True)]
-    if day_enabled and live:
+    if live:
         # A slow first region must not take every short cycle's acquisition budget.
         cursor = state.get("sea_day_box_cursor", 0)
         cursor = cursor if isinstance(cursor, int) else 0
