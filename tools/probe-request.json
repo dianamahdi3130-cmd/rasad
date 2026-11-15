@@ -1,56 +1,7 @@
-{
- "mode": "steps",
- "try": 13,
+{"mode": "steps", "try": 14,
  "steps": [
-  [
-   "gibs-layers",
-   "--match",
-   "Thermal_Anomalies|CorrectedReflectance|DayNightBand"
-  ],
-  [
-   "grab",
-   "--tag",
-   "day10_hormuz",
-   "--start",
-   "2026-11-10T06:30Z",
-   "--end",
-   "2026-11-10T08:30Z",
-   "--bbox",
-   "56.3280,25.9110,57.5320,26.9890",
-   "--km",
-   "0.25",
-   "--layers",
-   "mtg_fd:rgb_firetemperature,mtg_fd:ir105_hrfi"
-  ],
-  [
-   "grab",
-   "--tag",
-   "day09_uae",
-   "--start",
-   "2026-11-09T05:30Z",
-   "--end",
-   "2026-11-09T07:10Z",
-   "--bbox",
-   "52.9922,25.0910,54.1878,26.1690",
-   "--km",
-   "0.25",
-   "--layers",
-   "mtg_fd:rgb_firetemperature,mtg_fd:ir105_hrfi"
-  ],
-  [
-   "grab",
-   "--tag",
-   "day11_oman",
-   "--start",
-   "2026-11-11T09:30Z",
-   "--end",
-   "2026-11-11T11:20Z",
-   "--bbox",
-   "56.2769,24.1310,57.4631,25.2090",
-   "--km",
-   "0.25",
-   "--layers",
-   "mtg_fd:rgb_firetemperature,mtg_fd:ir105_hrfi"
-  ]
- ]
-}
+  ["RASAD_BACKGROUND_MEDIA=1", "picture-worker", "--max-minutes", "5"],
+  ["RASAD_BACKGROUND_MEDIA=1", "cycle", "--no-send"],
+  ["RASAD_BACKGROUND_MEDIA=1", "picture-worker", "--max-minutes", "3"],
+  ["RASAD_BACKGROUND_MEDIA=1", "cycle", "--no-send"]
+ ]}
