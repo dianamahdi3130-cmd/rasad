@@ -29,7 +29,7 @@ from .wms import WMS, Availability, latest_time
 STALE_HOURS = 3
 RULES = 16  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
-SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
+SEA_CHECK = 2    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
 # fire symbols whose strength (MW) the server can tell; the second European satellite's cannot
 STRENGTH_SOURCES = frozenset({"mtg_frp"})
@@ -119,20 +119,42 @@ DEFAULTS = {
     "flares": {"enabled": True},
     # Own image finders: nighttime alerts and experimental daytime candidates for review.
     "seawatch": {
-        "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.5,
+        "enabled": True, "alerts": True, "look_back": True, "look_back_km_per_px": 0.25,
         "early_alerts": {"enabled": True, "max_age_min": 45, "max_new_per_run": 3,
                          "match_km": 1.5, "match_minutes": 40, "keep_days": 7,
-                         "video_max_age_hours": 24},
+                         "video_max_age_hours": 24,
+                         # a first picture alone goes to the channel only when it is unmistakable
+                         # (a strong rise with a flame's glow); a fainter speck waits for the
+                         # second picture and then goes out as a normal alert
+                         "strong_only": True},
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
-        "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.5,
+        # 0.25 km per pixel: the server answers anything coarser than ~0.3 km from a blurred copy
+        # that is also one picture behind, in which a small fire all but disappears
+        # (docs/reviews/hormuz_ras_al_khaimah_20261114.md)
+        "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.25,
         # slots missed in the last hours (the source late or down) are checked later, newest first,
         # within this many seconds per run
         "catchup_hours": 3, "budget_s": 240,
-        "ref_minutes": [30], "min_rise": 6.0, "min_z": 5.0, "max_area_km2": 60, "max_was_hot": 4.0,
+        # Levels (0-255) of the picture's red colour (3.8 micron), never Kelvin or MW. Compared
+        # with the middle of the pictures 30, 60 and 90 minutes before. A speck needs a rise of 7,
+        # or of 4 together with a new glow of 2 in the short-wave colours (flames only, at night).
+        # Tuned on the real nights of 1, 9, 11, 13 and 14 November 2026: every real fire kept,
+        # no false pair on the cloudy and the flare-rich nights.
+        "ref_minutes": [30, 60, 90], "min_rise": 7.0, "min_z": 5.0, "flame_rise": 4.0, "flame_glow": 2.0,
+        "max_area_km2": 60, "max_was_hot": 12.0,
         # low cloud or fog drifting off is not a fire: the speck must be hotter than the clear sea
-        # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km)
-        "min_above_sea": 3.0, "max_warm_extent_km": 8.0,
+        # around it, and its warming no longer than a few km (a cloud edge runs on for tens of km;
+        # the first picture of the real fire of 1 November spread 8.5 km at full detail)
+        "min_above_sea": 3.0, "max_warm_extent_km": 12.0,
+        # the sea around a fire is calm; where clouds drift, pixels for kilometres around change.
+        # Share of sea pixels 3-15 km away that changed by 3 levels: real fires 0.00-0.03, cloud
+        # specks 0.05-0.9. A blaze (rise 30 with a glow of 10) is believed in a restless sky too.
+        "max_restless": 0.05, "max_restless_strong": 0.30, "strong_rise": 30.0, "strong_glow": 10.0,
+        # the glow around a big flare brightens and fades with it: not a fire of its own
+        "halo_km": 10.0, "halo_margin": 30.0,
+        # what a single picture must show to be told at once
+        "early_min_rise": 15.0, "early_min_glow": 4.0,
         "min_coast_km": 3.0, "platform_km": 3.0, "known_heat_km": 10.0, "max_z_ir105": 6.0,
         "known_heat_min_days": 3, "known_heat_exclusion_km": 3.0,
         "prefetch": {"enabled": True, "budget_s": 90, "request_timeout_s": 40, "batch_size": 4},
@@ -142,6 +164,9 @@ DEFAULTS = {
         # Day candidates need independent official/NASA evidence before any Telegram alert.
         "daytime": {
             "enabled": True, "ref_minutes": [30, 60],
+            # the experimental day finder keeps the picture detail it was tuned on (its many
+            # sunlit-cloud tests would have to be measured again on full-detail pictures)
+            "km_per_px": 0.5,
             # from first light (where the night finder stops), not from full daylight: dawn and
             # dusk used to be watched by neither finder, about two hours around each sunrise
             "min_sun_elev": -6.0, "min_view_elev": 10.0, "min_glint_angle": 25.0,

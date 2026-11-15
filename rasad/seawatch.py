@@ -6,11 +6,20 @@ although it does show in the picture as a new warm speck. This finder looks for 
 at night and at sea, where the background is calm. Experimental daytime checks live in
 daywatch.py, with separate solar-reflection filters and a requirement for independent confirmation.
 
+The picture is asked for at full detail (0.25 km per pixel). Asked for at 0.5 km or coarser, the
+server answers from a blurred copy that is also one picture (10 minutes) behind: a fire two pixels
+wide all but disappears in it (docs/reviews/hormuz_ras_al_khaimah_20261114.md). The red colour
+carries the 3.8 micron channel; green and blue carry 2.2 and 1.6 micron, which are dark at night
+except over flames, so a glow there is evidence no cloud can fake.
+
 A speck is kept only if:
-  * it is warmer than the same spot 30 and 60 minutes earlier, by a clear margin, while the
-    area around it did not warm the same way (clouds clearing warm a whole area);
-  * it is small (a fire, not a sheet of clearing sky);
-  * the spot was not already hot before (that would be a flare that flickers);
+  * it is warmer than the same spot was in the pictures 30, 60 and 90 minutes earlier (their
+    middle value, so a fire that keeps burning keeps showing for an hour), by a clear margin, or
+    by a smaller one together with a new glow in the short-wave colours;
+  * it is small (a fire, not a sheet of clearing sky) and stands above the clear sea around it;
+  * the sea around it is calm: where clouds drift, the pixels for kilometres around change too;
+  * the spot was not already hot before (a flare that flickers), and it is not the glow around a
+    much stronger source nearby (a big flare's halo brightens and fades with it);
   * it is at sea, away from the shore, from oil platforms and from heat seen there before;
   * the 10.5 micron picture did not change there the same way (a hole in a cloud changes
     both pictures; a small fire changes almost only the 3.8 micron one).
@@ -211,9 +220,12 @@ class Pictures:
         # Red, blue and the old mean share one RGBA download, including at the day/night boundary.
         todo = {}
         for r in requests_:
-            base = (r[0], tuple(r[1]), r[2], r[3], iso(r[4]))
-            if base + ("rgba",) not in self.cache:
-                todo.setdefault(base, r)
+            if (r[0], tuple(r[1]), r[2], r[3], iso(r[4]), "rgba") in self.cache:
+                continue
+            for part, _ in tile_requests(*r[:5]):   # a big picture is fetched tile by tile
+                base = (part[0], tuple(part[1]), part[2], part[3], iso(part[4]))
+                if base + ("rgba",) not in self.cache:
+                    todo.setdefault(base, part)
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(lambda r: self.get(*r), todo.values()))
 
@@ -227,6 +239,29 @@ class Pictures:
         finally:
             self._network_allowed = previous
 
+    def _tiled(self, layer, bbox, W, H, t):
+        """A big picture read as tiles and put together. Every tile is kept on disk by itself, so
+        a slow server costs one tile again, not the whole picture."""
+        parts = tile_requests(layer, bbox, W, H, t)
+        rows = {}
+        for (name, tile_box, w, h, when), (x0, y0) in parts:
+            base = (name, tuple(tile_box), w, h, iso(when))
+            raw_key = base + ("rgba",)
+            if raw_key not in self.cache:
+                self.get(name, tile_box, w, h, when, 0)
+            raw = self.cache.get(raw_key)
+            if raw is None:
+                return None
+            rows[(x0, y0)] = raw
+        out = np.empty((H, W, 4), np.uint8)
+        for (x0, y0), raw in rows.items():
+            out[y0:y0 + raw.shape[0], x0:x0 + raw.shape[1]] = raw
+        for (name, tile_box, w, h, when), _ in parts:   # the tiles are in the whole picture now
+            base = (name, tuple(tile_box), w, h, iso(when))
+            for key in [k for k in self.cache if k[:5] == base]:
+                del self.cache[key]
+        return out
+
     def get(self, layer, bbox, W, H, t, channel=None):
         if channel not in (None, 0, 1, 2):
             raise ValueError("RGB channel must be 0, 1 or 2")
@@ -235,6 +270,8 @@ class Pictures:
         key = base if channel is None else base + (channel,)
         if key in self.cache:
             return self.cache[key]
+        if raw_key not in self.cache and (W > TILE_PX or H > TILE_PX):
+            self.cache[raw_key] = self._tiled(layer, bbox, W, H, t)
         if raw_key not in self.cache:
             raw = self._read_disk(base)
             if raw is None and not self._network_allowed:
@@ -255,6 +292,27 @@ class Pictures:
         if key not in self.cache:
             self.cache[key] = _gray(self.cache[raw_key], channel)
         return self.cache[key]
+
+
+TILE_PX = 1100   # the server takes ~20 s for a 2000 x 2000 picture and a few seconds for a quarter of it
+
+
+def tile_requests(layer, bbox, W, H, t):
+    """[(request, (x0, y0))]: the picture itself when small, otherwise its tiles in pixel-exact
+    pieces (each piece is its own request, on the same grid)."""
+    if W <= TILE_PX and H <= TILE_PX:
+        return [((layer, tuple(bbox), W, H, t), (0, 0))]
+    w, s, e, n = bbox
+    nx, ny = math.ceil(W / TILE_PX), math.ceil(H / TILE_PX)
+    xs = [round(i * W / nx) for i in range(nx + 1)]
+    ys = [round(j * H / ny) for j in range(ny + 1)]
+    out = []
+    for j in range(ny):
+        for i in range(nx):
+            box = (w + xs[i] / W * (e - w), n - ys[j + 1] / H * (n - s),
+                   w + xs[i + 1] / W * (e - w), n - ys[j] / H * (n - s))
+            out.append(((layer, box, xs[i + 1] - xs[i], ys[j + 1] - ys[j], t), (xs[i], ys[j])))
+    return out
 
 
 _SEA = {}
@@ -347,38 +405,121 @@ def box_size(box, km):
     return max(50, int(round(wkm / km))), max(50, int(round((n - s) * 111.32 / km)))
 
 
+def restless_share(rise, sea, r, c, km, inner_km=3.0, outer_km=15.0, level=3.0):
+    """How restless the sea around a spot is: the share of open-sea pixels 3-15 km away whose
+    value changed by 3 levels or more. Next to nothing around a fire (0.00-0.03 on the real fires
+    of 1, 13 and 14 November 2026); large where clouds drift (0.05-0.9 for every false speck of
+    the cloudy night of 11 November). 1.0 when there is too little sea around to tell."""
+    k = int(round(outer_km / km))
+    r0, c0 = max(0, r - k), max(0, c - k)
+    win, wsea = rise[r0:r + k + 1, c0:c + k + 1], sea[r0:r + k + 1, c0:c + k + 1]
+    yy, xx = np.ogrid[r0:r0 + win.shape[0], c0:c0 + win.shape[1]]
+    d = np.hypot(yy - r, xx - c) * km
+    ring = wsea & (d >= inner_km) & (d <= outer_km) & ~np.isnan(win)
+    if int(ring.sum()) < 50:
+        return 1.0
+    return float((np.abs(win[ring]) >= level).mean())
+
+
+def stronger_source_near(cur, ref, sea, r, c, km, halo_km=10.0, margin=30.0, own_km=2.0):
+    """Is the spot inside the glow of a much stronger source? A big flare (Das Island reads 115 to
+    254 against a sea of 18) lights the pixels for kilometres around it, and they brighten and
+    fade with it: four first alerts of 14 November 2026 were exactly that."""
+    k = int(round(halo_km / km))
+    r0, c0 = max(0, r - k), max(0, c - k)
+    hot = np.fmax(cur[r0:r + k + 1, c0:c + k + 1], ref[r0:r + k + 1, c0:c + k + 1])
+    wsea = sea[r0:r + k + 1, c0:c + k + 1]
+    yy, xx = np.ogrid[r0:r0 + hot.shape[0], c0:c0 + hot.shape[1]]
+    d = np.hypot(yy - r, xx - c) * km
+    outside = hot[(d > own_km) & (d <= halo_km) & ~np.isnan(hot)]
+    if not outside.size:
+        return False
+    calm = hot[wsea & ~np.isnan(hot)]
+    background = float(np.median(calm)) if calm.size else float(np.nanmedian(hot))
+    top = float(outside.max())
+    return top - background >= margin and top > float(cur[r, c]) + 5
+
+
+def _baseline(frames):
+    """What the spot looked like before: the middle of three earlier pictures (a fire that is in
+    one of them still shows as new; a passing cloud in one is ignored), else the warmest."""
+    if len(frames) >= 3:
+        return np.median(np.stack(frames), axis=0).astype(np.float32)
+    out = frames[0]
+    for f in frames[1:]:
+        out = np.fmax(out, f)
+    return out
+
+
+def _grow3(a):
+    """Each pixel's largest value among itself and its 8 neighbours (the short-wave colours are
+    sampled on another grid than the 3.8 micron one: a glow may sit one pixel aside)."""
+    p = np.pad(a, 1, mode="edge")
+    out = a
+    for dy in (0, 1, 2):
+        for dx in (0, 1, 2):
+            if dy != 1 or dx != 1:
+                out = np.fmax(out, p[dy:dy + a.shape[0], dx:dx + a.shape[1]])
+    return out
+
+
 def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
     """Specks in one sea box at one slot. Returns (spots, notes) or (None, reason) if not ready.
-    `refs`: minutes back to compare with (default the configured ones; another gap is used when
-    the source lost the usual reference picture)."""
+    `refs`: minutes back to compare with (default the configured ones; other gaps are used when
+    the source lost the usual reference pictures). All numbers are levels (0-255) of the red
+    colour of the picture, never Kelvin or MW."""
     C = cfg["seawatch"]
     km = float(C["km_per_px"])
     W, H = box_size(box, km)
     if not any(_night(box["bbox"], t, float(C["sun_max_elev"]))):
         return [], "daylight"
     refs = [int(m) for m in (refs or C["ref_minutes"])]
-    cur = pics.get(C["layer"], box["bbox"], W, H, t)
-    old = [pics.get(C["layer"], box["bbox"], W, H, t - dt.timedelta(minutes=m)) for m in refs]
+    # a reference from before dusk still carries sunlight in this colour: prefer the night ones
+    dark = [m for m in refs if all(_night(box["bbox"], t - dt.timedelta(minutes=m), float(C["sun_max_elev"])))]
+    refs = dark or refs[:1]
+    layer, bbox = C["layer"], box["bbox"]
+    cur = pics.get(layer, bbox, W, H, t, 0)
+    old = [pics.get(layer, bbox, W, H, t - dt.timedelta(minutes=m), 0) for m in refs]
     if cur is None or any(o is None for o in old):
         return None, "picture not ready"
-    sea = sea_grid(box["bbox"], W, H, float(C["min_coast_km"]), km)
+    sea = sea_grid(bbox, W, H, float(C["min_coast_km"]), km)
     if sea is None:
         return [], "no land mask"
-    ref = old[0]
-    for o in old[1:]:
-        ref = np.fmax(ref, o)
+    ref = _baseline(old)
     rise = cur - ref
     # window sizes are in km, so the finder behaves the same at any picture detail
     spot = rise - local_mean(rise, max(2, round(5 / km)))     # what warmed more than its surroundings
     was_hot = ref - local_mean(ref, max(4, round(12 / km)))   # already warm before (a flare, a plant)
+    # green and blue (2.2 and 1.6 micron) are dark at night except over flames
+    glow = None
+    gmin = float(C.get("flame_glow", 2.0))
+    if gmin > 0:
+        def short_wave(when):
+            g, b = pics.get(layer, bbox, W, H, when, 1), pics.get(layer, bbox, W, H, when, 2)
+            return None if g is None or b is None else np.fmax(g, b)
+        frames = [short_wave(t)] + [short_wave(t - dt.timedelta(minutes=m)) for m in refs]
+        if all(f is not None for f in frames):
+            glow = _grow3(frames[0] - _baseline(frames[1:]))
     max_area = float(C["max_area_km2"]) / (km * km)
     sig = robust_sigma(np.where(sea, spot, np.nan))
     if sig is None:
         return [], "no sea in view"
-    zmin, rmin = float(C["min_z"]), float(C["min_rise"])
-    cand = (spot >= max(rmin, zmin * sig)) & (rise >= rmin) & sea
-    cand &= ~np.isnan(spot)
+    zmin, rmin, fmin = float(C["min_z"]), float(C["min_rise"]), float(C.get("flame_rise", 4.0))
+    limit = int(C.get("max_candidate_px", 20000))
+
+    def candidates(scale):
+        m = (spot >= max(rmin, zmin * sig) * scale) & (rise >= rmin * scale)
+        if glow is not None:   # a smaller warming counts when a flame's glow came with it
+            m |= (spot >= max(fmin, 0.5 * zmin * sig) * scale) & (rise >= fmin * scale) & (glow >= gmin)
+        return m & sea & ~np.isnan(spot)
+
+    scale, cand = 1.0, candidates(1.0)
+    while int(cand.sum()) > limit and scale < 6:   # a sky full of cloud edges: look only at the strongest
+        scale *= 1.5
+        cand = candidates(scale)
     out, notes = [], {"sigma": round(sig, 2), "candidates": 0, "rejected": {}}
+    if scale > 1:
+        notes["crowded"] = round(scale, 2)
     if refs != [int(m) for m in C["ref_minutes"]]:
         notes["compared_with_min_before"] = refs
 
@@ -386,7 +527,8 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         notes["rejected"][why] = notes["rejected"].get(why, 0) + 1
 
     mask_fn = land_mask_points()
-    for pts in components(cand, limit=5000):
+    strong_rise, strong_glow = float(C.get("strong_rise", 30.0)), float(C.get("strong_glow", 10.0))
+    for pts in components(cand, limit=limit):
         notes["candidates"] += 1
         if len(pts) > max_area:
             reject("too big (clouds)")
@@ -394,7 +536,7 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         vals = spot[pts[:, 0], pts[:, 1]]
         k = int(np.argmax(vals))
         r, c = int(pts[k, 0]), int(pts[k, 1])
-        lat, lon = px_to_latlon(box["bbox"], W, H, c, r)
+        lat, lon = px_to_latlon(bbox, W, H, c, r)
         if was_hot[r, c] > float(C["max_was_hot"]):
             reject("hot before (flare)")
             continue
@@ -412,6 +554,16 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if sun_elevation(lat, lon, t) > float(C["sun_max_elev"]):
             reject("daylight")
             continue
+        shine = 0.0 if glow is None else float(np.nanmax(glow[max(0, r - 2):r + 3, max(0, c - 2):c + 3]))
+        mighty = float(rise[r, c]) >= strong_rise and shine >= strong_glow   # a blaze, not a speck
+        restless = restless_share(rise, sea, r, c, km)
+        if restless > float(C.get("max_restless_strong" if mighty else "max_restless", 0.05)):
+            reject("restless sea around it (clouds moving)")
+            continue
+        if stronger_source_near(cur, ref, sea, r, c, km, float(C.get("halo_km", 10.0)),
+                                float(C.get("halo_margin", 30.0))):
+            reject("glow of a stronger source nearby (flare)")
+            continue
         if mask_fn is None:
             reject("no land mask")
             continue
@@ -428,20 +580,25 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if persistent_local_heat(mem, lat, lon, night, C):
             reject("heat seen here before")
             continue
-        z10 = _ir105_change(pics, cfg, lat, lon, t, refs)
+        z10 = _ir105_change(pics, cfg, lat, lon, t, refs[:1])
         notes.setdefault("z10", []).append(z10)
         if z10 is not None and z10 >= float(C["max_z_ir105"]):
             reject("cloud change (10.5 micron)")
             continue
+        flame = shine >= gmin
         out.append({"src": SRC, "family": "mtg", "kind": "geo", "t": iso(t), "lat": round(lat, 4),
                     "lon": round(lon, 4), "frp": None, "rise": round(float(vals[k]), 1),
                     "z": round(float(vals[k]) / sig, 1), "z10": z10, "area_px": int(len(pts)),
-                    "above_sea": None if above is None else round(above, 1), "extent_km": round(extent, 1)})
+                    "above_sea": None if above is None else round(above, 1), "extent_km": round(extent, 1),
+                    "glow": round(shine, 1), "flame": bool(flame), "restless": round(restless, 3),
+                    # clear enough to be told at once, before a second picture agrees
+                    "strong": bool(float(rise[r, c]) >= float(C.get("early_min_rise", 15.0))
+                                   and shine >= float(C.get("early_min_glow", 4.0)))})
     # fires at sea do not come by the dozen: many specks in one picture is the weather (low cloud
     # or fog thinning at night makes the sea look warmer at 3.8 micron); keep only the strongest
     burst = int(C.get("burst_max", 4))
     if len(out) > burst:
-        strong = [sp for sp in out if sp["z"] >= 2 * zmin and sp["rise"] >= 2 * rmin]
+        strong = [sp for sp in out if sp["strong"] or (sp["z"] >= 2 * zmin and sp["rise"] >= 2 * rmin)]
         if len(out) - len(strong):
             notes["rejected"]["weather (many specks at once)"] = len(out) - len(strong)
         out = strong
@@ -474,6 +631,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         from .daywatch import find_spots as find_day_spots
     cad = int(C["cadence_min"])
     km = float(C["km_per_px"])
+    day_km = float(D.get("km_per_px", km))   # the day finder's own picture detail
     sun = float(C["sun_max_elev"])
     platform_km = float(C["platform_km"])
     sparkle_min_days = max(1, int(C.get("sparkle_min_days", 3)))
@@ -522,7 +680,9 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     sparkle = state.setdefault("sea_sparkle", {})  # ~5 km cell -> nights a speck was seen there
     span = max(int(C["slots_per_run"]), int(round(float(C.get("catchup_hours", 3)) * 60 / cad)))
     per_run, budget, t_start = int(C["slots_per_run"]), float(C.get("budget_s", 240)), time.time()
-    probe = box_around(26.3, 56.6, 10)   # one tiny picture over the strait answers for the whole view
+    # one tiny picture over the strait answers for the whole view; asked for at full detail,
+    # because the server's coarse copy is not the picture the finder reads
+    probe = box_around(26.3, 56.6, 1)
     todo = []
     for k in range(span):                # newest first
         t = latest - dt.timedelta(minutes=cad * k)
@@ -574,9 +734,11 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         # outage still shows as new
         jobs = []
         if night_ready:
-            refs = next(([m] for m in [int(x) for x in C["ref_minutes"]]
-                         + [40, 20, 50, 60, 70, 80, 90, 100, 110, 120]
-                         if avail.has(C["layer"], t - dt.timedelta(minutes=m), probe)), None)
+            wanted = [int(x) for x in C["ref_minutes"]]
+            refs = [m for m in wanted if avail.has(C["layer"], t - dt.timedelta(minutes=m), probe)]
+            if not refs:   # the usual references are lost at the source: the nearest other one
+                refs = next(([m] for m in [40, 20, 50, 60, 70, 80, 90, 100, 110, 120] if m not in wanted
+                             and avail.has(C["layer"], t - dt.timedelta(minutes=m), probe)), None)
             if refs is None:
                 lost += 1
             else:
@@ -598,10 +760,10 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         requests = []
         for box, src, refs in jobs:
             for tt in [t] + [t - dt.timedelta(minutes=m) for m in refs]:
-                request = (C["layer"], box["bbox"], *box_size(box, km), tt)
-                requests.append(request + (0,) if src == day_src else request)
+                size = box_size(box, day_km if src == day_src else km)
+                requests.append((C["layer"], box["bbox"], *size, tt, 0))
                 if src == day_src:
-                    requests.append((C["check_layer"], box["bbox"], *box_size(box, km), tt))
+                    requests.append((C["check_layer"], box["bbox"], *size, tt))
         pics.prefetch(requests)
         checked.append(t)
         for box, src, refs in jobs:
@@ -634,12 +796,13 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
             night = (t - dt.timedelta(hours=12)).date().isoformat()
             for sp in spots:
                 pair = confirm([c for c in cands if c.get("src", SRC) == src], sp)
-                width, height = box_size(box, float(C["km_per_px"]))
+                width, height = box_size(box, day_km if is_day else km)
                 cands.append(dict(
                     {k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")}, src=src,
+                    **({} if is_day else {"strong": bool(sp.get("strong")), "flame": bool(sp.get("flame"))}),
                     source_grid={"box_id": box["id"], "bbox": list(box["bbox"]),
                                  "width": width, "height": height,
-                                 "km_per_px": float(C["km_per_px"]), "layer": C["layer"]},
+                                 "km_per_px": day_km if is_day else km, "layer": C["layer"]},
                     reference_minutes=list(refs)))
                 if is_day:
                     if pair:
@@ -656,7 +819,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                     log.info("sea watch: specks at %.3f,%.3f again (also on %s): a flare, not news",
                              sp["lat"], sp["lon"], ", ".join(sorted(before)))
                 elif pair:
-                    found += [dict(sp, src=SRC, family="mtg", kind="geo", frp=None) for sp in pair + [sp]]
+                    found += [dict(row, src=SRC, family="mtg", kind="geo", frp=None) for row in pair + [sp]]
             if spots or (isinstance(notes, dict) and notes.get("candidates")):
                 log.info("sea watch %s %s: %s", box["id"], iso(t),
                          notes if not spots else f"{len(spots)} speck(s) {notes}")
@@ -690,7 +853,7 @@ def look_back(cfg, wms, inc, mem=None, geo=None, hours_before=3.0, minutes_after
     from .util import haversine_km
     C = cfg["seawatch"]
     # a small area, so the full-detail picture can be asked for (big areas come back averaged)
-    cfg = dict(cfg, seawatch=dict(C, km_per_px=float(C.get("look_back_km_per_px", 0.5))))
+    cfg = dict(cfg, seawatch=dict(C, km_per_px=float(C.get("look_back_km_per_px", 0.25))))
     cad = int(C["cadence_min"])
     first = parse_time(inc["first"])
     box = {"id": "lookback", "bbox": box_around(inc["lat"], inc["lon"], 30)}

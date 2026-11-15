@@ -13,7 +13,7 @@ import math
 from pathlib import Path
 import time
 
-from .seawatch import Pictures, box_size
+from .seawatch import Pictures, box_size, tile_requests
 from .util import floor_time, iso, log, make_session, sun_elevation, utcnow
 from .wms import WMS
 
@@ -54,6 +54,7 @@ class Collector:
         C = self.cfg["seawatch"]
         D = C.get("daytime", {})
         cad, km = int(C["cadence_min"]), float(C["km_per_px"])
+        day_km = float(D.get("km_per_px", km))   # the day finder keeps its own picture detail
         end = floor_time(now - dt.timedelta(minutes=max(0, float(C.get("delay_min", 0)))), cad)
         count = max(1, min(36, math.ceil(float(C.get("catchup_hours", 3)) * 60 / cad) + 1))
         boxes = [box for box in C.get("boxes", []) if box.get("enabled", True)]
@@ -70,9 +71,11 @@ class Collector:
                 if day and len(set(refs)) < 2:
                     continue
                 layers = [C["layer"], C["check_layer"]] if day else [C["layer"]]
-                width, height = box_size(box, km)
-                requests = [(layer, tuple(box["bbox"]), width, height, when - dt.timedelta(minutes=m))
-                            for m in [0] + list(dict.fromkeys(refs)) for layer in layers]
+                width, height = box_size(box, day_km if day else km)
+                # a big full-detail picture is cached as tiles, exactly as the finder reads it
+                requests = [part for m in [0] + list(dict.fromkeys(refs)) for layer in layers
+                            for part, _ in tile_requests(layer, tuple(box["bbox"]), width, height,
+                                                         when - dt.timedelta(minutes=m))]
                 yield index, when, requests
 
     def process_batch(self, now=None):
@@ -112,7 +115,7 @@ class Collector:
             return {"requested": 0, "cached": 0, "failed": 0}
         _, index, due = min(groups, key=lambda group: group[0])
         self.cursor = index + 1
-        batch = due[:max(1, min(4, int(P.get("batch_size", 4))))]
+        batch = due[:max(1, min(12, int(P.get("batch_size", 4))))]
         budget = max(1.0, min(120.0, float(P.get("budget_s", 90))))
         timeout = max(.5, min(45.0, float(P.get("request_timeout_s", 40))))
         guard = getattr(self.wms, "budget", None)

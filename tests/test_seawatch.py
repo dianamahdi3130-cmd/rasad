@@ -30,7 +30,9 @@ class PlatformRadiusTests(unittest.TestCase):
         previous = current.copy()
         current[row, col] = 100.0
         pics = Mock()
-        pics.get.side_effect = lambda layer, bbox, w, h, t: current if t == when else previous
+        dark = np.zeros((height, width), dtype=np.float32)   # the short-wave colours: no flame glow
+        pics.get.side_effect = lambda layer, bbox, w, h, t, channel=None: \
+            dark if channel in (1, 2) else current if t == when else previous
 
         # Use the real platform spatial lookup, with one platform at a known distance.
         platform_lat = lat + math.degrees(platform_distance / 6371.0)

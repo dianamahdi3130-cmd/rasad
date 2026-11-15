@@ -89,7 +89,7 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         return None, "daytime references invalid"
     if len(set(offsets)) < 2 or any(m <= 0 for m in offsets):
         return None, "daytime requires two distinct reference pictures"
-    km = float(C.get("km_per_px", 0.5))
+    km = float(D.get("km_per_px", C.get("km_per_px", 0.5)))
     W, H = box_size(box, km)
     bbox = box["bbox"]
     w, s, e, n = bbox

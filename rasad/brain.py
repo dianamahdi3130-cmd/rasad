@@ -125,6 +125,8 @@ def add_to_incident(inc, det):
         inc["own_night_slots"] = sorted(set(inc["geo_slots"]))[-60:]
     if det["src"] == "mtg_spot" and det["kind"] == "geo":
         inc["own_night_slots"] = sorted(set(inc.get("own_night_slots") or []) | {det["t"]})[-60:]
+        if det.get("flame"):   # a glow in the short-wave colours at night: flames, not cloud
+            inc["flame_glow"] = True
     if det["src"] not in srcs:
         srcs.append(det["src"])
     if det["family"] not in inc["families"]:

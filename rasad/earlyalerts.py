@@ -17,7 +17,7 @@ from .brain import app_link
 from .util import haversine_km, iso, local_text, parse_time
 
 DEFAULTS = {"enabled": False, "max_age_min": 45, "max_new_per_run": 3,
-            "match_km": 1.5, "match_minutes": 40, "keep_days": 7}
+            "match_km": 1.5, "match_minutes": 40, "keep_days": 7, "strong_only": False}
 _PUBLIC = ("id", "kind", "preliminary", "headline", "where", "place", "country", "facility",
            "first", "last", "lat", "lon", "best", "start_text", "last_text", "verdict", "priority",
            "size", "reason", "max_frp", "frp_series", "clip", "snap", "clip_note", "clip_status_text",
@@ -191,6 +191,10 @@ def sync(cfg, S, now):
         if now - parse_time(item["first"]) > max_age:
             continue
         origin = _origin(item)
+        # A faint first speck waits for its second picture (then it is a normal alert): only an
+        # unmistakable one, a strong rise with a flame's glow, is told from a single picture.
+        if settings.get("strong_only") and not (original.get(_identity(origin)) or {}).get("strong"):
+            continue
         # Already established before any early message: use the normal alert path.
         if _incident_for({"origin": origin}, S.incidents, settings) is not None:
             continue
