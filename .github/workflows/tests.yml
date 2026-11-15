@@ -1,0 +1,46 @@
+name: رصد - الاختبارات
+
+# Runs every test (about a minute) on each pull request and on pushes to work branches, so that
+# main only receives tested code. Nothing here touches the monitor, the channel or the app.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main, state, live, gh-pages, probe, diag]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: pip install -r requirements.txt pytest
+
+      - name: Python tests
+        run: python -m pytest -q
+
+      - name: App and private-app tests (no network)
+        run: |
+          failed=0
+          for f in tests/*.js; do
+            node "$f" > out.txt 2>&1 || { failed=1; echo "::error::$f failed"; tail -40 out.txt; }
+          done
+          exit $failed
