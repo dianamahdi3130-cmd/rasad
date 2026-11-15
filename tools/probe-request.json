@@ -1,7 +1,7 @@
-{"mode": "steps", "try": 14,
+{"mode": "steps", "try": 7,
  "steps": [
-  ["RASAD_BACKGROUND_MEDIA=1", "picture-worker", "--max-minutes", "5"],
-  ["RASAD_BACKGROUND_MEDIA=1", "cycle", "--no-send"],
-  ["RASAD_BACKGROUND_MEDIA=1", "picture-worker", "--max-minutes", "3"],
-  ["RASAD_BACKGROUND_MEDIA=1", "cycle", "--no-send"]
+  ["seascan", "--start", "2026-11-04T14:30Z", "--end", "2026-11-04T18:00Z", "--boxes", "hormuz_oman"],
+  ["pictures", "--lat", "26.0572", "--lon", "55.8089", "--start", "2026-11-04T15:00Z", "--end", "2026-11-04T16:20Z"],
+  ["pictures", "--lat", "26.3671", "--lon", "55.7298", "--start", "2026-11-04T16:40Z", "--end", "2026-11-04T17:50Z"],
+  ["pictures", "--lat", "26.018", "--lon", "56.548", "--start", "2026-11-01T21:20Z", "--end", "2026-11-01T22:40Z"]
  ]}
