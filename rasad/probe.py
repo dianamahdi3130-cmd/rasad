@@ -384,3 +384,36 @@ def list_layers(cfg, out_dir="probe-out", pattern=None):
     for name, title, last, _ in shown:
         log.info("   %s | %s | newest %s", name, title, last or "-")
     return rows
+
+
+def gibs_layers(pattern, out_dir="probe-out", url="https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/WMTSCapabilities.xml"):
+    """Diagnosis: which of NASA's daily picture layers (GIBS) exist, with the tile grid and file
+    type each one is served in, so the app's map is given names that really answer."""
+    import xml.etree.ElementTree as ET
+    session = make_session()
+    r = session.get(url, timeout=240)
+    root = ET.fromstring(r.content)
+    rx = re.compile(pattern, re.I)
+    rows = []
+    for layer in root.iter():
+        if not layer.tag.endswith("}Layer"):
+            continue
+        ident = fmt = grid = None
+        for ch in layer.iter():
+            tag = ch.tag.split("}")[-1]
+            if tag == "Identifier" and ident is None:
+                ident = (ch.text or "").strip()
+            elif tag == "Format" and fmt is None:
+                fmt = (ch.text or "").strip()
+            elif tag == "TileMatrixSet" and grid is None and (ch.text or "").strip():
+                grid = (ch.text or "").strip()
+        if ident and rx.search(ident):
+            rows.append((ident, grid or "", fmt or ""))
+    rows.sort()
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "gibs_layers.txt").write_text("\n".join("\t".join(r) for r in rows), encoding="utf-8")
+    log.info("%d matching layer(s)", len(rows))
+    for ident, grid, fmt in rows:
+        log.info("   %s | %s | %s", ident, grid, fmt)
+    return rows

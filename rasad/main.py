@@ -173,6 +173,9 @@ def main(argv=None):
     p = sub.add_parser("layers", help="diagnosis: the picture layers the European server offers")
     p.add_argument("--match", help="only names or titles matching this (regular expression)")
     p.add_argument("--out", default="probe-out")
+    p = sub.add_parser("gibs-layers", help="diagnosis: NASA's daily picture layers that match a name")
+    p.add_argument("--match", required=True)
+    p.add_argument("--out", default="probe-out")
     sub.add_parser("test-telegram")
     sub.add_parser("cloud-publish", help="send the app's data and clips to the private app (Cloudflare)")
     args = ap.parse_args(argv)
@@ -228,6 +231,10 @@ def main(argv=None):
         from .probe import grab
         grab(cfg, parse_time(args.start), parse_time(args.end), [float(x) for x in args.bbox.split(",")],
              [x.strip() for x in args.layers.split(",") if x.strip()], args.km, args.out, args.tag)
+        return
+    if args.cmd == "gibs-layers":
+        from .probe import gibs_layers
+        gibs_layers(args.match, args.out)
         return
     if args.cmd == "layers":
         from .probe import list_layers
