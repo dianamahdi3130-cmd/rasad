@@ -130,7 +130,8 @@ class MapRebuildInSlices(unittest.TestCase):
         self.cfg["regions"] = [{"id": "east", "name": "شرق السعودية", "bbox": [48.0, 25.0, 50.0, 27.0]}]
         self.cfg["geodata"]["overpass_pause_s"] = 0
         self.calls = []
-        self.heavy_deg = None          # oil boxes wider than this time out on both servers
+        self.heavy_deg = None          # oil boxes wider than this are too big for the server (runtime error)
+        self.busy_kinds = set()        # parts of these kinds get no answer (a busy server)
         self.remark = False            # the server answers 'runtime error' for oil boxes
 
     def post(self, url, data, timeout):
@@ -141,6 +142,9 @@ class MapRebuildInSlices(unittest.TestCase):
         s_, w_, n_, e_ = (float(v) for v in regex.search(r"\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)", query).groups())
         self.calls.append((kind, (w_, s_, e_, n_), timeout, url))
         if kind == "oil" and self.heavy_deg is not None and e_ - w_ > self.heavy_deg:
+            return Mock(status_code=200, json=Mock(return_value={
+                "elements": [], "remark": 'runtime error: Query timed out in "query" at line 2 after 90 seconds.'}))
+        if kind in self.busy_kinds:
             raise geodb.requests.ReadTimeout()
         if kind == "oil" and self.remark:
             return Mock(status_code=200, json=Mock(return_value={
@@ -176,8 +180,8 @@ class MapRebuildInSlices(unittest.TestCase):
         self.assertEqual(names.get("محطة ضخ أرامكو السعودية 1"), "pumping")
         self.assertIn("refinery", names.values())
 
-    def test_a_box_that_keeps_failing_is_asked_as_its_quarters(self):
-        self.heavy_deg = 1.5                               # the 2-degree oil box is too heavy, a 1-degree one is not
+    def test_a_box_the_server_finds_too_big_is_asked_as_its_quarters(self):
+        self.heavy_deg = 1.5                               # the server times out on the 2-degree oil box, not on 1 degree
         self.assertFalse(self.build(budget_s=150))
         self.assertEqual([c[0] for c in self.calls], ["fac", "oil", "oil"], "both servers tried, then this run stops")
         self.calls.clear()
@@ -188,6 +192,19 @@ class MapRebuildInSlices(unittest.TestCase):
         self.assertTrue(self.build(budget_s=150))
         self.assertEqual([c[0] for c in self.calls], ["oil"] * 4, "the heavy box is now asked as four quarters")
         self.assertTrue(all(c[1][2] - c[1][0] <= 1.0 for c in self.calls))
+        self.assertEqual(self.facilities()[1].get("محطة ضخ أرامكو السعودية 1"), "pumping")
+
+    def test_a_busy_server_does_not_make_parts_smaller(self):
+        from rasad.util import load_json
+        self.busy_kinds = {"oil", "place"}                 # no answer at all (16 Nov: 502, 504, 95 s silences)
+        for _ in range(4):
+            self.assertFalse(self.build(budget_s=150))
+        prog = load_json(self.cfg["_geodata_dir"] / "progress.json", {})
+        waiting = prog["work"]["48.00,25.00,50.00,27.00"]
+        self.assertEqual(sorted(n.split("|")[0] for n in waiting), ["oil", "place"], "still one box each, not quarters")
+        self.assertTrue(all(c[1][2] - c[1][0] == 2.0 for c in self.calls))
+        self.busy_kinds = set()
+        self.assertTrue(self.build(budget_s=150))
         self.assertEqual(self.facilities()[1].get("محطة ضخ أرامكو السعودية 1"), "pumping")
 
     def test_a_server_runtime_error_is_a_failure_not_an_empty_answer(self):
