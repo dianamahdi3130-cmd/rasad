@@ -284,6 +284,7 @@ def assess(inc, cfg):
     # the heat pattern (patterns.py): a neutral line, silent; it takes the last of the eight places
     # so that no line before it moves (the post's main reason is the first '+' line)
     patterns.apply(inc, cfg, ev)
+    patterns.refresh_signals(inc, cfg)   # «مؤشرات تستحق الانتباه», app only
     inc["severity"] = severity_of(inc, cfg, category)
     sources = sources_of(inc)
     if not sources and category == "candidate":   # the app's preview carries no sighting list

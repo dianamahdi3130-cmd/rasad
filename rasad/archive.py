@@ -38,6 +38,8 @@ def slim(inc):
     row["pictures"] = len(inc.get("geo_slots") or [])
     if inc.get("pattern"):   # the heat pattern's key (patterns.py), for searching the record later
         row["pattern"] = inc["pattern"].get("key")
+    if (inc.get("signals") or {}).get("n"):   # how many signals worth attention
+        row["signals"] = inc["signals"]["n"]
     if isinstance(row.get("max_frp"), float):
         row["max_frp"] = round(row["max_frp"], 1)
     return row

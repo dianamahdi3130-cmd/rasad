@@ -197,3 +197,62 @@ What it costs, said to the owner:
 - **Rasad read about 56% of Meteosat slots on 10-16 Nov.** That delays picture counts and creates false
   simultaneous starts; hence `onset_known`.
 - **The solar rule depends on the open map's solar parks** and on Meteosat being read at the time.
+
+
+## Signals worth attention («مؤشرات تستحق الانتباه», 16 Nov 2026, app only)
+The owner asked: "how do I know this heat is unusual and comes from an attack?" Satellites cannot say
+why; they can say what is unusual about the heat.
+
+Each event on land at or near an energy site gets a short list in the app (`patterns.signals_of`,
+`inc["signals"]`). It appears under the verdict, and a badge on the card counts the warnings. Every list
+ends with «هذه علامات تستحق النظر وليست حكماً …». Nothing is posted and no decision changes.
+
+**Warnings («يستحق الانتباه», counted):**
+- **Heat at a spot of the site that rarely burns.**
+  - The test: NASA's VIIRS pixel (375 m) has, within 500 m, no cell hot on more than 2% of the
+    long-term map's dates, and Rasad's own record saw heat there on at most 2 days.
+  - It is counted only for confirmed or likely heat of 5 MW or more. A faint or unconfirmed speck gets
+    the same words as a neutral line.
+  - MODIS (1 km) is too coarse for this test.
+- **A sudden strong start at a quiet place:** 20 MW or more within half an hour of the first Meteosat
+  sighting, while a picture of the same product read 10-40 minutes before showed nothing. It is decided
+  once and kept (`start_mw`).
+- **Several places at once** (the pattern tag).
+- **Heat spread wide in one pass** (`inc["wide"]`).
+
+**Calm lines («يشبه المعتاد»):** heat at a spot that burns on many days, heat in a place with heat on
+most days of the month (a plant's surge), and a level the place reached earlier this month (only when
+it is not above it now).
+
+**Wait lines:** only Meteosat or MODIS saw it, so the spot is not known yet; or the odd spot is too
+faint to count.
+
+**The long-term map of usual heat** (`rasad/data/heat_atlas.json.gz`, `tools/heat_atlas.py`):
+- What it holds: NOAA-20/21 fire pixels, read from NOAA's public files on one date in five from 5 Mar
+  2024 to 10 Nov 2026 (197 dates). Each 0.005° cell (~500 m) records how many dates it was hot on;
+  15,989 cells were hot on 2 dates or more.
+- How it is read: only the pixel lists are read, with range requests. In separate processes it takes
+  about 10 minutes; h5py lets one thread read at a time.
+- Rebuild: every few months. Between rebuilds, Rasad keeps its own day-by-day record of NASA's spots
+  near energy sites (`state["spots"]`), so a flare lit after the build is learnt within days.
+
+**Checked before shipping.**
+- **Real attacks:** the study's 21 attacks since March 2024 with NASA pixels at the site, each tested
+  against the map without the dates within 20 days of it (as the live tool will have it).
+  - At 500 m the odd-spot warning lit at **14 of 21**: Hodeidah, Fujairah, Tehran 2026, Salalah,
+    Khurais, Abqaiq (Apr and Jul 2026), Lavan, Jazan, Haifa, Khor Mor 2025, Mina al-Ahmadi ×2, and
+    South Pars 2025.
+  - At 750 m it lit at 10 of 21; at 400 m at the same 14, with more false alarms.
+- **Missed:**
+  - Ras Laffan, South Pars 2026, Bapco ×2 and Sarsang: the heat fell on usual flare spots.
+  - Ras Isa and a Tehran fuel depot: the facility map holds no site there. Next step: fuel depots and
+    tank farms in `FACILITY_QUERY`.
+- **Accidents:** an accident looks the same. The Shahid Rajaee port explosion and the Barzan blast
+  also lit.
+- **Ordinary days:** on 15-16 Nov 2026, 4.3% of NASA passes over a mapped facility had a pixel at a
+  rare spot.
+- **Stored events:** on the 1,074 stored events of 9-16 Nov, the counted warning appears on 5. Four
+  are energy sites: Abqaiq north at GOSP-3 (33 MW), Ahmadi's surge (123 MW), Kuwait's GC-17 and a new
+  heat in Kuwait. The fifth is Al-Uyun.
+- **Not a signal yet:** the change in the before/after picture. It is measured over the whole frame,
+  not at the heat, so it would light at almost every event. Next step: the patch at the heat.

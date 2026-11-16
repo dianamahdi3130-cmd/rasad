@@ -48,6 +48,9 @@ and usually one `pending` (the next one, queued every 10 minutes; older pending 
   «عدة مواقع في وقت متقارب» tags. Never posted; «واسعة الانتشار» cannot appear in the first 7 days
   after the upgrade (each place's usual footprint is still being learnt). Review with the owner
   (`docs/plans/heat_patterns.md`) before any of it may post.
+- **signals worth attention (app only)**: events whose «مؤشرات تستحق الانتباه» list has a counted
+  warning (`patterns.signals_of`). About one a day on the week of 9-16 Nov 2026; many more a day
+  means the long-term map (`rasad/data/heat_atlas.json.gz`) or `state["spots"]` is missing.
 - **kinds / confidence**: `fire`, `industrial` (a plant's flare well above its own habit), `candidate`
   (a first sea speck); `?` right after the upgrade means the first check has not re-judged yet.
 - **sea pictures checked in the last 6 h**: one count per sea box (ten boxes; `day …` = the

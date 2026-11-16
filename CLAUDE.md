@@ -31,6 +31,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker |
 | `rasad/s2.py`, `rasad/satpic.py` | Sentinel-2 reader (same engine as `web/imagery.js`, numpy) and the before/after pictures for the channel: under an alert when a clear pass comes, and for the watched places of `config.yaml` → `watch.places` when a new clear pass shows a patch of change (queue, worker, picture, captions) |
 | `rasad/patterns.py` | heat patterns («أنماط الحرارة»), **silent for now**: a label for heat on land at or near energy sites that describes the heat, never its cause: «حرارة جديدة مستمرة», «اشتداد في موقع حرارة معتاد», «حرارة واسعة الانتشار» (many pixels over km in one NASA pass, against the place's own usual footprint), «حرارة قصيرة أو متقطعة», «حرارة في منطقة نشطة», «حرارة دون نمط واضح», «انعكاس محتمل في محطة شمسية», and the tag «عدة مواقع في وقت متقارب». Facts kept when an incident is made (`quiet_days`, `usual_px`, `solar_km`, `geo_read_at_pass`, `onset_known`) and per NASA pass (`inc["passes"]`, NOAA's oil/gas tag `pa`); shown in the app as the neutral reasons line «النمط: …» and `inc["pattern"]`. Design, replay and the next steps: `docs/plans/heat_patterns.md` |
+| `rasad/data/heat_atlas.json.gz`, `tools/heat_atlas.py` | the long-term map of usual heat: per ~500 m cell, on how many of 197 sampled dates (Mar 2024 - Nov 2026) NOAA-20/21 saw heat there; rebuilt by `python tools/heat_atlas.py` (range reads of NOAA's public files, ~10 min). Read by `patterns.signals_of`; between rebuilds Rasad's own record `state["spots"]` learns new flares near energy sites |
 | `rasad/smoke.py` | smoke as a second witness, **silent for now**: by day, a streak in the 500 m visible pictures counts only when new, anchored at the heat, one-directional in 3+ pictures and not cold. Recorded on the incident for the app; never posted, never part of a verdict |
 | `rasad/flares.py` | a plant's flare far busier than usual, **silent**: Meteosat-12 symbol in 8+ of the last 3 hours' pictures with 3+ readings at least twice the usual and 5 MW above it. Kept apart from incidents, sent in `meta.flare_activity`, shown in the app as «نشاط حراري أعلى من المعتاد (تجريبي)» with its own thermal video (made by the media worker: `ask_videos`/`take_videos`); never posted. Reviewed nights are replayed once from `rasad/reviews/flares_*.json` |
 | `rasad/notify.py`, `rasad/updates.py` | Telegram sending (HTML, replies under the first post); intensity updates |
@@ -149,6 +150,13 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   الانتشار» and «عدة مواقع في وقت متقارب» stay app-only until their record over real events is
   reviewed (`docs/plans/heat_patterns.md`). No label or post names a cause: never «هجوم»,
   «استهداف» or «ضربة».
+- Signals worth attention are app-only: `inc["signals"]` (`patterns.signals_of`) lists facts with
+  their numbers. Warnings, counted on the card: heat at a spot of the site that rarely burns (VIIRS
+  pixel within 500 m of no spot hot on over 2% of the long-term map's dates, confirmed or likely and
+  5 MW or more), a sudden strong start, several places at once, heat spread wide. Calm and wait lines:
+  everything else. Each list ends with «هذه علامات تستحق النظر وليست حكماً …». Never posted, never part
+  of a decision, never a cause. Checked on 21 real attacks since 2024: 14 lit
+  (`docs/plans/heat_patterns.md`).
 - Flare markers are silent: `meta.flare_activity` is shown in the app only; it is never an incident,
   never posted, never part of a verdict, and never trains the usual heat, until its record has been
   reviewed with the owner (`docs/reviews/yanbu_shedgum_20261112.md`).
