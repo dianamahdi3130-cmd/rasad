@@ -28,6 +28,8 @@ and usually one `pending` (the next one, queued every 10 minutes; older pending 
   read in the next checks. Worry only if `pending_recent` keeps growing for an hour.
 - **`[time budget used up]`** means a check stopped reading at its time limit, by design.
 - **firms latest** 2–4 hours old is normal (NASA's delay).
+- **noaa latest** is the end of the newest NOAA file handled: 20-60 minutes old is normal; hours
+  old means NOAA's files stopped arriving (the early NASA sightings then come only through FIRMS).
 - **ids unique** must be `yes` in both the app and the memory. `NO` means duplicate incident
   records are back: see `tests/test_no_duplicates.py` and `engine.tidy_incidents`.
 - **versions … ← differs** right after a merge means a one-time migration will run in the next check.

@@ -7,3 +7,4 @@ imageio-ffmpeg>=0.4
 global-land-mask>=1.0
 arabic-reshaper>=3.0
 python-bidi>=0.4
+h5py>=3.8

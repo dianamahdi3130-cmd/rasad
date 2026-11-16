@@ -478,7 +478,7 @@ test("the page keeps what the before/after screen and the phone need", () => {
   assert.doesNotMatch(html, /الخليج العربي/);
   assert.match(html, /viewport-fit=cover/); assert.match(html, /prefers-reduced-motion/); assert.match(html, /@media print/);
   assert.match(html, /preload="none"/); assert.doesNotMatch(html, /<video[^>]*autoplay/);
-  assert.match(sw, /const CACHE = "firms-v18"/); assert.match(html, /const APP_V = 18;/);
+  assert.match(sw, /const CACHE = "firms-v19"/); assert.match(html, /const APP_V = 19;/);
   // the three sizes of the phone's sheet are states of the page, not page reloads
   for (const state of ["sheet-peek", "sheet-half", "sheet-full"]) assert.ok(html.includes(state), state);
 });

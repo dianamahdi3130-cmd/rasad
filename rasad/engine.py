@@ -18,7 +18,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue, earlyalerts
-from . import acquisitions, archive, assess, flares, repairs, satpic, smoke
+from . import acquisitions, archive, assess, flares, noaafire, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -67,6 +67,8 @@ DEFAULTS = {
               "sources": ["VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "VIIRS_SNPP_NRT", "MODIS_NRT"],
               "bootstrap_days": 10, "max_day_range": 5, "live_hours": 36,
               "budget_s": 25, "request_timeout_s": 20, "max_workers": 2},
+    # NOAA's own files of NOAA-20/21 (public AWS buckets, no account): noaafire.py; on in config.yaml
+    "noaa": {"enabled": False, "budget_s": 12, "request_timeout_s": 10, "workers": 4, "max_age_hours": 6},
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
@@ -738,30 +740,68 @@ def run_cycle(cfg, send=True, alert_now=False):
         earlyalerts.sync(cfg, S, now)
         earlyalerts.prepare(cfg, S, now, mediaqueue.request_clip)
 
-    # 2) NASA (VIIRS/MODIS), precise but a few hours late.
+    # 2) NASA's polar satellites. First NOAA's own files for NOAA-20/21 (noaafire.py): the same pixels
+    #    FIRMS gives, about 25 minutes after a day pass and 45 after a night pass instead of about three
+    #    hours. A FIRMS row that brings one of them again later is its twin, not a second sighting.
+    seen = S.state.setdefault("seen", {})
+    noaa_keys = S.state.setdefault("noaa_seen", {})
+    twins = noaafire.Twins(seen, noaa_keys)
+    confirmed_by_firms = set()          # NOAA pixels whose FIRMS copy came in this check
+    if cfg["noaa"].get("enabled"):
+        noaa_status = {}
+        try:
+            fresh = noaafire.collect(cfg, session, S.state, now, box, status=noaa_status)
+        except Exception as e:  # noqa: BLE001 - an optional early source must never stop a check
+            log.warning("NOAA files failed: %s", e)
+            fresh, noaa_status = [], {**noaa_status, "ok": False}
+        n_noaa = n_twin = 0
+        for d in fresh:
+            k = f"{d['src']}|{d['t']}|{d['lat']}|{d['lon']}"
+            if k in noaa_keys or k in seen:
+                continue
+            if twins.absorbs(d):
+                n_twin += 1
+                continue
+            noaa_keys[k] = 0               # until its FIRMS copy comes (kept two days, see the end)
+            twins.add(k, d, noaa=True)
+            n_noaa += 1
+            dets.append(d)                 # keeps via='noaa' on its reading until FIRMS has it too
+        log.info("NOAA files: %d files read, %d over the regions, %d new pixels, %d already from FIRMS",
+                 noaa_status.get("read", 0), noaa_status.get("over", 0), n_noaa, n_twin)
+        status["noaa"] = {**noaa_status, "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
+                          "detections": n_noaa}
+
+    # 3) NASA (VIIRS/MODIS) through FIRMS, precise but about three hours late; MODIS only comes this way.
     #    Ask for today AND yesterday (UTC): the night passes over the Gulf (about 21:30-23:30 UTC)
     #    are published after midnight UTC, so "today only" would never see them.
     if cfg["firms"]["map_key"]:
-        seen = S.state.setdefault("seen", {})
         nasa_status = {}
         nasa_cfg = dict(cfg, firms=dict(cfg["firms"], source_offset=int(S.state.get("firms_source_offset", 0))))
         polar = firms_fetch(session, nasa_cfg, box, 2, status=nasa_status)
         S.state["firms_source_offset"] = (int(S.state.get("firms_source_offset", 0)) + 2) % max(1, len(cfg["firms"]["sources"]))
         live_from = now - dt.timedelta(hours=float(cfg["firms"].get("live_hours", 36)))
         n_new = n_old = 0
+        new_rows = []
         for d in polar:
             k = f"{d['src']}|{d['t']}|{d['lat']}|{d['lon']}"
             if k in seen:
                 continue
             seen[k] = d["t"]
+            new_rows.append(d)
+        pairs = twins.match(new_rows)  # read from NOAA's file already: the same sightings
+        confirmed_by_firms.update(pairs.values())
+        n_twin = len(pairs)
+        for i, d in enumerate(new_rows):
+            if i in pairs:
+                continue
             if parse_time(d["t"]) < live_from:
                 d["_history"] = True  # too old to report: only remembered as heat history
                 n_old += 1
             else:
                 n_new += 1
             dets.append(d)
-        log.info("NASA: %d detections in the last 2 days, %d new to judge, %d kept as history",
-                 len(polar), n_new, n_old)
+        log.info("NASA: %d detections in the last 2 days, %d new to judge, %d kept as history, %d already from NOAA's files",
+                 len(polar), n_new, n_old, n_twin)
         status["firms"] = {**nasa_status, "name": "الأقمار الأمريكية (ناسا)",
                            "ok": bool(nasa_status.get("ok")),
                            "latest": max((d["t"] for d in polar), default=None)}
@@ -831,6 +871,14 @@ def run_cycle(cfg, send=True, alert_now=False):
         return open_incs if parse_time(det["t"]) >= fresh_from else S.incidents
 
     touched, frp_budget = set(), 40
+    # A pixel read from NOAA's file that FIRMS has now brought too: its reading loses the «NOAA only»
+    # mark (it now counts as a look at a faint sea pixel, and NASA's map shows it) and is judged again.
+    if confirmed_by_firms:
+        for inc in S.incidents:
+            for row in inc.get("polar") or []:
+                if row.get("via") == "noaa" and f"{row['src']}|{row['t']}|{row['lat']}|{row['lon']}" in confirmed_by_firms:
+                    row.pop("via", None)
+                    touched.add(inc["id"])
     strength_deadline = time.monotonic() + float(E.get("strength_budget_s", 20))
 
     def strength_key(det):
@@ -1308,6 +1356,10 @@ def run_cycle(cfg, send=True, alert_now=False):
                         if now - parse_time(k.rsplit("|", 1)[1]) <= dt.timedelta(hours=6)}
     S.state["seen"] = {k: v for k, v in S.state.get("seen", {}).items()
                        if now - parse_time(v) <= dt.timedelta(days=3)}
+    # a NOAA pixel waits for its FIRMS copy as long as FIRMS rows can still come (two days asked);
+    # once paired, its copy is in `seen` and the pair is not needed any more
+    S.state["noaa_seen"] = {k: v for k, v in S.state.get("noaa_seen", {}).items()
+                            if not v and now - parse_time(k.split("|")[1]) <= dt.timedelta(days=2)}
     for cache in ("geocode", "landsea"):
         c = S.state.get(cache, {})
         if len(c) > 5000:
