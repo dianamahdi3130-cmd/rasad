@@ -106,6 +106,12 @@ are changed: `["seascan", "--day", "--km", "0.25", "--start", "…Z", "--end", "
 0.5 km for now; daytime cases to replay: 9 and 10 Nov 2026 in `docs/reviews/marine_cases_20261109.md`
 and `hormuz_ship_20261110.md`).
 
+NASA's NOAA-20/21 pixels also come straight from NOAA's public buckets (`rasad/noaafire.py`:
+`noaa-nesdis-n20-pds` / `noaa-nesdis-n21-pds`, `VIIRS_EFIRE_VIIRSI_EDR/YYYY/MM/DD/`, one netCDF4 file per
+84-second granule, read with h5py; a file's area is the `geospatial_bounds` polygon in its first 32 KB).
+Out 16-30 min after a day pass and 39-49 min after a night pass; the same pixels as FIRMS
+(`docs/reviews/noaa_files_20261116.md`). This session can reach these buckets directly.
+
 The app's imagery browser (Sentinel-2 and Landsat read by the phone, `web/imagery.js`) has its own
 real-data check, because the session cannot reach those archives either: a step like
 `["imagery-check", "--lat", "30.4567", "--lon", "47.715", "--half", "2", "--wide", "20", "--tag",

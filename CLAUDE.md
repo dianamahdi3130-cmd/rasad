@@ -23,6 +23,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/assess.py` | on top of the verdict, never against it: the kind of event (`fire` / `industrial` / `candidate`), a confidence number 0-100 with its reasons (`evidence`), seriousness, who saw it when (`sources`, `timeline`, `agreement`) |
 | `rasad/archive.py` | the long-term record the app searches: events worth keeping, one small file per month (`<state>/archive/`, copied to `<site>/data/archive/` and sent to the private app) |
 | `rasad/sources.py`, `rasad/wms.py` | EUMETView fire symbols (`detect_geo_layer`, `fetch_frp`), NASA FIRMS (`firms_fetch`); WMS client with time budgets, `Availability` |
+| `rasad/noaafire.py` | NASA's NOAA-20/21 fire pixels from NOAA's own public files (AWS, no account), about 25 min after a day pass and 45 after a night pass instead of ~3 h through FIRMS; same pixels (99% match, `docs/reviews/noaa_files_20261116.md`), entered as FIRMS rows of the same source; a later FIRMS copy is its twin (`Twins`), never a second sighting. On in `config.yaml` (`noaa.enabled`), off in `DEFAULTS` (tests) |
 | `rasad/geocollect.py` | which European pictures each check reads (never-read first, then settled second reads) |
 | `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert): reads the Fire Temperature picture at **0.25 km per pixel in tiles** over ten sea boxes, red = 3.8 micron, green/blue = flame glow; and the experimental day finder (first light to last light, sun above −6°, its two boxes at 0.5 km; never alerts alone) |
 | `rasad/earlyalerts.py`, `preliminary.py`, `earlyclip.py` | the first sea sighting from one picture («رصد حراري أولي»): posted at once only when unmistakable (`strong`), shown in the app otherwise; its own short video |
@@ -137,6 +138,9 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   fire that became important only because the rules or the facility map changed must also have
   started within that time (`engine.too_old_for_first_alert`): a heat source burning all day is
   not announced the moment the map learns its facility; it is marked late and shown in the app.
+- A NASA pixel counts once whichever road it came by: NOAA's file first, FIRMS hours later
+  (`noaafire.Twins`: same source, one to one, 4 minutes and 0.7 km). The same satellite is never a
+  second family.
 - Every network call inside a check has a time budget (EUMETView is often slow). No unbounded waits.
 - Bump when you change: `RULES` (importance rules) · `CLIP_STYLE` (clip look) · `SEA_CHECK`
   (sea finder's closer look) · `TIDY` (re-tidy stored incidents), all in `engine.py`; the `CACHE`

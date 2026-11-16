@@ -1009,7 +1009,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <div id="report" aria-hidden="true"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="access.js?v=18"></script>
+<script src="access.js?v=19"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24,
@@ -2300,7 +2300,8 @@ const SOURCE_INFO = {
   iodc_fire: "القمر الأوروبي Meteosat-9 فوق المحيط الهندي: صورة كل 15 دقيقة من زاوية أخرى. قمر مستقل يؤكد ما يراه الأول.",
   seawatch: "كاشف رصد الخاص بالبحر: يبحث ليلاً في صور Meteosat-12 عن بقعة حرارية ثابتة فوق الماء قد لا يلتقطها المنتج الرسمي. يعمل في الليل فقط.",
   seawatch_day: "الكاشف النهاري التجريبي: من أول الضوء إلى آخره. انعكاس الشمس قد يخدعه، لذلك لا ينبّه وحده أبداً.",
-  firms: "أقمار ناسا القطبية (VIIRS و MODIS): أدق في تحديد الموقع، لكنها تمر مرات قليلة في اليوم وتصل بياناتها متأخرة نحو 3 ساعات.",
+  noaa: "قمرا ناسا NOAA-20 وNOAA-21 من ملفاتهما المباشرة: الرصدات نفسها التي تصل لاحقاً عبر ناسا، لكن بعد نحو 25 دقيقة من مرور القمر نهاراً و45 ليلاً.",
+  firms: "أقمار ناسا القطبية (VIIRS و MODIS): أدق في تحديد الموقع، لكنها تمر مرات قليلة في اليوم وتصل بياناتها من ناسا متأخرة نحو 3 ساعات (ما سبق وصوله من ملفات NOAA لا يُحسب مرتين).",
   recovery: "استرجاع ما فات: يعيد فحص صور سابقة قرب المنشآت بعد انقطاع مصدر. ما يُسترجع يظهر في التطبيق ولا يُرسل كخبر.",
 };
 function sourceState(key, s, now = Date.now()){
@@ -3058,7 +3059,7 @@ async function signOut(){
 // The «قبل وبعد» screen (imagery.js, beforeafter.js) is behind the door on the private app, so its
 // scripts are added only once the app may run: at once on the open site, after a sign-in on the
 // private one. The app does not wait for them, and everything else works without them (hasBA()).
-const TOOLS = ["imagery.js?v=18", "beforeafter.js?v=18"];
+const TOOLS = ["imagery.js?v=19", "beforeafter.js?v=19"];
 function loadTools(){
   if (hasBA() || S.toolsBusy) return;
   S.toolsBusy = true;
@@ -3401,7 +3402,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 18;                    // the same number as CACHE in sw.js and ?v= of the scripts
+const APP_V = 19;                    // the same number as CACHE in sw.js and ?v= of the scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {
