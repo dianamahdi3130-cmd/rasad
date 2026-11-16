@@ -681,6 +681,31 @@ class Signals(unittest.TestCase):
         far, _ = self.signals([pixel("2026-11-15T22:59:00Z", 31.0, 46.0, 30.0)], facility=None, country="العراق")
         self.assertIsNone(far)
 
+    def test_rasads_own_record_learns_a_new_flare(self):
+        # a flare lit after the long-term map was built: Rasad sees it day after day
+        state = {}
+        for k in range(12):
+            day = (dt.date(2026, 11, 1) + dt.timedelta(days=k)).isoformat()
+            patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, day)
+            patterns.record_spot(state, {"lat": 26.1576, "lon": 49.7601}, day)        # the same day twice: one day
+        self.assertEqual(patterns.spot_days(state, 26.1575, 49.7600, "2026-11-13"), 12)
+        self.assertEqual(patterns.spot_days(state, 26.1575, 49.7600, "2026-11-01"), 0, "first seen that day: not usual yet")
+        self.assertEqual(patterns.spot_days(state, 26.20, 49.7600, "2026-11-13"), 0, "4.7 km away")
+        rows = [dict(pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0), spot=12)]
+        sig, _ = self.signals(rows)
+        self.assertEqual(sig["n"], 0, "Rasad has seen this spot burn on 12 days")
+        self.assertEqual(sig["calm"][0]["key"], "usual_spot")
+        rows = [dict(pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0), spot=1)]
+        self.assertEqual(self.signals(rows)[0]["n"], 1, "seen once before: still rare")
+
+    def test_quiet_spots_are_forgotten_after_half_a_year(self):
+        state = {}
+        patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, "2026-01-01")
+        patterns.record_spot(state, {"lat": 30.0, "lon": 48.0}, "2026-11-10")    # a Tuesday: day number % 7 == 0 by then
+        for k in range(8):
+            patterns.record_spot(state, {"lat": 30.0, "lon": 48.0}, (dt.date(2026, 11, 10) + dt.timedelta(days=k)).isoformat())
+        self.assertEqual(len(state["spots"]), 1)
+
     def test_no_signal_ever_names_a_cause_and_posts_do_not_change(self):
         rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]
         with patch.object(patterns, "_atlas", self.atlas()):

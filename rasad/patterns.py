@@ -679,6 +679,59 @@ def usual_flare_km(A, lat, lon, km, share):
     return min((d for n, d in _cells_near(A, lat, lon, km) if n >= need), default=None)
 
 
+SPOT_EPOCH = dt.date(2024, 1, 1)
+
+
+def _day_no(day):
+    return (dt.date.fromisoformat(day) - SPOT_EPOCH).days
+
+
+def record_spot(state, det, day, keep_days=180):
+    """Rasad's own record of NASA's hot ~500 m spots near energy sites, kept between rebuilds of the
+    long-term map: per cell [days with heat, last day, first day] (days counted from 2024-01-01). A
+    flare that started after the map was built is learnt within days, not called rare for ever."""
+    try:
+        lat, lon = float(det["lat"]), float(det["lon"])
+        n = _day_no(day)
+    except (KeyError, TypeError, ValueError):
+        return
+    spots = state.setdefault("spots", {})
+    key = f"{math.floor(lat / 0.005)},{math.floor(lon / 0.005)}"
+    row = spots.get(key)
+    if row is None:
+        spots[key] = [1, n, n]
+    elif row[1] != n:
+        row[0] += 1
+        row[1] = max(row[1], n)
+        row[2] = min(row[2], n)
+    else:
+        row[2] = min(row[2], n)
+    if n % 7 == 0 and state.get("spots_pruned") != n:   # once a week: forget spots quiet for half a year
+        state["spots_pruned"] = n
+        for k in [k for k, r in spots.items() if n - r[1] > keep_days]:
+            del spots[k]
+
+
+def spot_days(state, lat, lon, before_day, km=0.75):
+    """On how many days Rasad saw NASA heat within km of the point, counting only spots first seen
+    before `before_day` (a spot that only this event has lit does not make itself usual)."""
+    spots = state.get("spots") or {}
+    if not spots:
+        return 0
+    limit = _day_no(before_day)
+    cell = 0.005
+    i0, j0 = math.floor(lat / cell), math.floor(lon / cell)
+    ri = int(math.ceil(km / (111.0 * cell))) + 1
+    rj = int(math.ceil(km / (111.0 * max(0.2, math.cos(math.radians(lat))) * cell))) + 1
+    best = 0
+    for di in range(-ri, ri + 1):
+        for dj in range(-rj, rj + 1):
+            row = spots.get(f"{i0 + di},{j0 + dj}")
+            if row and row[2] < limit and haversine_km(lat, lon, (i0 + di + 0.5) * cell, (j0 + dj + 0.5) * cell) <= km:
+                best = max(best, int(row[0]))
+    return best
+
+
 def _since(A):
     try:
         d = dt.date.fromisoformat(A["first"])
@@ -717,7 +770,11 @@ def signals_of(inc, cfg, A=None):
         if pixels:
             r = float(SG.get("spot_km", 0.75))
             counts = [spot_count(A, la, lo, r) for la, lo in pixels]
-            rare = [(c, p) for c, p in zip(counts, pixels) if c <= int(SG.get("rare_max", 3))]
+            recent = [int(o.get("spot") or 0) for o in inc.get("observations") or []
+                      if o.get("kind") == "polar" and o.get("lat") is not None]
+            rare_max = float(SG.get("rare_share", 0.02)) * dates
+            rare = [(c, p) for c, p, s in zip(counts, pixels, recent)
+                    if c <= rare_max and s <= int(SG.get("rare_recent_days", 2))]
             usual_need = float(SG.get("usual_share", 0.10)) * dates
             if rare:
                 la, lo = rare[0][1]
@@ -726,7 +783,7 @@ def signals_of(inc, cfg, A=None):
                 if elsewhere is not None:
                     text += f"، بينما الشعلات المعتادة قربها على بعد {elsewhere:.1f} كم"
                 warn.append({"key": "odd_spot", "text": text})
-            elif min(counts) >= usual_need:
+            elif min(max(c, 0) for c in counts) >= usual_need or min(recent) >= int(SG.get("usual_recent_days", 10)):
                 share = round(100.0 * max(counts) / dates)
                 calm.append({"key": "usual_spot", "text": f"الحرارة في مكان شعلة معتادة: ظهرت حرارة فيه في نحو {share}% "
                                                           f"من الأيام منذ {_since(A)}"})

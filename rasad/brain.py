@@ -151,7 +151,7 @@ def add_to_incident(inc, det):
     # Keep acquisition positions rather than reconstructing them from the displayed
     # incident anchor later. Older state has no such provenance; leave it unknown.
     observation = {key: det[key] for key in ("src", "family", "kind", "t", "lat", "lon")}
-    for key in ("frp", "scan", "track", "conf", "night", "instrument", "satellite"):
+    for key in ("frp", "scan", "track", "conf", "night", "instrument", "satellite", "spot"):
         if det.get(key) is not None:
             observation[key] = det[key]
     observations = inc.setdefault("observations", [])

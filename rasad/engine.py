@@ -83,8 +83,9 @@ DEFAULTS = {
                  "second_look_h": 3, "footprint_learn_days": 7,
                  "link_h": 3, "link_min_km": 5, "link_max_km": 500},
     # «مؤشرات تستحق الانتباه» (patterns.signals_of): app only, never a cause
-    "signals": {"enabled": True, "spot_km": 0.75, "rare_max": 3, "usual_share": 0.10, "flare_near_km": 5,
-                "facility_km": 3, "sudden_mw": 20, "burn_min_ha": 0.5, "min_atlas_dates": 50},
+    "signals": {"enabled": True, "spot_km": 0.75, "rare_share": 0.02, "rare_recent_days": 2, "usual_recent_days": 10,
+                "usual_share": 0.10, "flare_near_km": 5, "facility_km": 3, "sudden_mw": 20, "burn_min_ha": 0.5,
+                "min_atlas_dates": 50, "spot_record_km": 5},
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
@@ -870,6 +871,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     learning = avail == 0 and not alert_now
     merge_km, merge_h = float(I["merge_km"]), float(I["merge_hours"])
     PT = cfg.get("patterns") or {}
+    SG = cfg.get("signals") or {}
     # Decide the association once for all connected pixels of one pass. A CSV's
     # row order must not split a pass or let its last pixel join another incident.
     grouped = acquisitions.groups(
@@ -995,6 +997,14 @@ def run_cycle(cfg, send=True, alert_now=False):
             flares.observe(S.state, d, typical, geo.facility(d["lat"], d["lon"]), FL)
         if not experimental_day:
             mem.record(d["lat"], d["lon"], day, frp)
+        if d["kind"] == "polar" and str(d.get("src", "")).startswith("VIIRS") and SG.get("enabled", True):
+            # which ~500 m spot of a site burns: Rasad's own record of NASA's spots, beside the long-term map
+            try:
+                if geo.facility_within(d["lat"], d["lon"], float(SG.get("spot_record_km", 5))) is True:
+                    d["spot"] = patterns.spot_days(S.state, d["lat"], d["lon"], day, float(SG.get("spot_km", 0.75)))
+                    patterns.record_spot(S.state, d, day)
+            except Exception as e:  # noqa: BLE001 - a silent signal must never stop a check
+                log.warning("heat spots: %s", e)
         group = membership[id(d)]
         group_id = id(group)
         if d["kind"] == "polar":
