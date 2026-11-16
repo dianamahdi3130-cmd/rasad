@@ -53,9 +53,9 @@ DEFAULTS = {
                # ...and heat that comes back to a place quiet for a week and burns on (patterns.new_heat_path)
                "new_heat_sustained": True, "new_heat_quiet_days": 7, "new_heat_max_known_days": 2,
                "new_heat_max_area_days": 1, "new_heat_sustained_min_mw": 10, "new_heat_sustained_hours": 6,
-               "new_heat_sustained_pictures": 12, "new_heat_tagged_hours": 3,
+               "new_heat_sustained_pictures": 12, "new_heat_tagged_hours": 3, "new_heat_max_gap_h": 1.5,
                # NASA's daytime pixels on a mapped solar plant's panels, Meteosat cold: not posted
-               "solar_glint_stop": True, "solar_glint_km": 3,
+               "solar_glint_stop": True, "solar_glint_km": 3, "solar_glint_min_mw": 50,
                "intensity_ratio": 1.5, "intensity_add_mw": 1, "intensity_interval_min": 30,
                "intensity_max_age_hours": 24,
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
@@ -891,6 +891,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["quiet_days"] = patterns.quiet_days(mem, det["lat"], det["lon"], det["t"][:10],
                                                     int(M["window_days"]), reach)
             inc["memory_days"] = min(avail, int(M["window_days"]))   # what 'no heat for N days' may say
+            if patterns.near_earlier_heat(S.incidents, inc, det["lat"], det["lon"], det["t"], reach):
+                inc["quiet_days"] = 0   # heat here earlier the same day: not a quiet place
             inc["usual_px"] = patterns.usual_pixels(S.state, det["lat"], det["lon"], det["t"][:10],
                                                     int(M["window_days"]), int(PT.get("footprint_learn_days", 7)))
             solar = geo.solar_km(det["lat"], det["lon"], float(PT.get("solar_km", 3)))
@@ -1165,6 +1167,8 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["quiet_days"] = patterns.quiet_days(mem, inc["lat"], inc["lon"], inc["first"][:10],
                                                     int(M["window_days"]), reach)
             inc["memory_days"] = min(mem.days_known(inc["first"][:10], int(M["window_days"])), int(M["window_days"]))
+            if patterns.near_earlier_heat(S.incidents, inc, inc["lat"], inc["lon"], inc["first"], reach):
+                inc["quiet_days"] = 0
     if S.state.get("patterns") != PATTERNS:   # once: every stored event gets (or renews) its label
         try:
             patterns.label_stored(S.incidents, cfg)

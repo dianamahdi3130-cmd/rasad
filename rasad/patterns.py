@@ -232,6 +232,44 @@ def quiet_enough(inc, days):
     return not inc.get("known_days")
 
 
+def longest_run(inc, max_gap_h=1.5):
+    """(hours, Meteosat pictures) of the longest stretch of sightings with no gap over `max_gap_h`:
+    two snapshots hours apart are not heat that 'burns on'. Abqaiq north, 15 Nov: 22 hours from
+    first to last, with gaps of 2-3 hours; its longest unbroken stretch was 6.5 hours, 35 pictures."""
+    times = sorted({parse_time(t) for t in inc.get("geo_slots") or []}
+                   | {parse_time(o["t"]) for o in inc.get("observations") or [] if o.get("t")}
+                   | {parse_time(p["t"]) for p in inc.get("passes") or [] if p.get("t")})
+    geo = sorted({parse_time(t) for t in inc.get("geo_slots") or []}
+                 | {parse_time(o["t"]) for o in inc.get("observations") or [] if o.get("kind") == "geo"})
+    best, start = (0.0, 0), 0
+    for k in range(1, len(times) + 1):
+        if k == len(times) or (times[k] - times[k - 1]).total_seconds() > max_gap_h * 3600:
+            if times:
+                hours = (times[k - 1] - times[start]).total_seconds() / 3600.0
+                pictures = sum(1 for t in geo if times[start] <= t <= times[k - 1])
+                best = max(best, (hours, pictures))
+            start = k
+    return best
+
+
+def near_earlier_heat(incidents, inc, lat, lon, when, reach):
+    """Another event at this place that ended within the day before `when`: the place was not quiet,
+    whatever the memory's earlier days say (it holds whole days, not hours)."""
+    t0 = parse_time(when)
+    radius = 2.2 * reach + 2.0
+    for other in incidents:
+        if other is inc or other.get("id") == inc.get("id"):
+            continue
+        try:
+            gap = t0 - parse_time(other["last"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if dt.timedelta(0) <= gap <= dt.timedelta(days=1) \
+                and haversine_km(lat, lon, other["lat"], other["lon"]) <= radius:
+            return True
+    return False
+
+
 def new_heat_path(inc, cfg):
     """Which road makes confirmed heat on land in the dry Gulf countries news far from every mapped
     facility (None when none):
@@ -240,8 +278,10 @@ def new_heat_path(inc, cfg):
     'strong' the same quiet place, 20 MW at once: two families already agree (a strong fire is not
              made to wait);
     'b'      quiet for a week, heat on at most two earlier days here, at most one around, and burning
-             on: 6 hours and 12 pictures, or 3 hours where NOAA tags the place oil and gas (Abqaiq
-             north, 15 Nov: confirmed, 22 hours, 60 pictures, last heat 14 days before, never posted).
+             on without a break over 1.5 hours: 6 hours and 12 pictures, or 3 hours and 4 pictures
+             where NOAA tags the place oil and gas (Abqaiq north, 15 Nov: confirmed, 22 hours, 60
+             pictures, last heat 14 days before, never posted). Only far from mapped facilities:
+             near one, the facility rules decide (alert_worthy).
     The words of a post on road 'b' say what is known: «حرارة جديدة مستمرة», never a cause."""
     A = cfg["alerts"]
     names = A.get("new_heat_countries") or []
@@ -262,26 +302,55 @@ def new_heat_path(inc, cfg):
     if known <= int(A.get("new_heat_max_known_days", 2)) and area <= int(A.get("new_heat_max_area_days", 1)) \
             and quiet_enough(inc, int(A.get("new_heat_quiet_days", 7))) \
             and frp >= float(A.get("new_heat_sustained_min_mw", 10)) and len(inc.get("families") or []) >= 2:
-        hours = (parse_time(inc["last"]) - parse_time(inc["first"])).total_seconds() / 3600.0
+        hours, run_pictures = longest_run(inc, float(A.get("new_heat_max_gap_h", 1.5)))
         if (hours >= float(A.get("new_heat_sustained_hours", 6))
-                and pictures >= int(A.get("new_heat_sustained_pictures", 12))) \
-                or (PA_OIL_GAS in _tags(inc) and hours >= float(A.get("new_heat_tagged_hours", 3))):
+                and run_pictures >= int(A.get("new_heat_sustained_pictures", 12))) \
+                or (PA_OIL_GAS in _tags(inc) and hours >= float(A.get("new_heat_tagged_hours", 3))
+                    and run_pictures >= int(A.get("new_heat_min_pictures", 4))):
             return "b"
     return None
 
 
-def solar_glint(inc, cfg):
-    """NASA's daytime pixels on the panels of a mapped solar plant (or a place NOAA tags as panels),
-    while a Meteosat picture read at that time showed nothing: sun glint, not heat on the ground. The
-    «حريق جديد في الإمارات» post of 11 Nov 2026 (141.6 MW, 15 day pixels 1.4 km from the Dubai solar
-    park, Meteosat read at 09:20 and 09:30 UTC) was one. Kept out of the channel since 16 Nov."""
+def quiet_words(inc):
+    """What a quiet-place post may say of the place and of the heat, nothing more: «لم تُرصد حرارة في
+    هذا المكان منذ 14 يوماً، ورُصدت فيه على مدى نحو 22 ساعة». 'Since N days' only when an earlier day of
+    heat is known; otherwise over the days the memory holds. The span is first to last, said as a span
+    (the heat may have stopped by the time it is read)."""
+    hours = (parse_time(inc["last"]) - parse_time(inc["first"])).total_seconds() / 3600.0
+    quiet = inc.get("quiet_days")
+    if inc.get("known_days") and quiet:
+        before = f"لم تُرصد حرارة في هذا المكان منذ {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}"
+    else:
+        days = int(inc.get("memory_days") or 30)
+        before = f"لم تُرصد حرارة في هذا المكان خلال {_n(days, 'يوم', 'يومين', 'أيام', 'يوماً')}"
+    return f"{before}، ورُصدت فيه على مدى {duration(hours)}"
+
+
+def solar_glint(inc, cfg, label=False):
+    """NASA's daytime pixels on the panels of a mapped solar plant, strong enough that Meteosat would
+    show real heat (50 MW), while a Meteosat picture read at that time showed nothing: sun glint, not
+    heat on the ground. The «حريق جديد في الإمارات» post of 11 Nov 2026 (141.6 MW, 15 day pixels
+    1.4 km from the Dubai solar park, Meteosat read at 09:20 and 09:30 UTC) was one. Kept out of the
+    channel since 16 Nov. Never at an energy facility (one within 2 km, or nearer than the panels) or
+    for a plant's surge: Meteosat misses real daytime fires of 10-40 MW there, and Bahrain's Awali
+    field, Taweelah or Al Ain power station have panels within 3 km. NOAA's panel tag (a 2017 mask)
+    may stand in for the map in the app's label only (`label`), never take a post away."""
+    A = cfg["alerts"]
     obs = inc.get("observations") or []
     if inc.get("place") != "land" or not obs or inc.get("geo_slots") or inc.get("geo_read_at_pass") is not True:
         return False
-    if not all(o.get("kind") == "polar" and not o.get("night") for o in obs):
+    if inc.get("kind") == "unusual" or not all(o.get("kind") == "polar" and not o.get("night") for o in obs):
+        return False
+    if float(inc.get("max_frp") or 0) < float(A.get("solar_glint_min_mw", 50)):
         return False
     km = inc.get("solar_km")
-    return (km is not None and float(km) <= float(cfg["alerts"].get("solar_glint_km", 3))) or PA_SOLAR in _tags(inc)
+    mapped = km is not None and float(km) <= float(A.get("solar_glint_km", 3))
+    if not mapped:
+        return label and PA_SOLAR in _tags(inc)
+    f = inc.get("facility") or {}
+    if f.get("km") is not None and (float(f["km"]) <= float(A.get("at_facility_km", 2)) or float(f["km"]) < float(km)):
+        return False
+    return True
 
 
 # ----------------------------------------------------------------- the label
@@ -369,7 +438,7 @@ def pattern_of(inc, cfg):
     # 1) sun on solar panels: daytime NASA pixels only, at a mapped solar plant (or a place NOAA tags
     #    as panels), while a Meteosat picture read at that time showed nothing (not posted since 16 Nov)
     solar_km = inc.get("solar_km")
-    if solar_glint(inc, cfg):
+    if solar_glint(inc, cfg, label=True):
         where = (f"على بعد {float(solar_km):.1f} كم من محطة طاقة شمسية مرسومة"
                  if solar_km is not None and float(solar_km) <= float(cfg["alerts"].get("solar_glint_km", 3))
                  else "NOAA تصنّف هذه النقطة ألواحاً شمسية")

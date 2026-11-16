@@ -558,7 +558,10 @@ def alert_worthy(inc, cfg):
     busy = (inc.get("area_days") or 0) >= int(A.get("busy_area_days", 2))
     if busy:
         return False
-    if new_heat(inc, cfg):
+    path = patterns.new_heat_path(inc, cfg)
+    # the quiet-place road ('b') is for heat far from every mapped facility; near one, the facility
+    # rule below decides (a relit flare 5 km from a plant is not news under 50 MW)
+    if path and not (path == "b" and f and f["km"] <= float(A["near_facility_km"])):
         return True
     if f and f["km"] <= float(A["near_facility_km"]) and frp >= float(A.get("near_facility_min_mw", big)):
         return True
@@ -666,11 +669,7 @@ def new_heat_note(inc):
     if not inc.get("new_heat"):
         return ""
     if inc.get("new_heat_path") == "b":
-        quiet = inc.get("quiet_days")
-        hours = (parse_time(inc["last"]) - parse_time(inc["first"])).total_seconds() / 3600.0
-        since = (f"لم تُرصد حرارة في هذا المكان منذ {patterns._n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}"
-                 if quiet else "لم تُرصد حرارة في هذا المكان منذ أكثر من أسبوع")
-        text = f"🗺 لا منشأة مسجّلة في الخريطة هنا. {since}، وهي مستمرة منذ {patterns.duration(hours)}."
+        text = f"🗺 لا منشأة مسجّلة في الخريطة هنا. {patterns.quiet_words(inc)}."
         if patterns.PA_OIL_GAS in patterns._tags(inc):
             text += " تصنّف NOAA هذه النقطة موقع نفط وغاز."
         return text + " " + patterns.NO_CAUSE + "."

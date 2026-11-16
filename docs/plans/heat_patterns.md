@@ -118,17 +118,34 @@ The owner said they want the tool to be professional and smart in telling fires 
 them, and that they do not know these things well. The decisions were therefore taken on the data.
 
 **Live:**
-- **Road 'b' of `patterns.new_heat_path`:** quiet for a week (`quiet_days` ≥ 7), heat on at most 2
-  earlier days here and at most 1 around, ≥10 MW, two families. It must also burn on for ≥6 h and
-  ≥12 pictures, or for ≥3 h where NOAA tags the place oil and gas.
+- **Road 'b' of `patterns.new_heat_path`:** quiet for a week (`quiet_days` ≥ 7, and no other event
+  there in the day before), heat on at most 2 earlier days here and at most 1 around, ≥10 MW, two
+  families. Only far from mapped facilities (beyond `near_facility_km`); near one, the facility rules
+  decide as before. It must burn on without a gap over 1.5 h (`longest_run`): ≥6 h and ≥12 pictures
+  in that stretch, or ≥3 h and ≥4 pictures where NOAA tags the place oil and gas. Two snapshots hours
+  apart are not enough. Abqaiq north's longest unbroken stretch was 6.5 h with 35 pictures.
   - Headline: «حرارة جديدة مستمرة [في موقع نفط وغاز] في <الدولة>».
-  - Note: «🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ N يوماً، وهي مستمرة منذ
-    نحو H ساعة. [تصنّف NOAA هذه النقطة موقع نفط وغاز.] صور الأقمار ترى الحرارة ولا ترى سببها.»
-  - Replay on all 1,072 stored events (9-16 Nov): only Abqaiq north changes. It is marked late on the
-    first check (it started a day before) and is shown in the app, not posted.
-- **`patterns.solar_glint`:** NASA's daytime pixels only, within 3 km of a mapped solar plant (or
-  NOAA's panel tag), while a Meteosat picture of the place was read within 20 min and showed nothing.
-  Such heat is not posted. The facts are kept only for events made from 16 Nov on.
+  - Note: «🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ N يوماً، ورُصدت فيه
+    على مدى نحو H ساعة. [تصنّف NOAA هذه النقطة موقع نفط وغاز.] صور الأقمار ترى الحرارة ولا ترى سببها.»
+    Where no earlier day had heat it says «خلال N يوماً», with N the days the memory holds.
+  - Replay on all 1,072 stored events (9-16 Nov): only Abqaiq north changed.
+  - The rebuilt facility map landed at 14:29 UTC the same day. It holds Abqaiq GOSP-3, 1.4 km from that
+    heat, so Abqaiq north became news under the existing facility rule. In the replay on the newest
+    memory (1,076 events) the new road changes nothing.
+  - The road remains for places the map does not hold.
+- **`patterns.solar_glint`:** NASA's daytime pixels only, ≥50 MW (Meteosat shows real heat that
+  strong), within 3 km of a mapped solar plant, while a Meteosat picture of the place read within
+  20 min showed nothing. Such heat is not posted.
+  - Never applied to a plant's surge, or at an energy facility (one within 2 km, or nearer than the
+    panels). Meteosat misses real daytime fires of 10-40 MW, and 140 mapped energy facilities have
+    panels within 3 km: Bahrain's Awali field, Taweelah, Al Ain power station.
+  - NOAA's panel tag may stand in for the map only in the app's label.
+  - The facts are kept only for events made from 16 Nov on.
+
+A second independent review found that the first version of these two rules went too far. It could
+silence a real fire at a plant near panels, post relit heat 2-10 km from a plant as «حريق قرب …»,
+call two snapshots hours apart «مستمرة», and say «عادت» where no heat had been. All four are fixed
+above and pinned in `tests/test_patterns.py` → `Posting`.
 
 **Not taken:** requiring 4 pictures for a strong single burst.
 - Two different satellites already agree when the verdict is «مؤكد».

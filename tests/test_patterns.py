@@ -353,13 +353,13 @@ class Posting(unittest.TestCase):
         self.assertEqual((inc["priority"], inc["new_heat"], inc["new_heat_path"]), ("high", True, "b"))
         self.assertEqual(inc["headline"], "حرارة جديدة مستمرة في موقع نفط وغاز في السعودية")
         message = alert_message(inc, config())
-        self.assertIn("🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ 14 يوماً، وهي مستمرة منذ "
-                      "نحو 22 ساعة. تصنّف NOAA هذه النقطة موقع نفط وغاز. صور الأقمار ترى الحرارة ولا ترى سببها.", message)
+        self.assertIn("🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ 14 يوماً، ورُصدت فيه على "
+                      "مدى نحو 22 ساعة. تصنّف NOAA هذه النقطة موقع نفط وغاز. صور الأقمار ترى الحرارة ولا ترى سببها.", message)
         self.assertNotIn("خلال شهر", message, "there was heat here two weeks before: never say a month")
         for cause in self.CAUSES:
             self.assertNotIn(cause, message)
-        self.assertTrue(any(e["text"].startswith("حرارة عادت إلى مكان هادئ منذ أسبوع على الأقل واستمرت")
-                            for e in inc["evidence"]))
+        self.assertEqual(inc["evidence"][1]["text"], "لم تُرصد حرارة في هذا المكان منذ 14 يوماً، ورُصدت فيه على مدى "
+                                                     "نحو 22 ساعة، ولا منشأة مسجّلة في الخريطة هنا")
 
     def test_without_noaas_tag_the_headline_says_heat_only(self):
         inc = copy.deepcopy(WEEK[ABQAIQ])
@@ -400,6 +400,36 @@ class Posting(unittest.TestCase):
                              facility=None)
         self.assertNotIn("new_heat", untagged, "elsewhere six hours and twelve pictures")
 
+    def test_two_snapshots_hours_apart_do_not_burn_on(self):
+        # a MODIS pixel at 07:30 and a tagged VIIRS pixel at 10:35, nothing between: confirmed by two
+        # families, three hours apart, but not heat that burned on
+        rows = [dict(pixel("2026-11-15T07:30:00Z", 26.1667, 49.7592, 12.0, src="MODIS_NRT"), family="modis"),
+                pixel("2026-11-15T10:35:00Z", 26.1642, 49.7615, 14.0, pa=1)]
+        inc = fire_from(rows, known_days=1, quiet_days=12, area_days=1, facility=None)
+        self.assertEqual(inc["verdict"], "مؤكد")
+        self.assertNotIn("new_heat", inc)
+        self.assertEqual(inc["priority"], "low")
+
+    def test_near_a_mapped_facility_the_facility_rule_decides(self):
+        # the same heat 5 km from a mapped plant: under 50 MW it is not news, as before 16 Nov
+        near = week(ABQAIQ, facility={"label": "معمل غاز", "code": "gas", "km": 5.0})
+        self.assertEqual((near["priority"], near.get("new_heat")), ("low", None))
+        self.assertEqual(near["headline"], "حريق قرب معمل غاز")
+        self.assertEqual(near["pattern"]["key"], "new_sustained", "the app still says what it looks like")
+
+    def test_where_no_earlier_day_had_heat_the_words_say_so(self):
+        inc = week(ABQAIQ, known_days=0, quiet_days=None, memory_days=23)
+        self.assertEqual(inc["new_heat_path"], "b")
+        self.assertIn("لم تُرصد حرارة في هذا المكان خلال 23 يوماً، ورُصدت فيه على مدى نحو 22 ساعة",
+                      alert_message(inc, config()))
+
+    def test_heat_earlier_the_same_day_is_not_a_quiet_place(self):
+        earlier = {"id": "x", "lat": 26.165, "lon": 49.753, "last": "2026-11-15T01:00:00Z"}
+        now_inc = {"id": "y"}
+        self.assertTrue(patterns.near_earlier_heat([earlier], now_inc, 26.164, 49.752, "2026-11-15T13:30:00Z", 1))
+        self.assertFalse(patterns.near_earlier_heat([earlier], now_inc, 26.164, 49.752, "2026-11-16T13:30:00Z", 1))
+        self.assertFalse(patterns.near_earlier_heat([earlier], now_inc, 26.4, 49.752, "2026-11-15T13:30:00Z", 1))
+
     def test_the_road_of_15_november_and_the_strong_burst_are_unchanged(self):
         judah = week(JUDAH, facility=None)
         self.assertEqual((judah["new_heat_path"], judah["headline"]), ("a", "حريق جديد في السعودية"))
@@ -420,6 +450,31 @@ class Posting(unittest.TestCase):
         inc.pop("_case")
         inc.update(solar_km=1.4, geo_read_at_pass=True)
         self.assertEqual(finalize(inc, off)["priority"], "high")
+
+    def test_sun_glint_never_silences_an_energy_facility_or_a_surge(self):
+        # Bahrain's Awali field, Taweelah, Al Ain power station: panels within 3 km of real plants
+        at_plant = week(DUBAI, solar_km=2.5, geo_read_at_pass=True,
+                        facility={"label": "منشأة نفطية", "code": "oil", "km": 0.2})
+        self.assertEqual(at_plant["priority"], "high")
+        nearer = week(DUBAI, solar_km=2.5, geo_read_at_pass=True,
+                      facility={"label": "محطة كهرباء", "code": "power", "km": 2.2})
+        self.assertNotEqual(nearer["pattern"]["key"], "solar", "the plant is nearer than the panels")
+        surge = week(DUBAI, solar_km=1.4, geo_read_at_pass=True, kind="unusual", typical_frp=5.0, known_days=20)
+        self.assertEqual(surge["priority"], "high")
+        weak = week(DUBAI, solar_km=1.4, geo_read_at_pass=True, max_frp=30.0)
+        self.assertNotEqual(weak["pattern"]["key"], "solar", "Meteosat misses 30 MW by day: its silence says little")
+
+    def test_noaas_panel_tag_alone_never_takes_a_post_away(self):
+        inc = copy.deepcopy(WEEK[DUBAI])
+        inc.pop("_case")
+        for o in inc["observations"]:
+            o["pa"] = patterns.PA_SOLAR
+        for o in sorted(inc["observations"], key=lambda o: o["t"]):
+            patterns.note_pass(inc, o)
+        inc.update(geo_read_at_pass=True)
+        inc = finalize(inc, config())
+        self.assertEqual(inc["priority"], "high")
+        self.assertEqual(inc["pattern"]["key"], "solar", "the app may still say what it looks like")
 
     def test_the_video_line_promises_only_what_can_be_kept(self):
         self.assertEqual(brain.video_note({"geo_slots": ["2026-11-15T17:40:00Z"]}),

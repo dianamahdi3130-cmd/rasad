@@ -226,8 +226,8 @@ def _fire_evidence(inc, cfg):
     # why a fire far from every mapped facility was posted: second in the list, so that the cap of
     # eight lines never drops it, and after the first '+' line, which is the post's main reason
     if inc.get("new_heat") and inc.get("new_heat_path") == "b":
-        ev.insert(min(1, len(ev)), {"s": "+", "text": "حرارة عادت إلى مكان هادئ منذ أسبوع على الأقل واستمرت، "
-                                                      "ولا منشأة مسجّلة في الخريطة هنا"})
+        ev.insert(min(1, len(ev)), {"s": "+", "text": patterns.quiet_words(inc)
+                                    + "، ولا منشأة مسجّلة في الخريطة هنا"})
     elif inc.get("new_heat"):
         ev.insert(min(1, len(ev)), {"s": "+", "text": "لم تُرصد حرارة في هذا المكان ولا حوله خلال شهر، ولا منشأة "
                                                       "مسجّلة في الخريطة: قد يكون موقعاً غير مرسوم"})
