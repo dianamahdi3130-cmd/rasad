@@ -170,13 +170,14 @@ def facility_label(name, cat):
     return name if any(w in name for w in TYPE_WORDS) else f"{cat} {name}"
 
 
-def overpass(session, urls, query, timeout=95, deadline=None, min_left=60):
+def overpass(session, urls, query, timeout=95, deadline=None, min_left=60, why=None):
     """One attempt per server; a failed part is simply retried in a later run. With a deadline
     (time.monotonic()), no server is asked once less than min_left seconds are left (a request that
     cannot finish only loads the public server), and none is waited for past it: the watching loop
     stops the map worker at a fixed time, and what it had not saved was lost. A query that ran out
     of time or memory on the server comes back as HTTP 200 with a "remark" and few or no objects:
-    that is a failure, never an empty answer."""
+    that is a failure, never an empty answer. `why` (a list), when given, receives "heavy" for such an
+    answer: the query itself was too big for the server, not merely waiting behind others."""
     for url in urls:
         wait = timeout
         if deadline is not None:
@@ -192,6 +193,8 @@ def overpass(session, urls, query, timeout=95, deadline=None, min_left=60):
                 remark = str(body.get("remark") or "")
                 if "elements" not in body or "error" in remark.lower():
                     log.warning("Overpass %s: %s after %.0f s", url, remark[:120] or "no elements", time.monotonic() - t0)
+                    if why is not None and "error" in remark.lower():
+                        why.append("heavy")
                     continue
                 els = body["elements"]
                 log.info("Overpass %s: %d objects in %.0f s", url, len(els), time.monotonic() - t0)
@@ -267,10 +270,11 @@ def tile_parts(tile, G):
 def build_geodata(cfg, session, budget_s=None):
     """Download facilities and places tile by tile, part by part; resumable, so it runs in the slices
     the watching loop gives it (150 s, stopped after 180). Every finished part is kept at once. The
-    part that failed least goes first, so one slow box cannot hold the rest back; a part that failed
-    twice is asked as its four quarters (down to geodata.min_part_deg), so a heavy box shrinks until
-    the server can answer it. 16 Nov 2026: the facility part of a 7-degree tile took 43 s, places
-    timed out three slices in a row on both public servers; with whole tiles the map never came."""
+    part that failed least goes first, so one slow box cannot hold the rest back; a part the server
+    twice found too big (a 'runtime error' answer) is asked as its four quarters (down to
+    geodata.min_part_deg), so a heavy box shrinks until the server can answer it. 16 Nov 2026: the
+    facility part of a 7-degree tile took 43 s, places timed out three slices in a row on both public
+    servers; with whole tiles the map never came."""
     G = cfg["geodata"]
     out_dir = Path(cfg["_geodata_dir"])
     tiles = region_tiles(cfg["regions"], max_deg=float(G.get("query_tile_deg", 8)))
@@ -297,18 +301,25 @@ def build_geodata(cfg, session, budget_s=None):
             break  # no time to finish a request: the part waits, it has not failed
         tried += 1
         kind, (w, s, e, n) = part_of(name)
+        why = []
         els = overpass(session, G["overpass_urls"], QUERIES[kind].format(b=f"{s:.4f},{w:.4f},{n:.4f},{e:.4f}"),
-                       deadline=deadline)
+                       deadline=deadline, why=why)
         if els is None:
-            fails = prog["fails"].get(name, 0) + 1
-            if fails >= 2 and min(e - w, n - s) / 2 >= min_deg:
+            # Only a query the server itself found too big is cut smaller. A busy server (no answer,
+            # 429, 502, 504) answers four small boxes no faster than one: on 16 Nov 2026 a request took
+            # 36-79 s whatever its size, and splitting on every failure would only multiply the work.
+            heavy = prog.setdefault("heavy", {})
+            if "heavy" in why:
+                heavy[name] = heavy.get(name, 0) + 1
+            prog["fails"][name] = prog["fails"].get(name, 0) + 1
+            if heavy.get(name, 0) >= 2 and kind != "place" and min(e - w, n - s) / 2 >= min_deg:
                 prog["work"][key] = [x for x in prog["work"][key] if x != name] + \
                     [part_name(kind, box) for box in quarters(w, s, e, n)]
                 prog["fails"].pop(name, None)
-                log.info("facility map: tile %d/%d, %s failed twice: asked as four smaller parts from now on",
+                heavy.pop(name, None)
+                log.info("facility map: tile %d/%d, %s too big for the server twice: asked as four smaller parts",
                          i + 1, len(tiles), name)
             else:
-                prog["fails"][name] = fails
                 log.info("facility map: tile %d/%d, %s failed, retry later", i + 1, len(tiles), name)
             save_json(out_dir / "progress.json", prog, compact=True)
             break  # the map servers are busy: do not spend this run's time on more parts
@@ -326,6 +337,7 @@ def build_geodata(cfg, session, budget_s=None):
                     prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), *kind_of, osm_owner(tags)]
         prog["work"][key] = [x for x in prog["work"][key] if x != name]
         prog["fails"].pop(name, None)
+        prog.get("heavy", {}).pop(name, None)
         if not prog["work"][key]:
             prog["done"][key] = True
             del prog["work"][key]
