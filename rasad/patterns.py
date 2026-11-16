@@ -232,39 +232,42 @@ def quiet_enough(inc, days):
     return not inc.get("known_days")
 
 
-def longest_run(inc, max_gap_h=1.5):
-    """(hours, Meteosat pictures) of the longest stretch of sightings with no gap over `max_gap_h`:
-    two snapshots hours apart are not heat that 'burns on'. Abqaiq north, 15 Nov: 22 hours from
-    first to last, with gaps of 2-3 hours; its longest unbroken stretch was 6.5 hours, 35 pictures."""
+def stretches(inc, max_gap_h=3.5):
+    """[(hours, Meteosat pictures)] of each stretch of sightings with no gap over `max_gap_h`. A gap
+    is a break only when it is long: Rasad reads about half of Meteosat's slots (none at all from
+    18:45 to 20:50 UTC on 15 Nov while Abqaiq and Judah burned on), and Meteosat misses small fires
+    by day that NASA sees (Judah on 16 Nov). What two snapshots hours apart lack is pictures, and
+    each stretch is judged on its own pictures. Abqaiq north, 15 Nov: gaps of 3.2, 2.3 and 3 hours,
+    one stretch of 22 hours with 69 pictures."""
     times = sorted({parse_time(t) for t in inc.get("geo_slots") or []}
                    | {parse_time(o["t"]) for o in inc.get("observations") or [] if o.get("t")}
                    | {parse_time(p["t"]) for p in inc.get("passes") or [] if p.get("t")})
     geo = sorted({parse_time(t) for t in inc.get("geo_slots") or []}
                  | {parse_time(o["t"]) for o in inc.get("observations") or [] if o.get("kind") == "geo"})
-    best, start = (0.0, 0), 0
+    out, start = [], 0
     for k in range(1, len(times) + 1):
         if k == len(times) or (times[k] - times[k - 1]).total_seconds() > max_gap_h * 3600:
-            if times:
-                hours = (times[k - 1] - times[start]).total_seconds() / 3600.0
-                pictures = sum(1 for t in geo if times[start] <= t <= times[k - 1])
-                best = max(best, (hours, pictures))
+            hours = (times[k - 1] - times[start]).total_seconds() / 3600.0
+            out.append((hours, sum(1 for t in geo if times[start] <= t <= times[k - 1])))
             start = k
-    return best
+    return out
 
 
 def near_earlier_heat(incidents, inc, lat, lon, when, reach):
-    """Another event at this place that ended within the day before `when`: the place was not quiet,
-    whatever the memory's earlier days say (it holds whole days, not hours)."""
+    """Another event at this place that started before `when` and was seen within the day before it:
+    the place was not quiet, whatever the memory's earlier days say (it holds whole days, not hours).
+    A part of the same pass made into its own event (one NASA pass, two groups 3 km apart) started at
+    the same moment: it is not earlier heat."""
     t0 = parse_time(when)
     radius = 2.2 * reach + 2.0
     for other in incidents:
         if other is inc or other.get("id") == inc.get("id"):
             continue
         try:
-            gap = t0 - parse_time(other["last"])
+            first, last = parse_time(other["first"]), parse_time(other["last"])
         except (KeyError, TypeError, ValueError):
             continue
-        if dt.timedelta(0) <= gap <= dt.timedelta(days=1) \
+        if first < t0 and t0 - last <= dt.timedelta(days=1) \
                 and haversine_km(lat, lon, other["lat"], other["lon"]) <= radius:
             return True
     return False
@@ -278,8 +281,8 @@ def new_heat_path(inc, cfg):
     'strong' the same quiet place, 20 MW at once: two families already agree (a strong fire is not
              made to wait);
     'b'      quiet for a week, heat on at most two earlier days here, at most one around, and burning
-             on without a break over 1.5 hours: 6 hours and 12 pictures, or 3 hours and 4 pictures
-             where NOAA tags the place oil and gas (Abqaiq north, 15 Nov: confirmed, 22 hours, 60
+             on in one stretch (no gap over 3.5 hours): 6 hours and 12 pictures, or 3 hours and 4
+             pictures where NOAA tags the place oil and gas (Abqaiq north, 15 Nov: confirmed, 22 hours, 60
              pictures, last heat 14 days before, never posted). Only far from mapped facilities:
              near one, the facility rules decide (alert_worthy).
     The words of a post on road 'b' say what is known: «حرارة جديدة مستمرة», never a cause."""
@@ -302,12 +305,13 @@ def new_heat_path(inc, cfg):
     if known <= int(A.get("new_heat_max_known_days", 2)) and area <= int(A.get("new_heat_max_area_days", 1)) \
             and quiet_enough(inc, int(A.get("new_heat_quiet_days", 7))) \
             and frp >= float(A.get("new_heat_sustained_min_mw", 10)) and len(inc.get("families") or []) >= 2:
-        hours, run_pictures = longest_run(inc, float(A.get("new_heat_max_gap_h", 1.5)))
-        if (hours >= float(A.get("new_heat_sustained_hours", 6))
-                and run_pictures >= int(A.get("new_heat_sustained_pictures", 12))) \
-                or (PA_OIL_GAS in _tags(inc) and hours >= float(A.get("new_heat_tagged_hours", 3))
-                    and run_pictures >= int(A.get("new_heat_min_pictures", 4))):
-            return "b"
+        tagged = PA_OIL_GAS in _tags(inc)
+        for hours, run_pictures in stretches(inc, float(A.get("new_heat_max_gap_h", 3.5))):
+            if (hours >= float(A.get("new_heat_sustained_hours", 6))
+                    and run_pictures >= int(A.get("new_heat_sustained_pictures", 12))) \
+                    or (tagged and hours >= float(A.get("new_heat_tagged_hours", 3))
+                        and run_pictures >= int(A.get("new_heat_min_pictures", 4))):
+                return "b"
     return None
 
 
@@ -509,7 +513,8 @@ def pattern_of(inc, cfg):
     if known:
         reasons.append(f"رُصدت حرارة هنا في {_n(known, 'يوم واحد', 'يومين', 'أيام', 'يوماً')} خلال الشهر")
     elif again:
-        reasons.append(f"آخر حرارة هنا قبل {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}")
+        reasons.append("رُصدت حرارة قربه خلال اليوم السابق" if quiet == 0 else
+                       f"آخر حرارة هنا قبل {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}")
     if area >= 2:
         reasons.append(f"المنطقة حولها نشطة (حرارة في {_n(area, 'يوم', 'يومين', 'أيام', 'يوماً')} خلال الشهر)")
     if not _country_ok(inc, cfg):

@@ -53,7 +53,7 @@ DEFAULTS = {
                # ...and heat that comes back to a place quiet for a week and burns on (patterns.new_heat_path)
                "new_heat_sustained": True, "new_heat_quiet_days": 7, "new_heat_max_known_days": 2,
                "new_heat_max_area_days": 1, "new_heat_sustained_min_mw": 10, "new_heat_sustained_hours": 6,
-               "new_heat_sustained_pictures": 12, "new_heat_tagged_hours": 3, "new_heat_max_gap_h": 1.5,
+               "new_heat_sustained_pictures": 12, "new_heat_tagged_hours": 3, "new_heat_max_gap_h": 3.5,
                # NASA's daytime pixels on a mapped solar plant's panels, Meteosat cold: not posted
                "solar_glint_stop": True, "solar_glint_km": 3, "solar_glint_min_mw": 50,
                "intensity_ratio": 1.5, "intensity_add_mw": 1, "intensity_interval_min": 30,

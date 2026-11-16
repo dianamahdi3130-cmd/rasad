@@ -400,7 +400,7 @@ class Posting(unittest.TestCase):
                              facility=None)
         self.assertNotIn("new_heat", untagged, "elsewhere six hours and twelve pictures")
 
-    def test_two_snapshots_hours_apart_do_not_burn_on(self):
+    def test_two_snapshots_hours_apart_do_not_burn_on(self):  # no pictures between them
         # a MODIS pixel at 07:30 and a tagged VIIRS pixel at 10:35, nothing between: confirmed by two
         # families, three hours apart, but not heat that burned on
         rows = [dict(pixel("2026-11-15T07:30:00Z", 26.1667, 49.7592, 12.0, src="MODIS_NRT"), family="modis"),
@@ -424,11 +424,68 @@ class Posting(unittest.TestCase):
                       alert_message(inc, config()))
 
     def test_heat_earlier_the_same_day_is_not_a_quiet_place(self):
-        earlier = {"id": "x", "lat": 26.165, "lon": 49.753, "last": "2026-11-15T01:00:00Z"}
+        earlier = {"id": "x", "lat": 26.165, "lon": 49.753, "first": "2026-11-15T00:10:00Z", "last": "2026-11-15T01:00:00Z"}
         now_inc = {"id": "y"}
         self.assertTrue(patterns.near_earlier_heat([earlier], now_inc, 26.164, 49.752, "2026-11-15T13:30:00Z", 1))
         self.assertFalse(patterns.near_earlier_heat([earlier], now_inc, 26.164, 49.752, "2026-11-16T13:30:00Z", 1))
         self.assertFalse(patterns.near_earlier_heat([earlier], now_inc, 26.4, 49.752, "2026-11-15T13:30:00Z", 1))
+        # one NASA pass, two groups 3 km apart made into two events: the same moment, not earlier heat
+        sibling = {"id": "z", "lat": 26.194, "lon": 49.752, "first": "2026-11-15T10:35:00Z", "last": "2026-11-15T10:35:00Z"}
+        self.assertFalse(patterns.near_earlier_heat([sibling], now_inc, 26.164, 49.752, "2026-11-15T10:35:00Z", 1))
+        still = dict(earlier, last="2026-11-15T14:00:00Z")           # began earlier and still burning
+        self.assertTrue(patterns.near_earlier_heat([still], now_inc, 26.164, 49.752, "2026-11-15T13:30:00Z", 1))
+
+    def test_heat_the_day_before_is_said_without_a_zero(self):
+        inc = week(HARAD, quiet_days=0)
+        self.assertIn("رُصدت حرارة قربه خلال اليوم السابق", inc["evidence"][-1]["text"])
+        self.assertNotIn("0 يوم", inc["evidence"][-1]["text"])
+
+    def stretch_fire(self, pictures, pixels, **fields):
+        geo = [iso(dt.datetime(2026, 11, 15, 0, 0, tzinfo=UTC) + dt.timedelta(minutes=m)) for m in pictures]
+        rows = [pixel(iso(dt.datetime(2026, 11, 15, 0, 0, tzinfo=UTC) + dt.timedelta(minutes=m)), 26.1642, 49.7615,
+                      14.0, pa=pa) for m, pa in pixels]
+        return fire_from(rows, *geo, known_days=1, quiet_days=12, area_days=1, facility=None, **fields)
+
+    def test_two_bursts_hours_apart_are_two_stretches(self):
+        # Meteosat 08:00-08:50 and 15:00-15:50 (12 pictures), one NASA pixel: 8 hours first to last,
+        # but two bursts of 50 minutes with six hours of nothing between
+        inc = self.stretch_fire([480 + 10 * k for k in range(6)] + [900 + 10 * k for k in range(6)], [(500, None)])
+        self.assertEqual(inc["verdict"], "مؤكد")
+        self.assertNotIn("new_heat", inc)
+
+    def test_a_long_gap_splits_even_where_noaa_tags_the_place(self):
+        # tagged pixels at 07:30 and 12:00, four pictures 07:40-08:10: nothing for 3 hours 50 minutes
+        inc = self.stretch_fire([460, 470, 480, 490], [(450, 1), (720, 1)])
+        self.assertNotIn("new_heat", inc)
+        joined = self.stretch_fire([460, 470, 480, 490, 600, 640], [(450, 1), (720, 1)])   # seen in between
+        self.assertEqual(joined.get("new_heat_path"), "b")
+
+    def test_each_stretch_is_judged_on_its_own(self):
+        # a sparse flicker 00:00-07:00 (a picture every 80 minutes), four hours of nothing, then a
+        # steady fire 11:00-17:10 with 38 pictures: the second stretch alone is heat that burns on
+        sparse = [80 * k for k in range(6)] + [420]
+        steady = [660 + 10 * k for k in range(38)]
+        inc = self.stretch_fire(sparse + steady, [(30, None), (700, None)])
+        self.assertEqual((inc.get("new_heat_path"), inc["priority"]), ("b", "high"))
+        self.assertGreater(len(patterns.stretches(inc)), 1)
+
+    def test_a_stretch_does_not_borrow_another_stretchs_pictures(self):
+        # seven sparse hours (5 pictures and NASA passes between them), four hours of nothing, then a
+        # one-hour burst of 10 pictures: neither stretch is heat that burns on, though together
+        # they hold 15 pictures over seven hours
+        sparse = [0, 100, 200, 300, 420]
+        burst = [660 + 6 * k for k in range(10)]
+        inc = self.stretch_fire(sparse + burst, [(50, None), (150, None), (250, None), (360, None)])
+        self.assertEqual(inc["verdict"], "مؤكد")
+        self.assertNotIn("new_heat", inc)
+
+    def test_rasads_own_reading_gaps_do_not_break_a_fire(self):
+        # Judah-like: pictures 17:40-18:40, no reading 18:45-20:50 (the check's own outage), pictures
+        # again 21:40-23:40, NASA at 22:16 and 23:01: one stretch of six hours
+        pictures = [1060 + 10 * k for k in range(7)] + [1300 + 10 * k for k in range(15)]
+        inc = self.stretch_fire(pictures, [(1336, None), (1381, None)])
+        self.assertEqual(len(patterns.stretches(inc)), 1)
+        self.assertEqual(inc.get("new_heat_path"), "b")
 
     def test_the_road_of_15_november_and_the_strong_burst_are_unchanged(self):
         judah = week(JUDAH, facility=None)

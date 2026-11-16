@@ -121,9 +121,14 @@ them, and that they do not know these things well. The decisions were therefore 
 - **Road 'b' of `patterns.new_heat_path`:** quiet for a week (`quiet_days` ≥ 7, and no other event
   there in the day before), heat on at most 2 earlier days here and at most 1 around, ≥10 MW, two
   families. Only far from mapped facilities (beyond `near_facility_km`); near one, the facility rules
-  decide as before. It must burn on without a gap over 1.5 h (`longest_run`): ≥6 h and ≥12 pictures
-  in that stretch, or ≥3 h and ≥4 pictures where NOAA tags the place oil and gas. Two snapshots hours
-  apart are not enough. Abqaiq north's longest unbroken stretch was 6.5 h with 35 pictures.
+  decide as before. It must burn on in one stretch (`stretches`: a gap over 3.5 h breaks it), with
+  ≥6 h and ≥12 pictures, or ≥3 h and ≥4 pictures where NOAA tags the place oil and gas. Each stretch
+  is judged on its own pictures. Two snapshots hours apart lack pictures, and two bursts six hours
+  apart are two stretches.
+  - Rasad's own reading gaps (none at all 18:45-20:50 UTC on 15 Nov) and Meteosat's weakness for
+    small fires by day are not breaks: a third check found that a 1.5 h limit would have missed a
+    Judah-like fire and delayed Abqaiq by hours.
+  - Abqaiq north: gaps of 3.2, 2.3 and 3 h, one stretch of 22 h with 69 pictures.
   - Headline: «حرارة جديدة مستمرة [في موقع نفط وغاز] في <الدولة>».
   - Note: «🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ N يوماً، ورُصدت فيه
     على مدى نحو H ساعة. [تصنّف NOAA هذه النقطة موقع نفط وغاز.] صور الأقمار ترى الحرارة ولا ترى سببها.»

@@ -123,8 +123,9 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   (`docs/reviews/judah_pumping_station_20261115.md`). Farm countries stay out of this rule.
   Since 16 Nov 2026 (the owner asked for the tool to decide this professionally) a second road
   (`patterns.new_heat_path` 'b'): heat that comes back to a place quiet for a week (at most 2
-  earlier days of heat there, at most 1 around) and burns on, 6 hours and 12 pictures with two
-  families, or 3 hours where NOAA tags the place oil and gas. Its headline says heat, not fire:
+  earlier days of heat there, at most 1 around, no other event there in the day before) and burns
+  on in one stretch (a gap over 3.5 h breaks it): 6 hours and 12 pictures with two families, or 3
+  hours and 4 pictures where NOAA tags the place oil and gas; only beyond `near_facility_km`. Its headline says heat, not fire:
   «حرارة جديدة مستمرة [في موقع نفط وغاز] في <الدولة>», and its note says how long the place was
   quiet, how long it burns and «صور الأقمار ترى الحرارة ولا ترى سببها». The case: Abqaiq north,
   15 Nov (`docs/plans/heat_patterns.md`); replayed on all 1,072 stored events it changes only that one.
