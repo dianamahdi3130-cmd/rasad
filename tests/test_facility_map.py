@@ -110,8 +110,12 @@ class HandKeptFacilities(unittest.TestCase):
 
 class MapRebuildInSlices(unittest.TestCase):
     """16 Nov 2026: with the oil names inside the facility query, both map servers gave up after 70 s
-    on the first tile, every ten minutes for five hours: the rebuilt map never came. Each part of a tile
-    is now asked and saved by itself, and no request outlives the slice the watching loop gives."""
+    on the first tile, every ten minutes for five hours, and later even the places of a quiet tile
+    timed out three slices in a row: the rebuilt map never came. Each part of a tile is now asked and
+    saved by itself, a part that fails twice is asked as its four quarters, a server's 'runtime error'
+    is a failure, and no request starts without time to finish inside the worker's slice."""
+
+    STATION = (25.61143, 48.88608)
 
     def setUp(self):
         import copy
@@ -124,21 +128,27 @@ class MapRebuildInSlices(unittest.TestCase):
         self.cfg = copy.deepcopy(engine.DEFAULTS)
         self.cfg["_geodata_dir"] = Path(folder.name) / "geo"
         self.cfg["regions"] = [{"id": "east", "name": "شرق السعودية", "bbox": [48.0, 25.0, 50.0, 27.0]}]
-        self.cfg["geodata"].update(overpass_pause_s=0, oil_query_split=2, query_tile_deg=8)
+        self.cfg["geodata"]["overpass_pause_s"] = 0
         self.calls = []
-        self.fail = set()
+        self.heavy_deg = None          # oil boxes wider than this time out on both servers
+        self.remark = False            # the server answers 'runtime error' for oil boxes
 
     def post(self, url, data, timeout):
+        import re as regex
         from unittest.mock import Mock
         query = data["data"]
         kind = "oil" if "->.ind" in query else "place" if '"place"' in query else "fac"
-        self.calls.append((kind, query, timeout))
-        nth = len([c for c in self.calls if c[0] == kind])       # the how-many-th request of this kind
-        if (kind, nth) in self.fail:
+        s_, w_, n_, e_ = (float(v) for v in regex.search(r"\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)", query).groups())
+        self.calls.append((kind, (w_, s_, e_, n_), timeout, url))
+        if kind == "oil" and self.heavy_deg is not None and e_ - w_ > self.heavy_deg:
             raise geodb.requests.ReadTimeout()
+        if kind == "oil" and self.remark:
+            return Mock(status_code=200, json=Mock(return_value={
+                "elements": [], "remark": 'runtime error: Query timed out in "query" at line 2 after 90 seconds.'}))
         els = []
-        if kind == "oil" and nth == 2:
-            els = [{"type": "way", "id": 1, "center": {"lat": 25.61143, "lon": 48.88608},
+        lat, lon = self.STATION
+        if kind == "oil" and w_ <= lon <= e_ and s_ <= lat <= n_:
+            els = [{"type": "way", "id": 1, "center": {"lat": lat, "lon": lon},
                     "tags": {"landuse": "industrial", "name": "محطة ضخ أرامكو السعودية 1"}}]
         if kind == "fac":
             els = [{"type": "node", "id": 2, "lat": 26.6, "lon": 49.9,
@@ -153,39 +163,92 @@ class MapRebuildInSlices(unittest.TestCase):
         session.post.side_effect = self.post
         return geodb.build_geodata(self.cfg, session, budget_s=budget_s)
 
-    def test_a_tile_is_asked_in_parts_and_the_named_station_lands_in_the_map(self):
+    def facilities(self):
         from rasad.util import load_json
-        self.assertTrue(self.build())
-        kinds = [c[0] for c in self.calls]
-        self.assertEqual(kinds, ["fac", "oil", "oil", "oil", "oil", "place"], "one tile: facilities, 4 boxes of oil land, places")
         fac = load_json(self.cfg["_geodata_dir"] / "facilities.json", {})
+        return fac, {item[2]: item[4] for item in fac.get("items", [])}
+
+    def test_a_tile_is_asked_in_parts_and_the_named_station_lands_in_the_map(self):
+        self.assertTrue(self.build())
+        self.assertEqual([c[0] for c in self.calls], ["fac", "oil", "place"])
+        fac, names = self.facilities()
         self.assertEqual(fac["version"], geodb.GEO_VERSION)
-        names = {item[2]: item[4] for item in fac["items"]}
         self.assertEqual(names.get("محطة ضخ أرامكو السعودية 1"), "pumping")
         self.assertIn("refinery", names.values())
 
-    def test_a_failed_part_keeps_what_was_done_before_it(self):
-        self.fail = {("oil", 2), ("oil", 3)}                   # the second oil box times out on both servers
-        self.assertFalse(self.build(budget_s=45))
-        first = [c[0] for c in self.calls]
-        self.assertEqual(first, ["fac", "oil", "oil", "oil"], "both servers asked for the failed part, then stop")
+    def test_a_box_that_keeps_failing_is_asked_as_its_quarters(self):
+        self.heavy_deg = 1.5                               # the 2-degree oil box is too heavy, a 1-degree one is not
+        self.assertFalse(self.build(budget_s=150))
+        self.assertEqual([c[0] for c in self.calls], ["fac", "oil", "oil"], "both servers tried, then this run stops")
         self.calls.clear()
-        self.fail = set()
-        self.assertTrue(self.build(budget_s=45))
-        self.assertEqual([c[0] for c in self.calls], ["oil", "oil", "oil", "place"],
-                         "the facilities and the first oil box are not asked again")
+        self.assertFalse(self.build(budget_s=150))
+        self.assertEqual([c[0] for c in self.calls], ["place", "oil", "oil"],
+                         "the part that never failed goes first; the facilities are not asked again")
+        self.calls.clear()
+        self.assertTrue(self.build(budget_s=150))
+        self.assertEqual([c[0] for c in self.calls], ["oil"] * 4, "the heavy box is now asked as four quarters")
+        self.assertTrue(all(c[1][2] - c[1][0] <= 1.0 for c in self.calls))
+        self.assertEqual(self.facilities()[1].get("محطة ضخ أرامكو السعودية 1"), "pumping")
 
-    def test_no_request_outlives_the_slice(self):
-        self.assertTrue(self.build(budget_s=45))
-        self.assertTrue(all(c[2] <= 55 for c in self.calls), [c[2] for c in self.calls])
-        from rasad import engine
-        self.assertEqual((engine.DEFAULTS["geodata"]["query_tile_deg"], engine.DEFAULTS["geodata"]["oil_query_split"]), (4, 1),
-                         "4-degree tiles, the oil land of a tile in one request")
+    def test_a_server_runtime_error_is_a_failure_not_an_empty_answer(self):
+        self.remark = True
+        self.assertFalse(self.build(budget_s=150))
+        from rasad.util import load_json
+        prog = load_json(self.cfg["_geodata_dir"] / "progress.json", {})
+        self.assertTrue(any(name.startswith("oil|") for names in prog["work"].values() for name in names),
+                        "the oil part stays to be asked again")
+        self.assertFalse(prog["done"])
+        self.assertEqual([c[3] for c in self.calls if c[0] == "oil"],
+                         self.cfg["geodata"]["overpass_urls"], "the other server was asked too")
+
+    def test_no_request_starts_without_time_to_finish(self):
+        import time as real_time
         from unittest.mock import Mock
+
+        class Clock:
+            now = 1000.0
+
+            def monotonic(self):
+                return self.now
+
+            def time(self):
+                return self.now
+
+            def sleep(self, s):
+                self.now += s
+        clock = Clock()
+        hang = {"first": True}
+
+        def post(url, data, timeout):
+            if hang["first"]:                              # the first server hangs for the whole wait
+                hang["first"] = False
+                clock.now += timeout
+                raise geodb.requests.ReadTimeout()
+            clock.now += 40
+            return self.post(url, data, timeout)
         session = Mock()
-        import time as clock
-        self.assertIsNone(geodb.overpass(session, ["https://a", "https://b"], "q", deadline=clock.monotonic() + 10))
-        session.post.assert_not_called()
+        session.post.side_effect = post
+        geodb.time = clock
+        try:
+            geodb.build_geodata(self.cfg, session, budget_s=150)
+        finally:
+            geodb.time = real_time
+        timeouts = [c[2] for c in self.calls]
+        self.assertTrue(self.calls and self.calls[0][3] == self.cfg["geodata"]["overpass_urls"][1],
+                        "after a 95 s hang there is still time for the second server")
+        self.assertTrue(all(t >= 60 for t in timeouts), timeouts)
+        self.assertLessEqual(clock.now - 1000.0, 160, "nothing outlives budget + 10 s")
+        session2 = Mock()
+        self.assertIsNone(geodb.overpass(session2, ["https://a"], "q", deadline=real_time.monotonic() + 59))
+        session2.post.assert_not_called()
+
+    def test_a_progress_file_of_another_map_version_is_started_afresh(self):
+        from rasad.util import save_json
+        tile = "48.00,25.00,50.00,27.00"
+        save_json(self.cfg["_geodata_dir"] / "progress.json",
+                  {"tiles": [tile], "done": {tile: True}, "fac": {}, "place": {}})   # before this change
+        self.assertTrue(self.build())
+        self.assertEqual([c[0] for c in self.calls], ["fac", "oil", "place"], "nothing taken from the old file")
 
 
 class NewsByChange(unittest.TestCase):

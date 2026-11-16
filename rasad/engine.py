@@ -94,10 +94,11 @@ DEFAULTS = {
         "land_layer": "osmgray:land_polygons",
         "land_style": "",
     },
-    # The map is asked for in 4-degree tiles, each part by itself: on 16 Nov 2026 the facility part of a
-    # 7-degree tile took 43 s and a quarter of its oil land timed out (70 s) on a busy server.
-    "geodata": {"facility_max_km": 30, "place_max_km": 80, "coast_km": 1.5, "query_tile_deg": 4,
-                "oil_query_split": 1, "rebuild_days": 7,
+    # The map is asked for tile by tile, each part by itself; a part that fails twice is asked as its
+    # four quarters, down to min_part_deg (on 16 Nov 2026 the public servers took 40 s or more per
+    # request and timed out on others, whatever the box: geodb.build_geodata).
+    "geodata": {"facility_max_km": 30, "place_max_km": 80, "coast_km": 1.5, "query_tile_deg": 8,
+                "oil_query_split": 1, "min_part_deg": 1.0, "rebuild_days": 7,
                 # facilities added by hand: {lat, lon, name, category, code} (config.yaml)
                 "extra_facilities": [],
                 "overpass_urls": ["https://overpass-api.de/api/interpreter",
