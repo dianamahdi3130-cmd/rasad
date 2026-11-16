@@ -43,8 +43,10 @@ countries (`alerts.new_heat_countries`). They are checked in this order:
 | `wide` | حرارة واسعة الانتشار | The widest VIIRS pass has ≥8 pixels, ≥1.5 km between the farthest two, ≥50 MW of distinct strengths, and ≥3× the place's usual footprint (`usual_px`). A second look (another pass, or 2 Meteosat pictures) must come within 3 h |
 | `surge` | اشتداد في موقع حرارة معتاد | The existing `unusual` kind (a steady site far above its own habit) |
 | `new_sustained` | حرارة جديدة مستمرة | Confirmed, kind `new`, a dry Gulf country, and one of three paths: (a) today's new-heat rule without its one-picture 20 MW path (`known_days` 0, `area_days` 0, ≥5 MW, ≥4 pictures); (b) `known_days` ≤2, quiet for ≥7 days before (`quiet_days`), `area_days` ≤2, ≥10 MW, ≥2 families, ≥6 h and ≥12 pictures; (b') the same as (b) with NOAA's oil/gas tag, ≥3 h and no picture count |
-| `short` | حرارة قصيرة أو متقطعة | Anything else in scope: a brief flash, a spot that burned again within the week, a busy area, or a farm country |
-| tag | عدة مواقع في وقت متقارب | A `new_sustained` or `wide` event when another one, 5-500 km away, started within 3 h. Both starts must be known (`onset_known`: a Meteosat picture of the place read 10-40 min before showed nothing). After a gap in the readings every place seems to start at once. Plant surges never count |
+| `short` | حرارة قصيرة أو متقطعة | Brief (under 3 h and fewer than 4 pictures), or a place that burned again within the week or on other days of the month |
+| `busy` | حرارة في منطقة نشطة | Longer heat in an area that burns often (`area_days` ≥ 2) |
+| `unclear` | حرارة دون نمط واضح | Anything else in scope: not confirmed yet, or outside the dry Gulf countries |
+| tag | عدة مواقع في وقت متقارب | A `new_sustained` or `wide` event when another one, 5-500 km away, started within 3 h. Both starts must be known (`onset_known`: a picture of the same product, read 10-40 min before, showed nothing). After a gap in the readings every place seems to start at once. Plant surges never count. Events older than two days keep their tag and are still found as a partner, so a pair never turns one-sided |
 
 How it is shown:
 - **In the app:** the event carries `pattern` = {key, label, reasons, also}. The reasons list ends with
@@ -65,8 +67,14 @@ Facts kept for the labels:
 - **Per NASA pass:** `inc["passes"]`, written as each pixel arrives (`patterns.note_pass`). A pass is one
   satellite within 10 min. It holds the pixel count, the farthest pair, the distinct MW, and NOAA's tag
   `pa`. `inc["polar"]` keeps only 20 readings, too few for a wide pass.
-- **Events made before this version:** their `quiet_days` is measured once. Until then, such an event
-  counts as quiet only if no earlier day had heat.
+- **Events made before this version:** their `quiet_days` is measured once, along with `memory_days`
+  (a reason never claims more days than the memory holds). Until then, such an event counts as quiet
+  only if no earlier day had heat. On the first check of a version the passes of every stored event
+  are rebuilt from its NASA readings and the event is labelled (`patterns.label_stored`). Bump `PATTERNS`
+  in `engine.py` when the rules change, so the stored events are labelled again.
+- **A wide pass stays wide** (`inc["wide"]`) once it was seen with its second look. On a fire that
+  burns for days, passes beyond twelve and pictures beyond sixty are dropped, and the label must not
+  fall back.
 
 ## The replay on 9-16 Nov 2026 (`tests/test_patterns.py` → `WeekLabels`)
 - **Abqaiq north** (15 Nov): `new_sustained`. Its last heat was 14 days before (1 Nov), it was seen in 60
@@ -75,12 +83,29 @@ Facts kept for the labels:
   before the competitor's video (01:45 UTC on 16 Nov).
 - **Judah pumping station and the new heat near Qurayyah** (10 Nov): `new_sustained`, path (a).
 - **Harad** (15 Nov): `short`. One 49 MW picture and one NASA pixel, then nothing.
+- **Bateen Liwa** (13 Nov): `busy`. 5 pictures in an area with heat on 21 days of the month.
 - **The «حريق جديد في الإمارات» post of 11 Nov, 141.6 MW:** `solar`. It was 15 NOAA-20 day pixels in
   one pass, 1.4 km from the mapped Mohammed bin Rashid solar park (Phase 3 - Field A). Meteosat was read
   at 09:20 and 09:30 UTC and showed nothing. Most likely sun glint on the panels.
 - **Shedgum and Ahmadi:** `surge`.
-- **Uyun and Bateen Liwa:** `short` (busy areas). They were posted because they are at mapped facilities,
-  a rule that is unchanged.
+- **Uyun** (one NASA pixel) `short` and **Bateen Liwa** `busy`. They were posted because they are at
+  mapped facilities, a rule that is unchanged.
+- **All 1,047 stored events (16 Nov):** labelling them takes 0.02 s and changes no verdict, priority,
+  headline or confidence. 297 get a label: 266 `short`, 19 `surge`, 5 `new_sustained`, 5 `busy` and 2
+  `unclear`; the rest are at sea or out of scope. The memory grows by about 0.25 MB (the passes) and
+  `footprint_days` by about 0.3 MB after a month.
+
+Before the merge an independent review checked the change from four sides:
+- **Silence and cost:** nothing found.
+- **Labels:** ten findings, all fixed with a test each:
+  - a wide fire lost its label after a day;
+  - the tag turned one-sided;
+  - stored events had no label;
+  - long events were called «قصيرة»;
+  - the reasons claimed 30 days the memory did not hold;
+  - «بدأت للتو»;
+  - «خلال 0 دقيقة»;
+  - a start counted as known from another product's reading.
 - **`wide`:** no event this week. It is pinned on NOAA's real Abqaiq pass of 26 Jul 2026 (27 pixels over
   3.0 km, 142 MW) and on a West Qurna night that is not wide: 9 pixels over 6.6 km, every night.
 

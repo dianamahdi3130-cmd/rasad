@@ -43,7 +43,8 @@ and usually one `pending` (the next one, queued every 10 minutes; older pending 
   never posted. Review with the owner before it may do more.
 - **heat patterns (silent, app only)**: the label each event at or near an energy site got
   (`rasad/patterns.py`): «حرارة جديدة مستمرة», «اشتداد في موقع حرارة معتاد», «حرارة قصيرة أو متقطعة»,
-  «حرارة واسعة الانتشار», «انعكاس محتمل في محطة شمسية»; «several places at once» counts the
+  «حرارة في منطقة نشطة», «حرارة دون نمط واضح», «حرارة واسعة الانتشار», «انعكاس محتمل في محطة
+  شمسية»; «several places at once» counts the
   «عدة مواقع في وقت متقارب» tags. Never posted; «واسعة الانتشار» cannot appear in the first 7 days
   after the upgrade (each place's usual footprint is still being learnt). Review with the owner
   (`docs/plans/heat_patterns.md`) before any of it may post.

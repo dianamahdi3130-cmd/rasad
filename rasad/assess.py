@@ -277,13 +277,7 @@ def assess(inc, cfg):
     inc["confidence_label"] = CONFIDENCE_AR[category]
     # the heat pattern (patterns.py): a neutral line, silent; it takes the last of the eight places
     # so that no line before it moves (the post's main reason is the first '+' line)
-    pattern = patterns.pattern_of(inc, cfg)
-    if pattern:
-        inc["pattern"] = pattern
-        ev = ev[:7] + [{"s": "·", "text": patterns.line(pattern)}]
-    else:
-        inc.pop("pattern", None)
-    inc["evidence"] = ev[:8]
+    patterns.apply(inc, cfg, ev)
     inc["severity"] = severity_of(inc, cfg, category)
     sources = sources_of(inc)
     if not sources and category == "candidate":   # the app's preview carries no sighting list

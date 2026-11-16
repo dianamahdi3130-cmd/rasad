@@ -31,6 +31,7 @@ RULES = 19  # bump when the importance rules change, so stored incidents are jud
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
+PATTERNS = 1     # bump when the heat patterns' rules change, so every stored event is labelled again
 # fire symbols whose strength (MW) the server can tell; the second European satellite's cannot
 STRENGTH_SOURCES = frozenset({"mtg_frp"})
 
@@ -315,7 +316,7 @@ def _merge_records(keep, other):
         keep["lat"], keep["lon"], keep["best"] = other["lat"], other["lon"], "polar"
     if keep.get("kind") != "unusual" and other.get("kind") == "unusual":
         keep["kind"] = "unusual"
-    for key in ("known_days", "typical_frp", "area_days", "quiet_days", "usual_px", "solar_km"):
+    for key in ("known_days", "typical_frp", "area_days", "quiet_days", "usual_px", "solar_km", "memory_days", "wide"):
         if keep.get(key) is None and other.get(key) is not None:
             keep[key] = other[key]
     patterns.merge_passes(keep, other)
@@ -885,6 +886,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         try:
             inc["quiet_days"] = patterns.quiet_days(mem, det["lat"], det["lon"], det["t"][:10],
                                                     int(M["window_days"]), reach)
+            inc["memory_days"] = min(avail, int(M["window_days"]))   # what 'no heat for N days' may say
             inc["usual_px"] = patterns.usual_pixels(S.state, det["lat"], det["lon"], det["t"][:10],
                                                     int(M["window_days"]), int(PT.get("footprint_learn_days", 7)))
             solar = geo.solar_km(det["lat"], det["lon"], float(PT.get("solar_km", 3)))
@@ -1158,6 +1160,13 @@ def run_cycle(cfg, send=True, alert_now=False):
             reach = {"mtg": 3, "msg_iodc": 2}.get(first.get("family"), 2) if first.get("kind") == "geo" else 1
             inc["quiet_days"] = patterns.quiet_days(mem, inc["lat"], inc["lon"], inc["first"][:10],
                                                     int(M["window_days"]), reach)
+            inc["memory_days"] = min(mem.days_known(inc["first"][:10], int(M["window_days"])), int(M["window_days"]))
+    if S.state.get("patterns") != PATTERNS:   # once: every stored event gets (or renews) its label
+        try:
+            patterns.label_stored(S.incidents, cfg)
+            S.state["patterns"] = PATTERNS
+        except Exception as e:  # noqa: BLE001 - a silent label must never stop a check
+            log.warning("heat patterns: labelling stored events failed: %s", e)
     # Transfer only an exact originating observation to a genuine incident, so
     # confirmation replies to its early post without merging a different nearby fire.
     earlyalerts.sync(cfg, S, now)
@@ -1216,7 +1225,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     # hours is tagged in the app; its reasons line is written again
     try:
         for inc in patterns.link_sites(S.incidents, cfg, now):
-            assess.assess(inc, cfg)
+            patterns.apply(inc, cfg)
     except Exception as e:  # noqa: BLE001 - a silent label must never stop a check
         log.warning("heat patterns: linking places failed: %s", e)
 

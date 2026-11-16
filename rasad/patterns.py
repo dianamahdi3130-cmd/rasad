@@ -26,7 +26,10 @@ LABELS = {
     "surge": "اشتداد في موقع حرارة معتاد",
     "new_sustained": "حرارة جديدة مستمرة",
     "short": "حرارة قصيرة أو متقطعة",
+    "busy": "حرارة في منطقة نشطة",
+    "unclear": "حرارة دون نمط واضح",
 }
+LINKABLE = ("new_sustained", "wide")
 LINKED = "عدة مواقع في وقت متقارب"
 NO_CAUSE = "صور الأقمار ترى الحرارة ولا ترى سببها"
 PREFIX = "النمط: "
@@ -184,12 +187,15 @@ def memory_cell():
     return CELL
 
 
-def slot_read(slots, lat, lon, start, end):
-    """Was a European fire picture covering this point read successfully between start and end?
-    (geocollect keeps a slot only for a picture actually read; keys: layer|w,s,e,n|time)."""
+def slot_read(slots, lat, lon, start, end, layer=None):
+    """Was a European fire picture covering this point read successfully between start and end
+    (of `layer` only, when given)? geocollect keeps a slot only for a picture actually read; keys:
+    layer|w,s,e,n|time."""
     for key in slots or {}:
         try:
-            _, box, when = key.split("|")
+            name, box, when = key.split("|")
+            if layer is not None and name != layer:
+                continue
             w, s, e, n = (float(v) for v in box.split(","))
             t = parse_time(when)
         except (ValueError, TypeError):
@@ -212,9 +218,9 @@ def onset_facts(inc, det, slots):
     if det.get("kind") == "polar":
         inc["geo_read_at_pass"] = slot_read(slots, lat, lon, t - dt.timedelta(minutes=20),
                                             t + dt.timedelta(minutes=20))
-    else:
+    else:   # the same product: Meteosat-9 read at 21:00 says nothing about a gap in Meteosat-12's
         inc["onset_known"] = slot_read(slots, lat, lon, t - dt.timedelta(minutes=40),
-                                       t - dt.timedelta(minutes=10))
+                                       t - dt.timedelta(minutes=10), layer=det.get("src"))
 
 
 # ----------------------------------------------------------------- the label
@@ -299,8 +305,10 @@ def pattern_of(inc, cfg):
     also = []
     if inc.get("linked"):
         L = inc["linked"]
-        also.append(f"ظهرت حرارة جديدة في موقع آخر على بعد {L['km']:.0f} كم خلال "
-                    f"{_n(L['min'], 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة')}")
+        when = (f"خلال {_n(L['min'], 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة')}" if L.get("min")
+                else "في الوقت نفسه")
+        also.append(f"ظهرت حرارة جديدة في موقع آخر على بعد {L['km']:.0f} كم {when}")
+    window = int(inc.get("memory_days") or window)   # never claim more days than the memory holds
 
     # 1) sun on solar panels: daytime NASA pixels only, at a mapped solar plant (or a place NOAA tags
     #    as panels), while a Meteosat picture read at that time showed nothing
@@ -317,17 +325,23 @@ def pattern_of(inc, cfg):
 
     # 2) many separate hot points over kilometres in one pass, with a second look within hours: an
     #    area burning, not one flare stack (the footprint of the big plant fires of 2026)
+    #    Once seen with its second look it is kept (`inc["wide"]`): the passes and pictures around it
+    #    are trimmed on a fire that burns for days, and the label must not fall back then.
     if foot and foot["n"] >= int(P.get("wide_min_px", 8)) and foot["km"] >= float(P.get("wide_min_km", 1.5)) \
             and foot["mw"] >= float(P.get("wide_min_mw", 50)) \
             and inc.get("usual_px") is not None \
             and foot["n"] >= float(P.get("wide_usual_ratio", 3)) * float(inc["usual_px"]) \
-            and second_look(inc, foot["t"], float(P.get("second_look_h", 3))):
-        usual = inc.get("usual_px")
-        points = _n(foot["n"], "نقطة ساخنة", "نقطتين ساخنتين", "نقاط ساخنة منفصلة", "نقطة ساخنة منفصلة")
-        reasons = [f"{points} في مرور واحد لقمر ناسا، على امتداد {foot['km']:.1f} كم",
-                   f"مجموع قوتها نحو {_mw(foot['mw'])}"]
-        if usual:
-            reasons.append(f"المعتاد هنا نحو {_n(round(usual), 'نقطة', 'نقطتين', 'نقاط', 'نقطة')} في المرور الواحد")
+            and second_look(inc, foot["t"], float(P.get("second_look_h", 3))) \
+            and (foot["n"], foot["km"]) >= ((inc.get("wide") or {}).get("n", 0), (inc.get("wide") or {}).get("km", 0)):
+        inc["wide"] = {"n": foot["n"], "km": foot["km"], "mw": foot["mw"], "t": foot["t"],
+                       "usual": float(inc["usual_px"])}
+    if inc.get("wide"):
+        W = inc["wide"]
+        points = _n(W["n"], "نقطة ساخنة", "نقطتين ساخنتين", "نقاط ساخنة منفصلة", "نقطة ساخنة منفصلة")
+        reasons = [f"{points} في مرور واحد لقمر ناسا، على امتداد {W['km']:.1f} كم",
+                   f"مجموع قوتها نحو {_mw(W['mw'])}"]
+        if W.get("usual"):
+            reasons.append(f"المعتاد هنا نحو {_n(round(W['usual']), 'نقطة', 'نقطتين', 'نقاط', 'نقطة')} في المرور الواحد")
         return _out("wide", reasons + [NO_CAUSE], also)
 
     # 3) a site that burns most days, now far above its own habit (the existing 'unusual' kind)
@@ -337,7 +351,7 @@ def pattern_of(inc, cfg):
             reasons.append(f"معتاد هذا الموقع نحو {_mw(float(inc['typical_frp']))} والآن {_mw(mw)}")
         if inc.get("site_habit"):
             reasons.append(f"أعلى من ضعف ما بلغه في يومين من الشهر ({_mw(float(inc['site_habit']))})")
-        return _out("surge", reasons + ["قد يكون حرق غاز تشغيلياً أو حريقاً", NO_CAUSE], also)
+        return _out("surge", reasons + ["قد يكون حرق غاز تشغيلياً أو حريقاً", NO_CAUSE], [])
 
     # 4) sustained heat where none burned recently: an unmapped site starting up, a well test, or a
     #    fire (Judah and Abqaiq north, 15 Nov 2026)
@@ -356,26 +370,30 @@ def pattern_of(inc, cfg):
             reasons = [f"لم تُرصد حرارة هنا خلال {_n(window, 'يوم', 'يومين', 'أيام', 'يوماً')}"]
         else:
             reasons = [f"آخر حرارة هنا قبل {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}"]
-        reasons.append(f"استمرت نحو {_n(round(hours), 'ساعة', 'ساعتين', 'ساعات', 'ساعة')}" if hours >= 1
-                       else "بدأت للتو")
+        reasons.append(_span(hours))
         if pictures:
             reasons.append(f"ظهرت في {_n(pictures, 'صورة واحدة', 'صورتين', 'صور', 'صورة')} لـ Meteosat")
         if PA_OIL_GAS in tags:
             reasons.append("NOAA تصنّف هذه النقطة موقع نفط وغاز")
         return _out("new_sustained", reasons + [NO_CAUSE], also)
 
-    # 5) the rest: a brief flash, a spot that burned again within the week, a place that burns now
-    #    and then, a busy area, or a country where fields burn every season
-    reasons = []
+    # 5) the rest. «قصيرة أو متقطعة» only for what was brief, or for a place that burned again within
+    #    the week or on other days of the month; a long event in an area that burns often is «في منطقة
+    #    نشطة»; anything else (not confirmed yet, outside the dry Gulf countries) has no clear pattern
     passes = len(inc.get("passes") or [])
-    if pictures < int(cfg["alerts"].get("new_heat_min_pictures", 4)) and passes < 2:
+    brief = hours < 3 and pictures < int(cfg["alerts"].get("new_heat_min_pictures", 4))
+    again = "quiet_days" in inc and quiet is not None and quiet < int(P.get("sustained_quiet_days", 7))
+    reasons = []
+    if brief:
         if pictures:
             reasons.append(f"ظهرت في {_n(pictures, 'صورة واحدة', 'صورتين', 'صور', 'صورة')} فقط")
         elif passes:
             reasons.append("رآها مرور واحد لقمر ناسا فقط")
+    else:
+        reasons.append(_span(hours))
     if known:
         reasons.append(f"رُصدت حرارة هنا في {_n(known, 'يوم واحد', 'يومين', 'أيام', 'يوماً')} خلال الشهر")
-    elif "quiet_days" in inc and quiet is not None and quiet < int(P.get("sustained_quiet_days", 7)):
+    elif again:
         reasons.append(f"آخر حرارة هنا قبل {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}")
     if area >= 2:
         reasons.append(f"المنطقة حولها نشطة (حرارة في {_n(area, 'يوم', 'يومين', 'أيام', 'يوماً')} خلال الشهر)")
@@ -383,11 +401,20 @@ def pattern_of(inc, cfg):
         reasons.append("خارج دول الخليج الجافة")
     elif inc.get("verdict") != "مؤكد":
         reasons.append("لم تتأكد بعد")
-    return _out("short", reasons, also)
+    key = "short" if brief or known or again else "busy" if area >= 2 else "unclear"
+    return _out(key, reasons, [])
+
+
+def _span(hours):
+    if hours < 1:
+        return "استمرت أقل من ساعة"
+    return f"استمرت نحو {_n(round(hours), 'ساعة', 'ساعتين', 'ساعات', 'ساعة')}"
 
 
 def _out(key, reasons, also):
-    return {"key": key, "label": LABELS[key], "reasons": [r for r in reasons if r], "also": also}
+    # the 'several places' tag belongs only to new sustained or wide heat
+    return {"key": key, "label": LABELS[key], "reasons": [r for r in reasons if r],
+            "also": also if key in LINKABLE else []}
 
 
 def line(pattern):
@@ -403,28 +430,59 @@ def line(pattern):
     return text
 
 
+def apply(inc, cfg, ev=None):
+    """Write the label and its reasons line. `ev`: the assessment's fresh reasons; without it the
+    stored ones, any earlier pattern line taken out (a label written again, never twice). The line
+    takes the last of the eight places, so that no line before it moves."""
+    if ev is None:
+        ev = [e for e in inc.get("evidence") or [] if not str(e.get("text", "")).startswith(PREFIX)]
+    pattern = pattern_of(inc, cfg)
+    if pattern:
+        inc["pattern"] = pattern
+        ev = ev[:7] + [{"s": "·", "text": line(pattern)}]
+    else:
+        inc.pop("pattern", None)
+    inc["evidence"] = ev[:8]
+
+
+def label_stored(incidents, cfg):
+    """Events made before the patterns (or before their rules changed): their passes rebuilt from the
+    NASA readings they kept, and their label written. Nothing else of them changes."""
+    for inc in incidents:
+        if not inc.get("verdict"):
+            continue
+        if "passes" not in inc:
+            for o in sorted((o for o in inc.get("observations") or [] if o.get("kind") == "polar"),
+                            key=lambda o: o["t"]):
+                note_pass(inc, o)
+        apply(inc, cfg)   # a wide pass seen before stays wide (`inc["wide"]`)
+
+
 # ----------------------------------------------------------------- several places at once
 def link_sites(incidents, cfg, now):
     """Tag new sustained or wide heat that started at another such place within three hours, 5-500 km
-    away. Both starts must be known to within a reading (a Meteosat picture read 10-40 minutes before
-    showed nothing): after a gap in the readings, every place seems to start at once. Plant surges
-    never count (two plants flaring 10 minutes and 162 km apart, Ahmadi and Zubair on 15 Nov, is
-    chance). Returns the incidents whose tag changed."""
+    away. Both starts must be known to within a reading (a Meteosat picture of the same product read
+    10-40 minutes before showed nothing): after a gap in the readings, every place seems to start at
+    once. Plant surges never count (two plants flaring 10 minutes and 162 km apart, Ahmadi and Zubair
+    on 15 Nov, is chance). Only events of the last two days are looked at again; an older one keeps
+    its tag, and is still found as the partner of a newer one. Returns the incidents whose tag changed."""
     P = cfg.get("patterns") or {}
     hours = float(P.get("link_h", 3))
     lo_km, hi_km = float(P.get("link_min_km", 5)), float(P.get("link_max_km", 500))
-    recent = [i for i in incidents if (i.get("pattern") or {}).get("key") in ("new_sustained", "wide")
-              and i.get("onset_known") is True
-              and now - parse_time(i["first"]) <= dt.timedelta(days=2)]
+    able = [i for i in incidents if (i.get("pattern") or {}).get("key") in LINKABLE and i.get("onset_known") is True]
     changed = []
-    for inc in recent:
+    for inc in able:
+        if now - parse_time(inc["first"]) > dt.timedelta(days=2):
+            continue
         best = None
-        for other in recent:
+        for other in able:
             if other is inc:
                 continue
             minutes = abs((parse_time(other["first"]) - parse_time(inc["first"])).total_seconds()) / 60.0
+            if minutes > hours * 60:
+                continue
             km = haversine_km(inc["lat"], inc["lon"], other["lat"], other["lon"])
-            if minutes <= hours * 60 and lo_km <= km <= hi_km and (best is None or minutes < best["min"]):
+            if lo_km <= km <= hi_km and (best is None or minutes < best["min"]):
                 best = {"id": other["id"], "km": round(km), "min": int(round(minutes))}
         if best != inc.get("linked"):
             if best:

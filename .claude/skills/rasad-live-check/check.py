@@ -86,7 +86,8 @@ def mw(v):
 
 def code_versions():
     text = Path("rasad/engine.py").read_text(encoding="utf-8")
-    keys = {"RULES": "rules", "CLIP_STYLE": "clip_style", "SEA_CHECK": "sea_check", "TIDY": "tidy"}
+    keys = {"RULES": "rules", "CLIP_STYLE": "clip_style", "SEA_CHECK": "sea_check", "TIDY": "tidy",
+            "PATTERNS": "patterns"}
     out = {}
     for const, key in keys.items():
         m = re.search(rf"^{const}\s*=\s*(\d+)", text, re.M)

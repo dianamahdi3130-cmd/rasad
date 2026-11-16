@@ -199,6 +199,21 @@ class UsualFootprint(unittest.TestCase):
         self.assertIn("27 نقطة ساخنة منفصلة في مرور واحد لقمر ناسا", line["text"])
         self.assertIn(patterns.NO_CAUSE, line["text"])
 
+    def test_a_wide_fire_stays_wide_when_its_evidence_is_trimmed(self):
+        # a fire that burns for days: passes beyond twelve and pictures beyond sixty are dropped
+        inc = fire_from(FIXTURE["abqaiq_20260726"], "2026-07-26T23:10:00Z", "2026-07-26T23:20:00Z",
+                        usual_px=2.0, known_days=1)
+        self.assertEqual(inc["pattern"]["key"], "wide")
+        start = dt.datetime(2026, 7, 27, 0, 0, tzinfo=UTC)
+        for k in range(16):                                 # a pass every 2.4 hours
+            add_to_incident(inc, pixel(iso(start + dt.timedelta(hours=2.4 * k)), 25.93, 49.69, 20.0))
+        for k in range(80):                                 # Meteosat every 10 minutes
+            add_to_incident(inc, {"src": "mtg_frp", "family": "mtg", "kind": "geo", "lat": 25.93, "lon": 49.69,
+                                  "frp": 30.0, "t": iso(start + dt.timedelta(hours=30, minutes=10 * k))})
+        finalize(inc, config())
+        self.assertFalse(patterns.second_look(inc, "2026-07-26T22:59:00Z", 3), "the evidence is gone...")
+        self.assertEqual(inc["pattern"]["key"], "wide", "...the label is not")
+
     def test_without_a_second_look_one_wide_pass_is_not_enough(self):
         inc = fire_from(FIXTURE["abqaiq_20260726"], usual_px=2.0, known_days=1)
         self.assertNotEqual(inc["pattern"]["key"], "wide")
@@ -258,9 +273,27 @@ class WeekLabels(unittest.TestCase):
             self.assertEqual(inc["pattern"]["key"], "surge", iid)
             self.assertIn("قد يكون حرق غاز تشغيلياً أو حريقاً", inc["evidence"][-1]["text"])
 
-    def test_busy_areas_are_short(self):
-        for iid in (UYUN, BATEEN):
-            self.assertEqual(week(iid)["pattern"]["key"], "short", iid)
+    def test_busy_areas(self):
+        self.assertEqual(week(UYUN)["pattern"]["key"], "short", "one NASA pixel")
+        bateen = week(BATEEN)
+        self.assertEqual(bateen["pattern"]["key"], "busy", "five pictures in an area with heat on 21 days")
+        self.assertIn("المنطقة حولها نشطة (حرارة في 21 يوماً خلال الشهر)", bateen["evidence"][-1]["text"])
+
+    def test_a_long_event_is_never_called_short(self):
+        inc = week(QURAYYAH, country="العراق",           # outside the dry Gulf countries, near a facility
+                   facility={"label": "محطة كهرباء", "code": "power", "km": 5.0})
+        self.assertEqual(inc["pattern"]["key"], "unclear")
+        self.assertIn("استمرت نحو", inc["evidence"][-1]["text"])
+        self.assertIn("خارج دول الخليج الجافة", inc["evidence"][-1]["text"])
+
+    def test_no_more_days_are_claimed_than_the_memory_holds(self):
+        self.assertIn("لم تُرصد حرارة هنا خلال 12 يوماً", week(JUDAH, memory_days=12)["evidence"][-1]["text"])
+        self.assertIn("لم تُرصد حرارة هنا خلال 30 يوماً", week(JUDAH)["evidence"][-1]["text"])
+
+    def test_less_than_an_hour_is_said_as_such(self):
+        self.assertEqual(patterns._span(0.4), "استمرت أقل من ساعة")
+        self.assertEqual(patterns._span(2), "استمرت نحو ساعتين")
+        self.assertEqual(patterns._span(22), "استمرت نحو 22 ساعة")
 
     def test_nothing_this_week_was_wide_and_no_label_names_a_cause(self):
         for iid in WEEK:
@@ -336,6 +369,34 @@ class SeveralPlaces(unittest.TestCase):
         for a, b in (self.two(key="surge"), self.two(km_lon=0.02), self.two(km_lon=6.0), self.two(minutes=200)):
             self.assertEqual(patterns.link_sites([a, b], config(), self.NOW), [])
 
+    def test_an_older_partner_keeps_its_tag_and_is_still_found(self):
+        a, b = self.two(minutes=150)
+        patterns.link_sites([a, b], config(), self.NOW)
+        later = self.NOW + dt.timedelta(days=2, hours=1)      # a is older than two days, b is not
+        self.assertEqual(patterns.link_sites([a, b], config(), later), [])
+        self.assertEqual((a["linked"]["id"], b["linked"]["id"]), ("b", "a"))
+
+    def test_the_tag_only_belongs_to_new_sustained_or_wide_heat(self):
+        inc = week(SHEDGUM, linked={"id": "x", "km": 120, "min": 40})
+        self.assertEqual(inc["pattern"]["also"], [])
+        self.assertNotIn(patterns.LINKED, inc["evidence"][-1]["text"])
+
+    def test_places_seen_in_the_same_picture(self):
+        inc = week(JUDAH, linked={"id": "x", "km": 120, "min": 0})
+        self.assertIn("على بعد 120 كم في الوقت نفسه", inc["evidence"][-1]["text"])
+
+    def test_a_start_is_known_only_from_the_same_product(self):
+        start = {"src": "mtg_frp", "kind": "geo", "t": "2026-11-15T21:40:00Z", "lat": 25.6, "lon": 48.9}
+        other = {"iodc_fire|46.0,18.35,53.0,24.7|2026-11-15T21:15:00Z": 25.0,
+                 "iodc_fire|46.0,24.7,53.0,31.05|2026-11-15T21:15:00Z": 25.0}
+        inc = {}
+        patterns.onset_facts(inc, start, other)
+        self.assertIs(inc["onset_known"], False, "Meteosat-9 read; Meteosat-12 may have had a gap")
+        patterns.onset_facts(inc, start, dict(other, **{"mtg_frp|48.0,25.0,50.0,27.0|2026-11-15T21:10:00Z": 9.0}))
+        self.assertIs(inc["onset_known"], True)
+        patterns.onset_facts(inc, start, {"mtg_frp|48.0,25.0,50.0,27.0|2026-11-15T21:35:00Z": 9.0})
+        self.assertIs(inc["onset_known"], False, "read 5 minutes before: too close to say the start")
+
     def test_the_tag_is_said_in_the_reasons_line(self):
         inc = week(JUDAH, linked={"id": "x", "km": 120, "min": 40})
         text = inc["evidence"][-1]["text"]
@@ -347,7 +408,8 @@ class InACheck(unittest.TestCase):
     """A whole check keeps what the patterns need when it makes an incident, and the app gets the label."""
     NOW = dt.datetime(2026, 11, 15, 22, 50, tzinfo=UTC)
 
-    def run_check(self, root, noaa_rows, slots=None):
+    def run_check(self, root, noaa_rows, slots=None, now=None):
+        now = now or self.NOW
         cfg = copy.deepcopy(engine.DEFAULTS)
         cfg.update(_state_dir=root / "state", _site_dir=root / "site", _geodata_dir=root / "geo")
         cfg["regions"] = [{"id": "gulf", "name": "الخليج الفارسي", "bbox": [47, 22, 57, 30]}]
@@ -364,14 +426,14 @@ class InACheck(unittest.TestCase):
         geo.describe.return_value = ("في السعودية", "السعودية")
         geo.solar_km.return_value = None
         state = {"schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE, "sea_check": engine.SEA_CHECK,
-                 "bootstrapped": iso(self.NOW), "hello_sent": iso(self.NOW), "slots": slots or {}}
+                 "bootstrapped": iso(now), "hello_sent": iso(now), "slots": slots or {}}
         save_json(root / "state" / "state.json", state)
         memory = Memory({})
         memory.record(26.16, 49.75, "2026-11-01", 9.0)    # heat here on 1 Nov, a fortnight before
         memory.record(30, 48, "2026-11-14", 10)
         save_json(root / "state" / "memory.json", memory.cells)
         forbidden = Mock(side_effect=AssertionError("Unexpected source"))
-        with patch.multiple(engine, utcnow=Mock(return_value=self.NOW), make_session=Mock(return_value=session),
+        with patch.multiple(engine, utcnow=Mock(return_value=now), make_session=Mock(return_value=session),
                             WMS=Mock(), Geo=Mock(return_value=geo), Availability=Mock(),
                             firms_fetch=Mock(return_value=[]), latest_time=forbidden, detect_geo_layer=forbidden,
                             deliver=Mock(return_value=None), tg_send=forbidden), \
@@ -402,6 +464,35 @@ class InACheck(unittest.TestCase):
             items = public["items"]
             self.assertEqual(items[0]["pattern"]["label"], "حرارة قصيرة أو متقطعة")
             self.assertNotIn("passes", items[0], "the pass summaries stay in the memory")
+
+    def test_events_made_before_the_patterns_are_labelled_once(self):
+        stored = copy.deepcopy(WEEK[ABQAIQ])
+        stored.pop("_case")
+        stored.pop("quiet_days")
+        finalize(stored, config(False))                     # as the check stored it before this version
+        before = {k: stored.get(k) for k in ("verdict", "priority", "headline", "confidence", "status")}
+        self.assertNotIn("pattern", stored)
+        cfg = config()
+        patterns.label_stored([stored], cfg)
+        self.assertEqual(stored["pattern"]["key"], "short", "quiet days not measured yet: not called quiet")
+        self.assertEqual(stored["passes"][0]["n"], 2)
+        self.assertEqual({k: stored.get(k) for k in before}, before)
+        patterns.label_stored([stored], cfg)
+        self.assertEqual(sum(1 for e in stored["evidence"] if e["text"].startswith(patterns.PREFIX)), 1)
+
+    def test_a_check_labels_the_stored_events_and_measures_their_quiet(self):
+        stored = copy.deepcopy(WEEK[ABQAIQ])
+        stored.pop("_case")
+        stored.pop("quiet_days")
+        finalize(stored, config(False))
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            save_json(root / "state" / "incidents.json", [stored])
+            S = self.run_check(root, [], now=dt.datetime(2026, 11, 16, 9, 0, tzinfo=UTC))
+            inc = next(i for i in S.incidents if i["id"] == ABQAIQ)
+            self.assertEqual(inc["quiet_days"], 14)
+            self.assertEqual(inc["pattern"]["key"], "new_sustained")
+            self.assertEqual(load_json(root / "state" / "state.json", {})["patterns"], engine.PATTERNS)
 
     def test_a_failing_fact_never_stops_the_check(self):
         with tempfile.TemporaryDirectory() as folder, \
