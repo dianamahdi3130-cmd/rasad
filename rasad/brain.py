@@ -165,7 +165,7 @@ def add_to_incident(inc, det):
         reading = {"t": det["t"], "frp": det.get("frp"), "conf": det.get("conf"),
                    "night": det.get("night"), "src": det["src"], "family": det["family"],
                    "lat": det["lat"], "lon": det["lon"]}
-        for key in ("scan", "track", "instrument", "satellite"):
+        for key in ("scan", "track", "instrument", "satellite", "via"):
             if det.get(key) is not None:
                 reading[key] = det[key]
         if reading not in inc["polar"]:
@@ -458,7 +458,10 @@ def open_sea_fire(inc):
     if f and f.get("nearest_km", f["km"]) <= 3:
         return False
     clear = [p for p in inc["polar"] if _clear(p)]
-    night = [p for p in clear if p.get("night")]
+    # a faint pixel read only from NOAA's file so far is not yet a second look: about 1% of those
+    # never reach FIRMS, mostly faint night pixels at offshore flares (14 Nov 2026, 29.33 N 49.49 E)
+    night = [p for p in clear if p.get("night")
+             and not (p.get("via") == "noaa" and (p.get("frp") or 0) < SEA_FAINT_MW)]
     if night and (len(night) >= 2 or max((p.get("frp") or 0) for p in night) >= SEA_FAINT_MW):
         return True
     return any((p.get("frp") or 0) >= 5 for p in clear)
@@ -613,11 +616,14 @@ def finalize(inc, cfg):
     return inc
 
 
-def links(lat, lon, sea):
+def links(lat, lon, sea, nasa_later=False):
+    """`nasa_later`: NASA's own sightings came from NOAA's files, which NASA's map shows about three
+    hours later (a reader opening it at once would see nothing there yet)."""
     out = {"الخريطة": f"https://www.google.com/maps?q={lat:.5f},{lon:.5f}&t=k"}
     if sea:
         out["السفن"] = f"https://www.marinetraffic.com/en/ais/home/centerx:{lon:.3f}/centery:{lat:.3f}/zoom:11"
-    out["ناسا"] = f"https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@{lon:.3f},{lat:.3f},11.0z"
+    out["ناسا (تظهر بعد نحو 3 ساعات)" if nasa_later else "ناسا"] = \
+        f"https://firms.modaps.eosdis.nasa.gov/map/#d:24hrs;@{lon:.3f},{lat:.3f},11.0z"
     return out
 
 
@@ -780,7 +786,9 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
         lines.append(f"📌 قبل {hours_ar(nc['hours'])} رُصد حريق مؤكد آخر في البحر على بعد {nc['km']:.0f} كم")
     lines.append("")
     lines.append(f"<code>{inc['lat']:.4f}, {inc['lon']:.4f}</code>")
-    lk = links(inc["lat"], inc["lon"], inc["place"] in ("sea", "coast"))
+    viirs = [p for p in inc.get("polar") or [] if p.get("family") == "viirs"]
+    lk = links(inc["lat"], inc["lon"], inc["place"] in ("sea", "coast"),
+               nasa_later=bool(viirs) and all(p.get("via") == "noaa" for p in inc.get("polar") or []))
     lines.append(" | ".join(f'<a href="{u}">{k}</a>' for k, u in lk.items()))
     if cfg.get("app_url"):
         lines.append(f'📲 <a href="{app_link(cfg, inc)}">فتح الحدث في التطبيق</a>')

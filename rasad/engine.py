@@ -68,8 +68,7 @@ DEFAULTS = {
               "bootstrap_days": 10, "max_day_range": 5, "live_hours": 36,
               "budget_s": 25, "request_timeout_s": 20, "max_workers": 2},
     # NOAA's own files of NOAA-20/21 (public AWS buckets, no account): noaafire.py; on in config.yaml
-    "noaa": {"enabled": False, "budget_s": 12, "request_timeout_s": 10, "workers": 4,
-             "first_hours": 3, "max_age_hours": 6},
+    "noaa": {"enabled": False, "budget_s": 12, "request_timeout_s": 10, "workers": 4, "max_age_hours": 6},
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
@@ -747,9 +746,14 @@ def run_cycle(cfg, send=True, alert_now=False):
     seen = S.state.setdefault("seen", {})
     noaa_keys = S.state.setdefault("noaa_seen", {})
     twins = noaafire.Twins(seen, noaa_keys)
+    confirmed_by_firms = set()          # NOAA pixels whose FIRMS copy came in this check
     if cfg["noaa"].get("enabled"):
         noaa_status = {}
-        fresh = noaafire.collect(cfg, session, S.state, now, box, status=noaa_status)
+        try:
+            fresh = noaafire.collect(cfg, session, S.state, now, box, status=noaa_status)
+        except Exception as e:  # noqa: BLE001 - an optional early source must never stop a check
+            log.warning("NOAA files failed: %s", e)
+            fresh, noaa_status = [], {**noaa_status, "ok": False}
         n_noaa = n_twin = 0
         for d in fresh:
             k = f"{d['src']}|{d['t']}|{d['lat']}|{d['lon']}"
@@ -758,11 +762,10 @@ def run_cycle(cfg, send=True, alert_now=False):
             if twins.absorbs(d):
                 n_twin += 1
                 continue
-            d.pop("via", None)
-            noaa_keys[k] = 0               # kept a day (not in `seen`): long enough for its FIRMS twin
+            noaa_keys[k] = 0               # until its FIRMS copy comes (kept two days, see the end)
             twins.add(k, d, noaa=True)
             n_noaa += 1
-            dets.append(d)
+            dets.append(d)                 # keeps via='noaa' on its reading until FIRMS has it too
         log.info("NOAA files: %d files read, %d over the regions, %d new pixels, %d already from FIRMS",
                  noaa_status.get("read", 0), noaa_status.get("over", 0), n_noaa, n_twin)
         status["noaa"] = {**noaa_status, "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
@@ -778,16 +781,19 @@ def run_cycle(cfg, send=True, alert_now=False):
         S.state["firms_source_offset"] = (int(S.state.get("firms_source_offset", 0)) + 2) % max(1, len(cfg["firms"]["sources"]))
         live_from = now - dt.timedelta(hours=float(cfg["firms"].get("live_hours", 36)))
         n_new = n_old = 0
-        n_twin = 0
+        new_rows = []
         for d in polar:
             k = f"{d['src']}|{d['t']}|{d['lat']}|{d['lon']}"
             if k in seen:
                 continue
             seen[k] = d["t"]
-            if twins.absorbs(d):
-                n_twin += 1          # read from NOAA's file already: the same sighting
+            new_rows.append(d)
+        pairs = twins.match(new_rows)  # read from NOAA's file already: the same sightings
+        confirmed_by_firms.update(pairs.values())
+        n_twin = len(pairs)
+        for i, d in enumerate(new_rows):
+            if i in pairs:
                 continue
-            twins.add(k, d)
             if parse_time(d["t"]) < live_from:
                 d["_history"] = True  # too old to report: only remembered as heat history
                 n_old += 1
@@ -865,6 +871,14 @@ def run_cycle(cfg, send=True, alert_now=False):
         return open_incs if parse_time(det["t"]) >= fresh_from else S.incidents
 
     touched, frp_budget = set(), 40
+    # A pixel read from NOAA's file that FIRMS has now brought too: its reading loses the «NOAA only»
+    # mark (it now counts as a look at a faint sea pixel, and NASA's map shows it) and is judged again.
+    if confirmed_by_firms:
+        for inc in S.incidents:
+            for row in inc.get("polar") or []:
+                if row.get("via") == "noaa" and f"{row['src']}|{row['t']}|{row['lat']}|{row['lon']}" in confirmed_by_firms:
+                    row.pop("via", None)
+                    touched.add(inc["id"])
     strength_deadline = time.monotonic() + float(E.get("strength_budget_s", 20))
 
     def strength_key(det):
@@ -1342,8 +1356,10 @@ def run_cycle(cfg, send=True, alert_now=False):
                         if now - parse_time(k.rsplit("|", 1)[1]) <= dt.timedelta(hours=6)}
     S.state["seen"] = {k: v for k, v in S.state.get("seen", {}).items()
                        if now - parse_time(v) <= dt.timedelta(days=3)}
+    # a NOAA pixel waits for its FIRMS copy as long as FIRMS rows can still come (two days asked);
+    # once paired, its copy is in `seen` and the pair is not needed any more
     S.state["noaa_seen"] = {k: v for k, v in S.state.get("noaa_seen", {}).items()
-                            if now - parse_time(k.split("|")[1]) <= dt.timedelta(days=1)}
+                            if not v and now - parse_time(k.split("|")[1]) <= dt.timedelta(days=2)}
     for cache in ("geocode", "landsea"):
         c = S.state.get(cache, {})
         if len(c) > 5000:

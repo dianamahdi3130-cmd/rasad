@@ -13,8 +13,11 @@ brings the same pixel, the check takes it as the twin of the one already counted
 a second sighting.
 
 Each file's area is read from its first 32 KB (the "geospatial_bounds" polygon); only files that touch
-Rasad's box are downloaded (about 30 per satellite a day, 40 MB). A cursor per satellite remembers the
-last file handled, so every check reads only what is new. Every request has a time budget."""
+Rasad's box are downloaded (about 30 per satellite a day, 40 MB). NOAA does not publish the files in
+the order of their times (about half appear after a later one, by up to 18 minutes), so every check
+lists the last six hours and handles each file it has not handled yet (a set per satellite, not a
+"last file" mark, which skipped one file in ten, whole Gulf passes among them). Every request has a
+time budget; a file that cannot be read is logged and left, never stops the check."""
 from __future__ import annotations
 
 import datetime as dt
@@ -35,8 +38,8 @@ SATELLITES = {
 }
 PRODUCT = "VIIRS_EFIRE_VIIRSI_EDR"
 CONFIDENCE = {7: "l", 8: "n", 9: "h"}       # FP_FireMask: low, nominal, high (as FIRMS)
-NADIR_AREA_KM2 = 0.554                      # FP_PixelArea at nadir, where FIRMS says scan = track = 0.48 km
-NADIR_SIZE_KM = 0.48
+NADIR_AREA_KM2 = 0.554                      # FP_PixelArea at nadir...
+NADIR_SIZE_KM = 0.37                        # ...where FIRMS gives sqrt(scan x track) of about 0.37 km (441 twins)
 _NS = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 _NAME = re.compile(r"_s(\d{14})(\d)_e(\d{14})(\d)_c")
 _POLYGON = re.compile(rb"POLYGON\(\(([^)]*)\)\)")
@@ -136,8 +139,8 @@ def _listing(session, bucket, prefix, after, timeout):
 
 
 def collect(cfg, session, state, now, box, *, status=None):
-    """New NOAA fire pixels inside `box` since the last check. Never waits past the budget; what is
-    left is read in the next check (the cursor only moves past files fully handled)."""
+    """New NOAA fire pixels inside `box`: every file of the last `max_age_hours` not handled yet.
+    Never waits past the budget; what is left is read in the next check."""
     C = cfg.get("noaa") or {}
     summary = {"read": 0, "over": 0, "pixels": 0, "failed": 0, "ok": False, "latest": None}
     if status is not None:
@@ -163,22 +166,26 @@ def collect(cfg, session, state, now, box, *, status=None):
 
     for sat, info in SATELLITES.items():
         bucket = info["bucket"]
-        after = store.get(sat) or key_at(sat, now - dt.timedelta(hours=float(C.get("first_hours", 3))))
-        after = max(after, key_at(sat, oldest))
+        done = store.get(sat)
+        if not isinstance(done, dict):           # a "last file" mark of the first version
+            done = {}
+        # forget what is older than the window: those files are never listed again
+        done = {k: end for k, end in done.items() if (times_of(k) or (now, now))[0] >= oldest}
+        store[sat] = done
+        start_after = key_at(sat, oldest)
         try:
-            keys = []
-            day = dt.datetime.strptime(after.rsplit("_s", 1)[-1][:8], "%Y%m%d").replace(tzinfo=dt.timezone.utc)
+            keys, day = [], oldest
             while day.date() <= now.date():
                 prefix = f"{PRODUCT}/{day:%Y/%m/%d}/"
-                keys += _listing(session, bucket, prefix, after if after.startswith(prefix) else None,
+                keys += _listing(session, bucket, prefix, start_after if start_after.startswith(prefix) else None,
                                  min(limit, max(1.0, left())))
                 day += dt.timedelta(days=1)
-        except (requests.RequestException, ET.ParseError, ValueError, TimeoutError) as e:
+        except (requests.RequestException, ET.ParseError, ValueError, TypeError, AttributeError, TimeoutError) as e:
             log.warning("NOAA %s: listing failed (%s)", sat, type(e).__name__)
             summary["failed"] += 1
             ok = False
             continue
-        keys = [k for k in keys if k > after and times_of(k)]
+        keys = [k for k in keys if k not in done and times_of(k) and times_of(k)[0] >= oldest]
         workers = max(1, int(C.get("workers", 4)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for first in range(0, len(keys), workers):
@@ -204,17 +211,20 @@ def collect(cfg, session, state, now, box, *, status=None):
                             break
                         try:
                             found = rows_from(data, k, sat, box)
-                        except (OSError, KeyError, ValueError) as e:
+                        except Exception as e:  # noqa: BLE001 - one odd file must never stop the check
                             log.warning("NOAA %s: unreadable file %s (%s)", sat, k.rsplit("/", 1)[-1], type(e).__name__)
+                            summary["failed"] += 1
                             found = []
                         summary["over"] += 1
                         rows += found
-                    store[sat] = k             # handled: never read again
+                    done[k] = iso(times_of(k)[1])      # handled: never read again
                 if stop:
                     ok = False
                     break
     summary["pixels"] = len(rows)
-    summary["latest"] = max((r["t"] for r in rows), default=None)
+    # how fresh the source is: the end of the newest file handled, for the satellite that is further behind
+    newest = [max(v.values()) for v in (store.get(s) for s in SATELLITES) if isinstance(v, dict) and v]
+    summary["latest"] = min(newest) if len(newest) == len(SATELLITES) else (max(newest) if newest else None)
     summary["ok"] = ok
     if status is not None:
         status.update(summary)
@@ -231,9 +241,12 @@ def _try(get, url, headers=None):
 class Twins:
     """A pixel reaches Rasad twice: from NOAA's file first, from FIRMS hours later. The second one is
     the same sighting. Matched one to one, same source, at most 4 minutes and 0.7 km apart (measured:
-    99% of twins within 0.35 km, all within 0.63 km; FIRMS's minute and the file's scan minute differ
-    by at most 2.6 minutes). `seen` holds the FIRMS rows already counted (src|t|lat|lon), `noaa_keys`
-    the NOAA pixels of the last day (key -> 0, or 1 once its FIRMS twin has come)."""
+    99% of twins within 0.35 km, all within 0.63 km; the two times differ by at most 2 minutes), and
+    as many pairs as possible: near the edge of the swath NOAA's pixels sit about 0.25 km east of
+    FIRMS's, half the gap to the next pixel, and taking the nearest for each row in turn paired some
+    rows with the neighbour's twin (4-11 pixels a day counted twice on 14-15 Nov). `seen` holds the
+    FIRMS rows already counted (src|t|lat|lon), `noaa_keys` the NOAA pixels (key -> 0, or 1 once its
+    FIRMS twin has come)."""
 
     def __init__(self, seen, noaa_keys, max_km=0.7, max_s=240):
         self.max_km, self.max_s = max_km, max_s
@@ -255,30 +268,49 @@ class Twins:
         except (KeyError, ValueError):
             pass
 
-    def _near(self, det, want_noaa):
-        t = parse_time(det["t"])
-        best = None
-        for when, lat, lon, k, noaa in self.by_src.get(det["src"], []):
-            if noaa != want_noaa or abs((when - t).total_seconds()) > self.max_s:
-                continue
-            if want_noaa and self.noaa_keys.get(k):
-                continue                           # this NOAA pixel already has its twin
-            d = haversine_km(det["lat"], det["lon"], lat, lon)
-            if d <= self.max_km and (best is None or d < best[0]):
-                best = (d, k)
-        return best[1] if best else None
+    def _close(self, det, when, lat, lon):
+        return abs((when - parse_time(det["t"])).total_seconds()) <= self.max_s and \
+            haversine_km(det["lat"], det["lon"], lat, lon) <= self.max_km
 
     def absorbs(self, det):
-        """True when `det` is the second copy of a pixel already counted (and marks the pair)."""
-        if not str(det.get("src", "")).startswith("VIIRS_NOAA"):
+        """A pixel from NOAA's file whose FIRMS copy was counted first (NOAA's files late)."""
+        if det.get("via") != "noaa" or not str(det.get("src", "")).startswith("VIIRS_NOAA"):
             return False
-        if det.get("via") == "noaa":
-            return self._near(det, want_noaa=False) is not None   # FIRMS was first (NOAA files late)
-        k = self._near(det, want_noaa=True)
-        if k is None:
+        return any(not noaa and self._close(det, when, lat, lon)
+                   for when, lat, lon, _, noaa in self.by_src.get(det["src"], []))
+
+    def match(self, dets):
+        """FIRMS rows that are the copy of a NOAA pixel already counted: {index in dets: NOAA key}.
+        A maximum one-to-one matching (augmenting paths) over the pairs within the limits."""
+        free = {}
+        for src, rows in self.by_src.items():
+            free[src] = [(when, lat, lon, k) for when, lat, lon, k, noaa in rows if noaa and not self.noaa_keys.get(k)]
+        edges = {}
+        for i, det in enumerate(dets):
+            src = str(det.get("src", ""))
+            if not src.startswith("VIIRS_NOAA") or det.get("via") == "noaa":
+                continue
+            near = [k for when, lat, lon, k in free.get(src, []) if self._close(det, when, lat, lon)]
+            if near:
+                edges[i] = near
+        owner = {}                                # NOAA key -> index of the FIRMS row it is paired with
+
+        def augment(i, visited):
+            for k in edges[i]:
+                if k in visited:
+                    continue
+                visited.add(k)
+                if k not in owner or augment(owner[k], visited):
+                    owner[k] = i
+                    return True
             return False
-        self.noaa_keys[k] = 1
-        return True
+
+        for i in edges:
+            augment(i, set())
+        pairs = {i: k for k, i in owner.items()}
+        for k in owner:
+            self.noaa_keys[k] = 1
+        return pairs
 
     def add(self, key, det, noaa=False):
         """Remember a pixel just counted, so a later copy in the same check finds it."""
