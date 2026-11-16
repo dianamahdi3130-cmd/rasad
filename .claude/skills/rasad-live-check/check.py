@@ -137,6 +137,9 @@ def overview():
         levels = collections.Counter(i.get("confidence_level") or "?" for i in items)
         print("  kinds: " + " · ".join(f"{k} {v}" for k, v in kinds.most_common())
               + "   confidence: " + " · ".join(f"{k} {v}" for k, v in levels.most_common()))
+        sig = [i for i in items if (i.get("signals") or {}).get("n")]
+        print(f"  signals worth attention (app only): {len(sig)} events with a warning"
+              + (" · " + ", ".join(i["id"] for i in sig[:5]) if sig else ""))
         pats = collections.Counter((i.get("pattern") or {}).get("label") for i in items if i.get("pattern"))
         linked = sum(1 for i in items if (i.get("pattern") or {}).get("also"))
         print("  heat patterns (silent, app only): "

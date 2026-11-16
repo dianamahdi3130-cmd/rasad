@@ -317,7 +317,7 @@ test("the details explain the confidence, list who saw it, and compare a plant w
 
 test("«مؤشرات تستحق الانتباه»: facts in the details, a count on the card, and never a cause", () => {
   const {app} = page({meta: {local_offset_hours: 3, local_name: "بغداد"}});
-  const signals = {n: 2, note: "هذه علامات وليست حكماً: الأقمار ترى الحرارة ولا ترى سببها، والتأكيد يأتي من خبر أو بيان رسمي.",
+  const signals = {n: 2, note: "هذه علامات تستحق النظر وليست حكماً: الأقمار ترى الحرارة ولا ترى سببها، ومعرفة السبب تحتاج مصدراً آخر كخبر أو بيان رسمي.",
     warn: [{key: "odd_spot", text: "الحرارة في نقطة لم تظهر فيها حرارة إلا نادراً منذ آذار 2024، بينما الشعلات المعتادة قربها على بعد 1.2 كم"},
            {key: "sudden", text: "بدأت فجأة وبقوة: 45 MW في أول نصف ساعة، ولم تظهر في الصورة التي قبلها"}],
     calm: [], wait: []};
@@ -326,7 +326,7 @@ test("«مؤشرات تستحق الانتباه»: facts in the details, a coun
   assert.match(d, /<section class="sig on"><h3>مؤشرات تستحق الانتباه <span class="tag sig-n">مؤشران<\/span><\/h3>/);
   assert.equal((d.match(/class="s warn"/g) || []).length, 2);
   assert.match(d, /الشعلات المعتادة قربها على بعد 1.2 كم/);
-  assert.match(d, /هذه علامات وليست حكماً/);
+  assert.match(d, /هذه علامات تستحق النظر وليست حكماً/);
   assert.ok(d.indexOf('class="sig on"') < d.indexOf("لماذا هذه الدرجة؟"), "seen before the confidence reasons");
   assert.match(app.cardHTML(it), /class="tag sig-n"[^>]*>⚠ مؤشران</);
   assert.match(app.reportHTML(it), /<h2>مؤشرات تستحق الانتباه/);

@@ -160,6 +160,21 @@ def day_cells(day, sat):
     return cells, len(over), len(checked)
 
 
+def read_date(day):
+    """One sampled date, both satellites (run in its own process)."""
+    t0 = time.time()
+    hot, info = set(), {}
+    for sat in ("n20", "n21"):
+        try:
+            cells, n_over, n_checked = day_cells(day, sat)
+        except Exception as e:  # noqa: BLE001
+            print(day, sat, "failed:", e, flush=True)
+            cells, n_over, n_checked = set(), 0, 0
+        hot |= cells
+        info[sat] = [n_over, n_checked]
+    return day, hot, info, time.time() - t0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--start", default="2024-03-05")
@@ -167,7 +182,7 @@ def main():
     ap.add_argument("--step", type=int, default=5)
     ap.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "rasad" / "data" / "heat_atlas.json.gz"))
     ap.add_argument("--progress", default=None, help="a JSON file to resume from and save to")
-    ap.add_argument("--workers", type=int, default=3, help="dates read at the same time")
+    ap.add_argument("--workers", type=int, default=8, help="dates read at the same time (processes)")
     a = ap.parse_args()
     start = dt.date.fromisoformat(a.start)
     end = dt.date.fromisoformat(a.end) if a.end else dt.date.today() - dt.timedelta(days=2)
@@ -180,23 +195,13 @@ def main():
     if a.progress and Path(a.progress).exists():
         prog = json.loads(Path(a.progress).read_text())
     counts = {k: v for k, v in prog["counts"].items()}
-    lock = threading.Lock()
-
-    def one(day):
-        t0 = time.time()
-        hot, info = set(), {}
-        for sat in ("n20", "n21"):
-            try:
-                cells, n_over, n_checked = day_cells(day, sat)
-            except Exception as e:  # noqa: BLE001
-                print(day, sat, "failed:", e, flush=True)
-                cells, n_over, n_checked = set(), 0, 0
-            hot |= cells
-            info[sat] = [n_over, n_checked]
-        with lock:
+    todo = [d for d in dates if d.isoformat() not in prog["done"]]
+    # processes, not threads: h5py lets one thread read at a time, and the reads wait on the network
+    with cf.ProcessPoolExecutor(a.workers) as pool:
+        for day, hot, info, took in pool.map(read_date, todo):
             if not any(v[0] for v in info.values()):
                 print(day, "no granule over the box: date left out", flush=True)
-                return
+                continue
             for i, j in hot:
                 k = f"{i},{j}"
                 counts[k] = counts.get(k, 0) + 1
@@ -204,12 +209,7 @@ def main():
             prog["counts"] = counts
             if a.progress:
                 Path(a.progress).write_text(json.dumps(prog))
-            print(day, "hot cells", len(hot), "granules", info, f"{time.time() - t0:.0f}s",
-                  f"({len(prog['done'])}/{len(dates)})", flush=True)
-
-    todo = [d for d in dates if d.isoformat() not in prog["done"]]
-    with cf.ThreadPoolExecutor(a.workers) as pool:
-        list(pool.map(one, todo))
+            print(day, "hot cells", len(hot), "granules", info, f"{took:.0f}s", f"({len(prog['done'])}/{len(dates)})", flush=True)
     kept = {k: v for k, v in counts.items() if v >= 2}
     atlas = {"cell": CELL, "box": BOX, "dates": len(prog["done"]), "first": min(prog["done"]), "last": max(prog["done"]),
              "step_days": a.step, "satellites": ["NOAA-20", "NOAA-21"], "source": "NOAA VIIRS EFIRE (AWS)",

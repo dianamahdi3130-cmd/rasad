@@ -584,11 +584,7 @@ def label_stored(incidents, cfg):
                             key=lambda o: o["t"]):
                 note_pass(inc, o)
         apply(inc, cfg)   # a wide pass seen before stays wide (`inc["wide"]`)
-        signals = signals_of(inc, cfg)
-        if signals:
-            inc["signals"] = signals
-        else:
-            inc.pop("signals", None)
+        refresh_signals(inc, cfg)
 
 
 # ----------------------------------------------------------------- several places at once
@@ -636,7 +632,8 @@ ATLAS_PATH = Path(__file__).resolve().parent / "data" / "heat_atlas.json.gz"
 _atlas = None
 MONTHS_AR = ["كانون الثاني", "شباط", "آذار", "نيسان", "أيار", "حزيران", "تموز", "آب", "أيلول",
              "تشرين الأول", "تشرين الثاني", "كانون الأول"]
-SIGNALS_NOTE = "هذه علامات وليست حكماً: الأقمار ترى الحرارة ولا ترى سببها، والتأكيد يأتي من خبر أو بيان رسمي."
+SIGNALS_NOTE = ("هذه علامات تستحق النظر وليست حكماً: الأقمار ترى الحرارة ولا ترى سببها، ومعرفة السبب تحتاج مصدراً "
+                "آخر كخبر أو بيان رسمي.")
 
 
 def atlas():
@@ -700,15 +697,15 @@ def record_spot(state, det, day, keep_days=180):
     row = spots.get(key)
     if row is None:
         spots[key] = [1, n, n]
-    elif row[1] != n:
+    elif n > row[1]:                     # a new day (a late pixel of an earlier day is not counted again)
         row[0] += 1
-        row[1] = max(row[1], n)
-        row[2] = min(row[2], n)
-    else:
-        row[2] = min(row[2], n)
-    if n % 7 == 0 and state.get("spots_pruned") != n:   # once a week: forget spots quiet for half a year
+        row[1] = n
+    elif n < row[2]:
+        row[2] = n
+    if n % 7 == 0 and state.get("spots_pruned") != n:
+        # once a week: forget spots quiet for half a year, and one-off spots (1-2 days) after a month
         state["spots_pruned"] = n
-        for k in [k for k, r in spots.items() if n - r[1] > keep_days]:
+        for k in [k for k, r in spots.items() if n - r[1] > keep_days or (r[0] <= 2 and n - r[1] > 30)]:
             del spots[k]
 
 
@@ -740,6 +737,38 @@ def _since(A):
         return "2024"
 
 
+def sudden_start(inc):
+    """The strongest Meteosat reading within half an hour of the first sighting, once that half hour
+    is over and its readings are known; kept on the event (`start_mw`), never measured again on a
+    trimmed series. None when the first sighting was not Meteosat's fire product, or not known yet."""
+    if "start_mw" in inc:
+        return inc["start_mw"]
+    obs = sorted(inc.get("observations") or [], key=lambda o: o.get("t") or "")
+    if not obs:
+        return None
+    first = obs[0]
+    if first.get("kind") != "geo" or first.get("src") not in ("mtg_frp", "iodc_fire"):
+        inc["start_mw"] = None
+        return None
+    t0 = parse_time(inc["first"])
+    window = [o for o in obs if o.get("kind") == "geo" and parse_time(o["t"]) - t0 <= dt.timedelta(minutes=30)]
+    later = [o for o in obs if parse_time(o["t"]) - t0 > dt.timedelta(minutes=30)]
+    if not later:
+        return None                      # the half hour is not over yet
+    values = [float(o["frp"]) for o in window if o.get("frp") is not None]
+    inc["start_mw"] = round(max(values), 1) if values else None
+    return inc["start_mw"]
+
+
+def refresh_signals(inc, cfg):
+    """Write the signals again (after a before/after picture or a 'several places' tag arrives)."""
+    signals = signals_of(inc, cfg)
+    if signals:
+        inc["signals"] = signals
+    else:
+        inc.pop("signals", None)
+
+
 def signals_of(inc, cfg, A=None):
     """{"warn": [...], "calm": [...], "wait": [...], "n": len(warn), "note": ...} for heat on land at
     or near an energy site, else None. Each line is a fact with its numbers:
@@ -763,63 +792,86 @@ def signals_of(inc, cfg, A=None):
     warn, calm, wait = [], [], []
     dates = int(A.get("dates") or 0) if has_atlas else 0
 
-    # 1) which spot burns: NASA's pixels against the long-term map
-    pixels = [(float(o["lat"]), float(o["lon"])) for o in inc.get("observations") or []
-              if o.get("kind") == "polar" and o.get("lat") is not None]
+    # 1) which spot burns: NASA's VIIRS pixels (375 m) against the long-term map and Rasad's own record.
+    #    MODIS (1 km and more) is too coarse to say which spot of a site burns.
+    viirs = [o for o in inc.get("observations") or []
+             if o.get("kind") == "polar" and o.get("lat") is not None and str(o.get("src", "")).startswith("VIIRS")]
+    modis_only = not viirs and any(o.get("kind") == "polar" for o in inc.get("observations") or [])
     if has_atlas and (at_site or flare_km is not None):
-        if pixels:
+        if viirs:
             r = float(SG.get("spot_km", 0.75))
-            counts = [spot_count(A, la, lo, r) for la, lo in pixels]
-            recent = [int(o.get("spot") or 0) for o in inc.get("observations") or []
-                      if o.get("kind") == "polar" and o.get("lat") is not None]
             rare_max = float(SG.get("rare_share", 0.02)) * dates
-            rare = [(c, p) for c, p, s in zip(counts, pixels, recent)
-                    if c <= rare_max and s <= int(SG.get("rare_recent_days", 2))]
             usual_need = float(SG.get("usual_share", 0.10)) * dates
+            looks = []           # (atlas dates, Rasad's days, class) per pixel
+            for o in viirs:
+                c = spot_count(A, float(o["lat"]), float(o["lon"]), r)
+                s_days = int(o.get("spot") or 0)
+                cls = ("rare" if c <= rare_max and s_days <= int(SG.get("rare_recent_days", 2)) else
+                       "usual" if c >= usual_need or s_days >= int(SG.get("usual_recent_days", 10)) else "sometimes")
+                looks.append((c, s_days, cls, o))
+            rare = [x for x in looks if x[2] == "rare"]
             if rare:
-                la, lo = rare[0][1]
-                elsewhere = usual_flare_km(A, la, lo, float(SG.get("flare_near_km", 5)), float(SG.get("usual_share", 0.10)))
+                o = rare[0][3]
+                elsewhere = usual_flare_km(A, float(o["lat"]), float(o["lon"]), float(SG.get("flare_near_km", 5)),
+                                           float(SG.get("usual_share", 0.10)))
                 text = f"الحرارة في نقطة لم تظهر فيها حرارة إلا نادراً منذ {_since(A)}"
                 if elsewhere is not None:
-                    text += f"، بينما الشعلات المعتادة قربها على بعد {elsewhere:.1f} كم"
-                warn.append({"key": "odd_spot", "text": text})
-            elif min(max(c, 0) for c in counts) >= usual_need or min(recent) >= int(SG.get("usual_recent_days", 10)):
-                share = round(100.0 * max(counts) / dates)
-                calm.append({"key": "usual_spot", "text": f"الحرارة في مكان شعلة معتادة: ظهرت حرارة فيه في نحو {share}% "
-                                                          f"من الأيام منذ {_since(A)}"})
+                    text += f"، بينما أقرب مكان تظهر فيه حرارة عادةً على بعد {elsewhere:.1f} كم"
+                # counted only for heat worth a look: confirmed or likely, and 5 MW or more. A faint speck at
+                # an odd spot (on the week of 9-16 Nov 2026, most were 1-6 MW and seen once) is said, not counted
+                if inc.get("verdict") in ("مؤكد", "مرجّح") and float(inc.get("max_frp") or 0) >= float(SG.get("odd_min_mw", 5)):
+                    warn.append({"key": "odd_spot", "text": text})
+                else:
+                    wait.append({"key": "odd_spot_weak", "text": text + "؛ لكنها ضعيفة أو لم تتأكد بعد"})
+            elif all(x[2] == "usual" for x in looks):
+                weakest = min(looks, key=lambda x: (x[0], x[1]))
+                if weakest[0] >= usual_need:
+                    calm.append({"key": "usual_spot", "text": "الحرارة في مكان تظهر فيه حرارة عادةً (شعلة أو مصنع): في نحو "
+                                                              f"{round(100.0 * weakest[0] / dates)}% من الأيام منذ {_since(A)}"})
+                else:
+                    calm.append({"key": "usual_spot", "text": "الحرارة في مكان تظهر فيه حرارة عادةً: رأى رصد حرارة هنا في "
+                                                              f"{_n(weakest[1], 'يوم واحد', 'يومين', 'أيام', 'يوماً')} خلال الأشهر الأخيرة"})
             else:
-                share = round(100.0 * max(counts) / dates)
-                calm.append({"key": "sometimes", "text": f"تظهر حرارة في هذه النقطة أحياناً (نحو {share}% من الأيام منذ {_since(A)})"})
+                odd = min((x for x in looks if x[2] == "sometimes"), key=lambda x: (x[0], x[1]))
+                share = round(100.0 * odd[0] / dates)
+                if share >= 1:
+                    text = f"تظهر حرارة في هذه النقطة أحياناً (في نحو {share}% من الأيام منذ {_since(A)})"
+                else:
+                    text = (f"ظهرت حرارة في هذه النقطة في {_n(odd[1], 'يوم واحد', 'يومين', 'أيام', 'يوماً')} مؤخراً، "
+                            "ونادراً قبل ذلك")
+                calm.append({"key": "sometimes", "text": text})
+        elif modis_only:
+            wait.append({"key": "spot_unknown", "text": "رآه قمر MODIS التابع لناسا وحده (دقته نحو 1 كم)، فلا يُعرف بعدُ من أيّ "
+                                                        "نقطة في المكان تأتي الحرارة؛ قد يتضح ذلك عند مرور قمر VIIRS"})
         else:
-            wait.append({"key": "spot_unknown", "text": "رآه القمر الأوروبي وحده (دقته نحو 3 كم): أيّ نقطة من الموقع "
-                                                        "تحترق يتضح عند مرور قمر ناسا"})
+            wait.append({"key": "spot_unknown", "text": "رأتها صور Meteosat وحدها (دقتها نحو 3 كم)، فلا يُعرف بعدُ من أيّ نقطة "
+                                                        "في المكان تأتي الحرارة؛ قد يتضح ذلك عند مرور قمر ناسا"})
 
-    # 2) a sudden strong start at a quiet place: the picture before showed nothing here
-    first_geo = sorted((r for r in inc.get("frp_series") or [] if r[2] in ("mtg", "msg_iodc")), key=lambda r: r[0])
-    if inc.get("kind") == "new" and inc.get("onset_known") is True and inc.get("quiet_days") != 0 and first_geo:
-        t0 = parse_time(first_geo[0][0])
-        early = [r[1] for r in first_geo if parse_time(r[0]) - t0 <= dt.timedelta(minutes=30)]
-        if early and max(early) >= float(SG.get("sudden_mw", 20)):
-            warn.append({"key": "sudden", "text": f"بدأت فجأة وبقوة: {max(early):.0f} MW في أول نصف ساعة، "
-                                                  "ولم تظهر في الصورة التي قبلها"})
+    # 2) a sudden strong start at a quiet place: decided once, from the first half hour after the first
+    #    sighting, and kept (`inc["start_mw"]`): the strength series keeps only its last 40 readings
+    start = sudden_start(inc)
+    if start and inc.get("kind") == "new" and inc.get("onset_known") is True and inc.get("quiet_days") != 0 \
+            and start >= float(SG.get("sudden_mw", 20)):
+        warn.append({"key": "sudden", "text": f"بدأت فجأة وبقوة: {_mw(start)} خلال أول نصف ساعة من ظهورها، ولم تظهر في "
+                                              "صورة Meteosat السابقة لها"})
 
     # 3) several places at once, 4) spread wide in one pass (the heat patterns)
-    for line in (inc.get("pattern") or {}).get("also") or []:
-        warn.append({"key": "several", "text": line})
+    if (inc.get("pattern") or {}).get("key") in LINKABLE:
+        for line in (inc.get("pattern") or {}).get("also") or []:
+            warn.append({"key": "several", "text": line})
     if inc.get("wide"):
         W = inc["wide"]
-        warn.append({"key": "wide", "text": f"انتشرت على {_n(W['n'], 'نقطة', 'نقطتين', 'نقاط', 'نقطة')} في مساحة "
-                                            f"{W['km']:.1f} كم في مرور واحد لقمر ناسا"})
+        warn.append({"key": "wide", "text": f"انتشرت على {_n(W['n'], 'نقطة ساخنة', 'نقطتين ساخنتين', 'نقاط ساخنة', 'نقطة ساخنة')}"
+                                            f" على امتداد {W['km']:.1f} كم في مرور واحد لقمر ناسا"})
 
-    # 5) the clear picture after it (Sentinel-2, 10 m): a patch of change
-    sp = inc.get("satpic") or {}
-    if sp.get("after") and not sp.get("quiet") and float(sp.get("area_ha") or 0) >= float(SG.get("burn_min_ha", 0.5)):
-        warn.append({"key": "change", "text": f"صورة القمر Sentinel-2 بتاريخ {sp['after']} تُظهر تغيّراً على نحو "
-                                              f"{float(sp['area_ha']):.1f} هكتار"})
-
-    # the plant's own record: a surge to a level it reached before is its habit, not news of a cause
-    if inc.get("kind") == "unusual" and inc.get("site_record"):
-        calm.append({"key": "record", "text": f"سبق أن بلغت حرارة هذا الموقع {float(inc['site_record']):.0f} MW خلال الشهر"})
+    # the site's habit: heat there on most days (a flare or a plant); a level it reached before
+    mw = float(inc.get("max_frp") or 0)
+    if inc.get("kind") == "unusual" and inc.get("known_days"):
+        calm.append({"key": "daily", "text": "في هذا المكان حرارة شبه يومية (شعلة أو مصنع): ظهرت في "
+                                             f"{_n(int(inc['known_days']), 'يوم واحد', 'يومين', 'أيام', 'يوماً')} من الشهر الماضي"})
+    if inc.get("kind") == "unusual" and inc.get("site_record") and float(inc["site_record"]) >= mw > 0:
+        calm.append({"key": "record", "text": f"بلغت حرارة هذا المكان {_mw(float(inc['site_record']))} في يوم سابق من الشهر، "
+                                              f"وهي الآن {_mw(mw)}"})
 
     if not (warn or calm or wait):
         return None

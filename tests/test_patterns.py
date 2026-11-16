@@ -627,13 +627,22 @@ class Signals(unittest.TestCase):
         self.assertEqual(sig["n"], 1)
         self.assertEqual(sig["warn"][0]["key"], "odd_spot")
         self.assertIn("الحرارة في نقطة لم تظهر فيها حرارة إلا نادراً منذ آذار 2024", sig["warn"][0]["text"])
-        self.assertIn("بينما الشعلات المعتادة قربها على بعد 1.", sig["warn"][0]["text"])
+        self.assertIn("بينما أقرب مكان تظهر فيه حرارة عادةً على بعد 1.7 كم", sig["warn"][0]["text"])
         self.assertEqual(sig["note"], patterns.SIGNALS_NOTE)
+
+    def test_a_faint_unconfirmed_speck_at_an_odd_spot_is_said_not_counted(self):
+        # on the week of 9-16 Nov 2026, 31 of the 36 odd-spot events were specks of 1-6 MW seen once
+        sig, inc = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 1.5)])
+        self.assertNotEqual(inc["verdict"], "مؤكد")
+        self.assertEqual(sig["n"], 0)
+        self.assertEqual([w["key"] for w in sig["wait"]], ["odd_spot_weak"])
+        self.assertTrue(sig["wait"][0]["text"].endswith("؛ لكنها ضعيفة أو لم تتأكد بعد"))
 
     def test_heat_at_the_plants_own_flare_is_said_to_be_its_habit(self):
         sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1702, 49.7602, 30.0)])
         self.assertEqual((sig["n"], [c["key"] for c in sig["calm"]]), (0, ["usual_spot"]))
-        self.assertIn("ظهرت حرارة فيه في نحو 60% من الأيام منذ آذار 2024", sig["calm"][0]["text"])
+        self.assertEqual(sig["calm"][0]["text"], "الحرارة في مكان تظهر فيه حرارة عادةً (شعلة أو مصنع): في نحو 60% من "
+                                                 "الأيام منذ آذار 2024")
 
     def test_only_meteosat_saw_it_so_the_spot_is_not_known_yet(self):
         sig, _ = self.signals([], "2026-11-15T22:50:00Z", "2026-11-15T23:00:00Z")
@@ -649,10 +658,16 @@ class Signals(unittest.TestCase):
 
     def test_a_sudden_strong_start_at_a_quiet_place(self):
         geo = ["2026-11-15T22:50:00Z", "2026-11-15T23:00:00Z", "2026-11-15T23:10:00Z"]
-        sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=True,
-                              quiet_days=14)
-        self.assertIn("sudden", [w["key"] for w in sig["warn"]])
-        self.assertIn("بدأت فجأة وبقوة: 30 MW في أول نصف ساعة", next(w["text"] for w in sig["warn"] if w["key"] == "sudden"))
+        sig, inc = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=True,
+                                quiet_days=14)
+        self.assertNotIn("sudden", [w["key"] for w in sig["warn"]], "the first half hour is not over yet")
+        self.assertNotIn("start_mw", inc)
+        geo.append("2026-11-15T23:40:00Z")
+        sig, inc = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=True,
+                                quiet_days=14)
+        self.assertEqual(next(w["text"] for w in sig["warn"] if w["key"] == "sudden"),
+                         "بدأت فجأة وبقوة: 30 MW خلال أول نصف ساعة من ظهورها، ولم تظهر في صورة Meteosat السابقة لها")
+        self.assertEqual(inc["start_mw"], 30.0, "kept: a trimmed strength series cannot change it")
         sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=False)
         self.assertNotIn("sudden", [w["key"] for w in sig["warn"]], "after a gap in the readings the start is not known")
         sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=True, quiet_days=0)
@@ -666,20 +681,42 @@ class Signals(unittest.TestCase):
                         known_days=0, quiet_days=None)
         sig = patterns.signals_of(inc, config(), self.atlas())
         keys = [w["key"] for w in sig["warn"]]
-        self.assertTrue({"odd_spot", "wide", "change"} <= set(keys), keys)
-        self.assertIn("انتشرت على 27 نقطة في مساحة 3.0 كم في مرور واحد لقمر ناسا", " ".join(w["text"] for w in sig["warn"]))
-        self.assertIn("تُظهر تغيّراً على نحو 8.1 هكتار", " ".join(w["text"] for w in sig["warn"]))
+        self.assertEqual(set(keys), {"odd_spot", "several", "wide"}, keys)
+        self.assertIn("انتشرت على 27 نقطة ساخنة على امتداد 3.0 كم في مرور واحد لقمر ناسا", " ".join(w["text"] for w in sig["warn"]))
+        # the before/after picture measures change over the whole frame, not at the heat: not a signal (yet)
+        self.assertNotIn("change", keys)
 
     def test_a_plants_surge_to_a_level_it_reached_before(self):
         sig, _ = self.signals([], "2026-11-16T12:40:00Z", kind="unusual", known_days=24, typical_frp=19.6,
                               site_record=130.7, site_habit=95.9)
-        self.assertIn("سبق أن بلغت حرارة هذا الموقع 131 MW خلال الشهر", [c["text"] for c in sig["calm"]])
+        self.assertEqual([c["text"] for c in sig["calm"]],
+                         ["في هذا المكان حرارة شبه يومية (شعلة أو مصنع): ظهرت في 24 يوماً من الشهر الماضي",
+                          "بلغت حرارة هذا المكان 131 MW في يوم سابق من الشهر، وهي الآن 30 MW"])
+        # Ras Laffan, 16 Nov: 206 MW against a record of 131: the record is not called its habit
+        rows = [pixel("2026-11-16T12:14:00Z", 26.1702, 49.7602, 206.0)]
+        sig, _ = self.signals(rows, kind="unusual", known_days=24, typical_frp=19.6, site_record=130.7, site_habit=95.9)
+        self.assertNotIn("record", [c["key"] for c in sig["calm"]])
+        self.assertIn("daily", [c["key"] for c in sig["calm"]])
 
     def test_sea_and_far_away_land_get_no_signals(self):
         rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]
         self.assertIsNone(self.signals(rows, place="sea")[0])
         far, _ = self.signals([pixel("2026-11-15T22:59:00Z", 31.0, 46.0, 30.0)], facility=None, country="العراق")
         self.assertIsNone(far)
+
+    def test_modis_is_too_coarse_to_say_which_spot_burns(self):
+        rows = [dict(pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0, src="MODIS_NRT"), family="modis", scan=1.8)]
+        sig, _ = self.signals(rows)
+        self.assertEqual((sig["n"], [w["key"] for w in sig["wait"]]), (0, ["spot_unknown"]))
+        self.assertIn("MODIS", sig["wait"][0]["text"])
+
+    def test_a_late_pixel_of_an_earlier_day_is_not_a_new_day(self):
+        state = {}
+        patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, "2026-11-10")
+        patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, "2026-11-11")
+        patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, "2026-11-10")   # FIRMS late, an earlier day
+        patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, "2026-11-11")
+        self.assertEqual(list(state["spots"].values())[0][0], 2)
 
     def test_rasads_own_record_learns_a_new_flare(self):
         # a flare lit after the long-term map was built: Rasad sees it day after day
@@ -700,11 +737,14 @@ class Signals(unittest.TestCase):
 
     def test_quiet_spots_are_forgotten_after_half_a_year(self):
         state = {}
-        patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, "2026-01-01")
-        patterns.record_spot(state, {"lat": 30.0, "lon": 48.0}, "2026-11-10")    # a Tuesday: day number % 7 == 0 by then
+        for k in range(5):     # a flare seen on five days in January, then quiet
+            patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, (dt.date(2026, 1, 1) + dt.timedelta(days=k)).isoformat())
+        patterns.record_spot(state, {"lat": 26.30, "lon": 49.7600}, "2026-10-01")     # a one-off spot in October
+        patterns.record_spot(state, {"lat": 26.40, "lon": 49.7600}, "2026-10-01")
+        patterns.record_spot(state, {"lat": 26.40, "lon": 49.7600}, "2026-10-02")
         for k in range(8):
             patterns.record_spot(state, {"lat": 30.0, "lon": 48.0}, (dt.date(2026, 11, 10) + dt.timedelta(days=k)).isoformat())
-        self.assertEqual(len(state["spots"]), 1)
+        self.assertEqual(len(state["spots"]), 1, "the January flare (half a year quiet) and October's one-offs are gone")
 
     def test_no_signal_ever_names_a_cause_and_posts_do_not_change(self):
         rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]

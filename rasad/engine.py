@@ -83,9 +83,9 @@ DEFAULTS = {
                  "second_look_h": 3, "footprint_learn_days": 7,
                  "link_h": 3, "link_min_km": 5, "link_max_km": 500},
     # «مؤشرات تستحق الانتباه» (patterns.signals_of): app only, never a cause
-    "signals": {"enabled": True, "spot_km": 0.75, "rare_share": 0.02, "rare_recent_days": 2, "usual_recent_days": 10,
+    "signals": {"enabled": True, "spot_km": 0.5, "rare_share": 0.02, "rare_recent_days": 2, "usual_recent_days": 10,
                 "usual_share": 0.10, "flare_near_km": 5, "facility_km": 3, "sudden_mw": 20, "burn_min_ha": 0.5,
-                "min_atlas_dates": 50, "spot_record_km": 5},
+                "min_atlas_dates": 50, "spot_record_km": 5, "odd_min_mw": 5},
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
@@ -1000,7 +1000,10 @@ def run_cycle(cfg, send=True, alert_now=False):
         if d["kind"] == "polar" and str(d.get("src", "")).startswith("VIIRS") and SG.get("enabled", True):
             # which ~500 m spot of a site burns: Rasad's own record of NASA's spots, beside the long-term map
             try:
-                if geo.facility_within(d["lat"], d["lon"], float(SG.get("spot_record_km", 5))) is True:
+                A = patterns.atlas()
+                if geo.facility_within(d["lat"], d["lon"], float(SG.get("spot_record_km", 5))) is True or (
+                        A and patterns.usual_flare_km(A, d["lat"], d["lon"], float(SG.get("flare_near_km", 5)),
+                                                      float(SG.get("usual_share", 0.10))) is not None):
                     d["spot"] = patterns.spot_days(S.state, d["lat"], d["lon"], day, float(SG.get("spot_km", 0.75)))
                     patterns.record_spot(S.state, d, day)
             except Exception as e:  # noqa: BLE001 - a silent signal must never stop a check
@@ -1247,6 +1250,7 @@ def run_cycle(cfg, send=True, alert_now=False):
     try:
         for inc in patterns.link_sites(S.incidents, cfg, now):
             patterns.apply(inc, cfg)
+            patterns.refresh_signals(inc, cfg)
     except Exception as e:  # noqa: BLE001 - a silent label must never stop a check
         log.warning("heat patterns: linking places failed: %s", e)
 
@@ -1362,6 +1366,10 @@ def run_cycle(cfg, send=True, alert_now=False):
         if post(satpic.caption(inc, result, cfg), picture, reply_to=inc.get("tg_msg")):
             S.sent = True
             inc["satpic"] = dict(satpic.facts(inc, result), sent_at=iso(now))
+            try:
+                patterns.refresh_signals(inc, cfg)
+            except Exception as e:  # noqa: BLE001 - a silent signal must never stop a check
+                log.warning("signals for %s: %s", inc["id"], e)
             log.info("SATELLITE PICTURE %s: %s -> %s", inc["id"], inc["satpic"]["before"], inc["satpic"]["after"])
 
     # Watched places: a new clear pass with a patch of clear change is posted once, as its own
