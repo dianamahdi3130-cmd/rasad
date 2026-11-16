@@ -523,6 +523,10 @@ def headline(inc, cfg):
         return f"حريق قرب {f['label']}"
     if inc["place"] == "coast":
         return "حريق على الساحل" + (f" في {inc['country']}" if inc.get("country") else "")
+    if patterns.new_heat_path(inc, cfg) == "b":
+        # heat that came back to a quiet place and burns on: said as heat, with what NOAA knows of it
+        where = " في موقع نفط وغاز" if patterns.PA_OIL_GAS in patterns._tags(inc) else ""
+        return "حرارة جديدة مستمرة" + where + (f" في {inc['country']}" if inc.get("country") else "")
     return "حريق جديد" + (f" في {inc['country']}" if inc.get("country") else "")
 
 
@@ -541,6 +545,8 @@ def alert_worthy(inc, cfg):
     seen_before = (inc.get("known_days") or 0) > 0
     if sea_finder_doubt(inc):
         return False
+    if A.get("solar_glint_stop", True) and patterns.solar_glint(inc, cfg):
+        return False   # sun on the panels of a solar plant, not heat on the ground (11 Nov 2026)
     if inc["kind"] == "unusual":
         return True
     if inc["place"] in ("sea", "coast"):
@@ -552,7 +558,10 @@ def alert_worthy(inc, cfg):
     busy = (inc.get("area_days") or 0) >= int(A.get("busy_area_days", 2))
     if busy:
         return False
-    if new_heat(inc, cfg):
+    path = patterns.new_heat_path(inc, cfg)
+    # the quiet-place road ('b') is for heat far from every mapped facility; near one, the facility
+    # rule below decides (a relit flare 5 km from a plant is not news under 50 MW)
+    if path and not (path == "b" and f and f["km"] <= float(A["near_facility_km"])):
         return True
     if f and f["km"] <= float(A["near_facility_km"]) and frp >= float(A.get("near_facility_min_mw", big)):
         return True
@@ -566,21 +575,11 @@ def new_heat(inc, cfg):
     an oil pumping station that OpenStreetMap does not have (28 km south of Judah, Saudi Arabia:
     seven pictures in a row, 14 MW) was confirmed at once and never posted, because away from a
     mapped facility only 100 MW made a fire on land news. Farm countries are left out (their
-    fields burn every season), and so is a short weak flicker: four pictures in a row, or 20 MW."""
-    A = cfg["alerts"]
-    names = A.get("new_heat_countries") or []
-    country = inc.get("country") or ""
-    if inc.get("kind") != "new" or inc.get("place") != "land" or inc.get("verdict") != "مؤكد":
-        return False
-    if not any(n in country for n in names):
-        return False
-    if (inc.get("known_days") or 0) > 0 or (inc.get("area_days") or 0) > 0:
-        return False
-    frp = inc.get("max_frp") or 0
-    if frp < float(A.get("new_heat_min_mw", 5)):
-        return False
-    return (len(inc.get("geo_slots") or []) >= int(A.get("new_heat_min_pictures", 4))
-            or frp >= float(A.get("new_heat_strong_mw", 20)))
+    fields burn every season), and so is a short weak flicker: four pictures in a row, or 20 MW.
+    Since 16 Nov 2026 also heat that burns on at a place quiet for a week (Abqaiq north, 15 Nov:
+    heat there 14 days before, then 22 hours and 60 pictures, never posted): the roads are in
+    patterns.new_heat_path."""
+    return patterns.new_heat_path(inc, cfg) is not None
 
 
 def in_focus(inc, cfg):
@@ -606,10 +605,13 @@ def finalize(inc, cfg):
     if inc.get("correction_note"):
         inc["reason"] = inc["correction_note"] + " " + inc["reason"]
     inc["priority"] = "high" if alert_worthy(inc, cfg) else "low"
-    if new_heat(inc, cfg) and not (inc.get("facility") and inc["facility"].get("km", 99) <= float(cfg["alerts"]["near_facility_km"])):
+    path = patterns.new_heat_path(inc, cfg)
+    if path and not (inc.get("facility") and inc["facility"].get("km", 99) <= float(cfg["alerts"]["near_facility_km"])):
         inc["new_heat"] = True       # said in the post and in the app's reasons
+        inc["new_heat_path"] = path  # which road: the words of the post differ
     else:
         inc.pop("new_heat", None)
+        inc.pop("new_heat_path", None)
     inc["start_text"] = local_text(parse_time(inc["first"]), cfg)
     inc["last_text"] = local_text(parse_time(inc["last"]), cfg)
     inc["sources_text"] = "، ".join(sorted({FAMILY_AR.get(f, f) for f in inc["families"]}))
@@ -653,7 +655,9 @@ def video_note(inc):
     small for the European pictures the clip is made of: a video is not promised for it."""
     if not inc.get("geo_slots") and inc.get("polar"):
         return "🎞 لا يُتوقع فيديو: الحريق لم يظهر في صور القمر الأوروبي التي يُصنع منها. إن ظهر لاحقاً يُرسل هنا."
-    return "🎞 الفيديو قيد التجهيز؛ سيُرسل عند توفر صور واضحة للرصد."
+    # a promise only as far as it can be kept: some events never show clearly enough for a video
+    # (the Taqah speck of 16 Nov 2026 was promised one that could not come)
+    return "🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور."
 
 
 def mw_ar(v):
@@ -664,6 +668,11 @@ def new_heat_note(inc):
     """Why a fire far from every mapped facility is posted: what is known, and nothing more."""
     if not inc.get("new_heat"):
         return ""
+    if inc.get("new_heat_path") == "b":
+        text = f"🗺 لا منشأة مسجّلة في الخريطة هنا. {patterns.quiet_words(inc)}."
+        if patterns.PA_OIL_GAS in patterns._tags(inc):
+            text += " تصنّف NOAA هذه النقطة موقع نفط وغاز."
+        return text + " " + patterns.NO_CAUSE + "."
     return ("🗺 لا منشأة مسجّلة في الخريطة هنا، ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر. "
             "قد يكون موقعاً غير مرسوم (محطة ضخ، بئر، خط أنابيب).")
 

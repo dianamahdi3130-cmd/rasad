@@ -1,8 +1,12 @@
 # Heat patterns («أنماط الحرارة»): telling unusual heat at energy sites from their daily flares
 
-Status: **step 1 built (16 Nov 2026): the labels are silent, in the app only.** Code: `rasad/patterns.py`;
-tests: `tests/test_patterns.py` (this week's real events and NOAA's real passes). Step 2 (posting)
-waits for the owner's review of the live labels.
+Status, 16 Nov 2026:
+- **Step 1 is live:** the labels are in the app only.
+- **Step 2 is live for two rules** (see «Step 2» below): heat that comes back to a quiet place and
+  burns on, and sun glint. The owner asked that the tool decide this professionally.
+- **Still app-only:** «واسعة الانتشار» and «عدة مواقع في وقت متقارب».
+
+Code: `rasad/patterns.py`. Tests: `tests/test_patterns.py` (this week's real events and NOAA's real passes).
 
 ## Why
 The owner asked, after a competitor posted the Abqaiq fire of 15 Nov 2026, for "a smart system that
@@ -109,7 +113,58 @@ Before the merge an independent review checked the change from four sides:
 - **`wide`:** no event this week. It is pinned on NOAA's real Abqaiq pass of 26 Jul 2026 (27 pixels over
   3.0 km, 142 MW) and on a West Qurna night that is not wide: 9 pixels over 6.6 km, every night.
 
-## Step 2 (posting): only after the owner reviews the live labels
+## Step 2 (posting): what went live on 16 Nov 2026
+The owner said they want the tool to be professional and smart in telling fires apart and sending
+them, and that they do not know these things well. The decisions were therefore taken on the data.
+
+**Live:**
+- **Road 'b' of `patterns.new_heat_path`:** quiet for a week (`quiet_days` ≥ 7, and no other event
+  there in the day before), heat on at most 2 earlier days here and at most 1 around, ≥10 MW, two
+  families. Only far from mapped facilities (beyond `near_facility_km`); near one, the facility rules
+  decide as before. It must burn on in one stretch (`stretches`: a gap over 3.5 h breaks it), with
+  ≥6 h and ≥12 pictures, or ≥3 h and ≥4 pictures where NOAA tags the place oil and gas. Each stretch
+  is judged on its own pictures. Two snapshots hours apart lack pictures, and two bursts six hours
+  apart are two stretches.
+  - Rasad's own reading gaps (none at all 18:45-20:50 UTC on 15 Nov) and Meteosat's weakness for
+    small fires by day are not breaks: a third check found that a 1.5 h limit would have missed a
+    Judah-like fire and delayed Abqaiq by hours.
+  - Abqaiq north: gaps of 3.2, 2.3 and 3 h, one stretch of 22 h with 69 pictures.
+  - Headline: «حرارة جديدة مستمرة [في موقع نفط وغاز] في <الدولة>».
+  - Note: «🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ N يوماً، ورُصدت فيه
+    على مدى نحو H ساعة. [تصنّف NOAA هذه النقطة موقع نفط وغاز.] صور الأقمار ترى الحرارة ولا ترى سببها.»
+    Where no earlier day had heat it says «خلال N يوماً», with N the days the memory holds.
+  - Replay on all 1,072 stored events (9-16 Nov): only Abqaiq north changed.
+  - The rebuilt facility map landed at 14:29 UTC the same day. It holds Abqaiq GOSP-3, 1.4 km from that
+    heat, so Abqaiq north became news under the existing facility rule. In the replay on the newest
+    memory (1,076 events) the new road changes nothing.
+  - The road remains for places the map does not hold.
+- **`patterns.solar_glint`:** NASA's daytime pixels only, ≥50 MW (Meteosat shows real heat that
+  strong), within 3 km of a mapped solar plant, while a Meteosat picture of the place read within
+  20 min showed nothing. Such heat is not posted.
+  - Never applied to a plant's surge, or at an energy facility (one within 2 km, or nearer than the
+    panels). Meteosat misses real daytime fires of 10-40 MW, and 140 mapped energy facilities have
+    panels within 3 km: Bahrain's Awali field, Taweelah, Al Ain power station.
+  - NOAA's panel tag may stand in for the map only in the app's label.
+  - The facts are kept only for events made from 16 Nov on.
+
+A second independent review found that the first version of these two rules went too far. It could
+silence a real fire at a plant near panels, post relit heat 2-10 km from a plant as «حريق قرب …»,
+call two snapshots hours apart «مستمرة», and say «عادت» where no heat had been. All four are fixed
+above and pinned in `tests/test_patterns.py` → `Posting`.
+
+**Not taken:** requiring 4 pictures for a strong single burst.
+- Two different satellites already agree when the verdict is «مؤكد».
+- Strong fires are the ones that matter most in a strike, and waiting would delay them 30-40 minutes.
+- Harad (15 Nov) stays a post under the strong road. It is labelled «حرارة قصيرة أو متقطعة».
+
+**The video line changed:**
+- Old: «🎞 الفيديو قيد التجهيز؛ سيُرسل عند توفر صور واضحة للرصد.»
+- New: «🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور.»
+- The Taqah alert of 16 Nov was promised a video that could not come.
+
+**Still to come, after a record:** the wide note at plants, the multi-site line, and the atlas.
+
+## Step 2 as first proposed (kept for reference)
 1. `brain.new_heat`:
    - Add path (b) and (b'), the Abqaiq type.
    - Ask 4 or more pictures in path (a). This drops the one-picture 20 MW path; Harad would not be posted.

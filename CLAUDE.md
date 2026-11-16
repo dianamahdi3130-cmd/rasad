@@ -121,6 +121,19 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   (`brain.new_heat`); its post says the map holds no facility there (`new_heat_note`). The case:
   the pumping-station fire of 15 Nov 2026 south of Judah, confirmed at once and never posted
   (`docs/reviews/judah_pumping_station_20261115.md`). Farm countries stay out of this rule.
+  Since 16 Nov 2026 (the owner asked for the tool to decide this professionally) a second road
+  (`patterns.new_heat_path` 'b'): heat that comes back to a place quiet for a week (at most 2
+  earlier days of heat there, at most 1 around, no other event there in the day before) and burns
+  on in one stretch (a gap over 3.5 h breaks it): 6 hours and 12 pictures with two families, or 3
+  hours and 4 pictures where NOAA tags the place oil and gas; only beyond `near_facility_km`. Its headline says heat, not fire:
+  «حرارة جديدة مستمرة [في موقع نفط وغاز] في <الدولة>», and its note says how long the place was
+  quiet, how long it burns and «صور الأقمار ترى الحرارة ولا ترى سببها». The case: Abqaiq north,
+  15 Nov (`docs/plans/heat_patterns.md`); replayed on all 1,072 stored events it changes only that one.
+- NASA's daytime pixels on a mapped solar plant (within 3 km, or NOAA's panel tag) while a Meteosat
+  picture read at that time showed nothing are sun glint, not posted (`patterns.solar_glint`,
+  `alerts.solar_glint_stop`): the «حريق جديد في الإمارات» post of 11 Nov 2026 was one.
+- A first alert sent before its video promises it only as far as it can be kept: «🎞 يُرسل الفيديو
+  هنا إن ظهر الحدث بوضوح في الصور.» (`brain.video_note`); some events never show clearly enough.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when
   a clear Sentinel-2 pass comes (within `satpic.max_days`); the fire is kept in memory until then.
 - A watched place is posted only for a new clear pass with a connected patch of change of at
@@ -129,11 +142,13 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
 - Smoke findings are silent: `inc["smoke"]` is shown in the app as «دخان محتمل (تجريبي)» and
   counted by the live check; nothing may post it or let it change a verdict until its record over
   real fires has been reviewed with the owner (`docs/reviews/smoke_and_satellites_20261110.md`).
-- Heat patterns are silent: `inc["pattern"]` and its «النمط: …» line (the last of the eight reasons,
-  neutral '·', never read by `main_reason`) are shown in the app only; they never post, never change
-  a verdict, the confidence number, the priority or `new_heat` (`tests/test_patterns.py` → `Silent`
-  pins the posts byte for byte), until their record over real events has been reviewed with the owner
-  (`docs/plans/heat_patterns.md`). No label names a cause: never «هجوم», «استهداف» or «ضربة».
+- Heat patterns' labels are silent: `inc["pattern"]` and its «النمط: …» line (the last of the eight
+  reasons, neutral '·', never read by `main_reason`) are shown in the app only; the label itself
+  never posts or changes a decision (`tests/test_patterns.py` → `Silent`). What posts is decided by
+  the two roads above (`new_heat_path`, `solar_glint`), shared with the labels. «حرارة واسعة
+  الانتشار» and «عدة مواقع في وقت متقارب» stay app-only until their record over real events is
+  reviewed (`docs/plans/heat_patterns.md`). No label or post names a cause: never «هجوم»,
+  «استهداف» or «ضربة».
 - Flare markers are silent: `meta.flare_activity` is shown in the app only; it is never an incident,
   never posted, never part of a verdict, and never trains the usual heat, until its record has been
   reviewed with the owner (`docs/reviews/yanbu_shedgum_20261112.md`).

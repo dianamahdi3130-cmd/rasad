@@ -343,6 +343,201 @@ class Silent(unittest.TestCase):
         self.assertNotIn("pattern", archive.slim(week(JUDAH, place="sea")))
 
 
+class Posting(unittest.TestCase):
+    """What the channel gets since 16 Nov 2026: heat that comes back to a quiet place and burns on
+    (Abqaiq north), never sun glint on solar panels; strong single bursts and Judah's road unchanged."""
+    CAUSES = ("هجوم", "استهداف", "ضربة", "قصف", "مسيّرة", "تخريب")
+
+    def test_abqaiq_north_is_posted_as_new_sustained_heat(self):
+        inc = week(ABQAIQ)
+        self.assertEqual((inc["priority"], inc["new_heat"], inc["new_heat_path"]), ("high", True, "b"))
+        self.assertEqual(inc["headline"], "حرارة جديدة مستمرة في موقع نفط وغاز في السعودية")
+        message = alert_message(inc, config())
+        self.assertIn("🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ 14 يوماً، ورُصدت فيه على "
+                      "مدى نحو 22 ساعة. تصنّف NOAA هذه النقطة موقع نفط وغاز. صور الأقمار ترى الحرارة ولا ترى سببها.", message)
+        self.assertNotIn("خلال شهر", message, "there was heat here two weeks before: never say a month")
+        for cause in self.CAUSES:
+            self.assertNotIn(cause, message)
+        self.assertEqual(inc["evidence"][1]["text"], "لم تُرصد حرارة في هذا المكان منذ 14 يوماً، ورُصدت فيه على مدى "
+                                                     "نحو 22 ساعة، ولا منشأة مسجّلة في الخريطة هنا")
+
+    def test_without_noaas_tag_the_headline_says_heat_only(self):
+        inc = copy.deepcopy(WEEK[ABQAIQ])
+        inc.pop("_case")
+        for o in inc["observations"]:
+            o.pop("pa", None)
+        for o in sorted(inc["observations"], key=lambda o: o["t"]):
+            patterns.note_pass(inc, o)
+        inc = finalize(inc, config())
+        self.assertEqual(inc["headline"], "حرارة جديدة مستمرة في السعودية")
+        self.assertNotIn("NOAA", alert_message(inc, config()))
+
+    def test_the_road_needs_a_quiet_week_a_quiet_area_and_heat_that_burns_on(self):
+        self.assertNotIn("new_heat", week(ABQAIQ, quiet_days=3), "burned here three days before")
+        self.assertNotIn("new_heat", week(ABQAIQ, area_days=2), "the area around burns often")
+        self.assertNotIn("new_heat", week(ABQAIQ, known_days=3), "a place that burns now and then")
+        short = copy.deepcopy(WEEK[ABQAIQ])
+        short.pop("_case")
+        short["observations"] = [o for o in short["observations"] if o["t"] < "2026-11-15T10:30:00Z"]
+        short["geo_slots"] = [t for t in short["geo_slots"] if t < "2026-11-15T10:30:00Z"]
+        short["last"] = max(o["t"] for o in short["observations"])
+        for o in sorted(short["observations"], key=lambda o: o["t"]):
+            patterns.note_pass(short, o)
+        self.assertNotIn("new_heat", finalize(short, config()), "an hour and a half is not 'burning on' yet")
+        off = config()
+        off["alerts"]["new_heat_sustained"] = False
+        inc = copy.deepcopy(WEEK[ABQAIQ])
+        inc.pop("_case")
+        self.assertNotIn("new_heat", finalize(inc, off))
+
+    def test_where_noaa_tags_oil_and_gas_three_hours_are_enough(self):
+        rows = [pixel("2026-11-15T08:53:00Z", 26.1667, 49.7592, 8.66, pa=1),
+                pixel("2026-11-15T09:50:00Z", 26.1642, 49.7615, 32.9, src="VIIRS_NOAA20_NRT", pa=1)]
+        geo = ["2026-11-15T09:30:00Z", "2026-11-15T10:00:00Z", "2026-11-15T11:00:00Z", "2026-11-15T12:10:00Z"]
+        inc = fire_from(rows, *geo, known_days=1, quiet_days=14, area_days=1, facility=None)
+        self.assertEqual((inc["verdict"], inc["new_heat_path"], inc["priority"]), ("مؤكد", "b", "high"))
+        untagged = fire_from([dict(r, pa=None) for r in rows], *geo, known_days=1, quiet_days=14, area_days=1,
+                             facility=None)
+        self.assertNotIn("new_heat", untagged, "elsewhere six hours and twelve pictures")
+
+    def test_two_snapshots_hours_apart_do_not_burn_on(self):  # no pictures between them
+        # a MODIS pixel at 07:30 and a tagged VIIRS pixel at 10:35, nothing between: confirmed by two
+        # families, three hours apart, but not heat that burned on
+        rows = [dict(pixel("2026-11-15T07:30:00Z", 26.1667, 49.7592, 12.0, src="MODIS_NRT"), family="modis"),
+                pixel("2026-11-15T10:35:00Z", 26.1642, 49.7615, 14.0, pa=1)]
+        inc = fire_from(rows, known_days=1, quiet_days=12, area_days=1, facility=None)
+        self.assertEqual(inc["verdict"], "مؤكد")
+        self.assertNotIn("new_heat", inc)
+        self.assertEqual(inc["priority"], "low")
+
+    def test_near_a_mapped_facility_the_facility_rule_decides(self):
+        # the same heat 5 km from a mapped plant: under 50 MW it is not news, as before 16 Nov
+        near = week(ABQAIQ, facility={"label": "معمل غاز", "code": "gas", "km": 5.0})
+        self.assertEqual((near["priority"], near.get("new_heat")), ("low", None))
+        self.assertEqual(near["headline"], "حريق قرب معمل غاز")
+        self.assertEqual(near["pattern"]["key"], "new_sustained", "the app still says what it looks like")
+
+    def test_where_no_earlier_day_had_heat_the_words_say_so(self):
+        inc = week(ABQAIQ, known_days=0, quiet_days=None, memory_days=23)
+        self.assertEqual(inc["new_heat_path"], "b")
+        self.assertIn("لم تُرصد حرارة في هذا المكان خلال 23 يوماً، ورُصدت فيه على مدى نحو 22 ساعة",
+                      alert_message(inc, config()))
+
+    def test_heat_earlier_the_same_day_is_not_a_quiet_place(self):
+        earlier = {"id": "x", "lat": 26.165, "lon": 49.753, "first": "2026-11-15T00:10:00Z", "last": "2026-11-15T01:00:00Z"}
+        now_inc = {"id": "y"}
+        self.assertTrue(patterns.near_earlier_heat([earlier], now_inc, 26.164, 49.752, "2026-11-15T13:30:00Z", 1))
+        self.assertFalse(patterns.near_earlier_heat([earlier], now_inc, 26.164, 49.752, "2026-11-16T13:30:00Z", 1))
+        self.assertFalse(patterns.near_earlier_heat([earlier], now_inc, 26.4, 49.752, "2026-11-15T13:30:00Z", 1))
+        # one NASA pass, two groups 3 km apart made into two events: the same moment, not earlier heat
+        sibling = {"id": "z", "lat": 26.194, "lon": 49.752, "first": "2026-11-15T10:35:00Z", "last": "2026-11-15T10:35:00Z"}
+        self.assertFalse(patterns.near_earlier_heat([sibling], now_inc, 26.164, 49.752, "2026-11-15T10:35:00Z", 1))
+        still = dict(earlier, last="2026-11-15T14:00:00Z")           # began earlier and still burning
+        self.assertTrue(patterns.near_earlier_heat([still], now_inc, 26.164, 49.752, "2026-11-15T13:30:00Z", 1))
+
+    def test_heat_the_day_before_is_said_without_a_zero(self):
+        inc = week(HARAD, quiet_days=0)
+        self.assertIn("رُصدت حرارة قربه خلال اليوم السابق", inc["evidence"][-1]["text"])
+        self.assertNotIn("0 يوم", inc["evidence"][-1]["text"])
+
+    def stretch_fire(self, pictures, pixels, **fields):
+        geo = [iso(dt.datetime(2026, 11, 15, 0, 0, tzinfo=UTC) + dt.timedelta(minutes=m)) for m in pictures]
+        rows = [pixel(iso(dt.datetime(2026, 11, 15, 0, 0, tzinfo=UTC) + dt.timedelta(minutes=m)), 26.1642, 49.7615,
+                      14.0, pa=pa) for m, pa in pixels]
+        return fire_from(rows, *geo, known_days=1, quiet_days=12, area_days=1, facility=None, **fields)
+
+    def test_two_bursts_hours_apart_are_two_stretches(self):
+        # Meteosat 08:00-08:50 and 15:00-15:50 (12 pictures), one NASA pixel: 8 hours first to last,
+        # but two bursts of 50 minutes with six hours of nothing between
+        inc = self.stretch_fire([480 + 10 * k for k in range(6)] + [900 + 10 * k for k in range(6)], [(500, None)])
+        self.assertEqual(inc["verdict"], "مؤكد")
+        self.assertNotIn("new_heat", inc)
+
+    def test_a_long_gap_splits_even_where_noaa_tags_the_place(self):
+        # tagged pixels at 07:30 and 12:00, four pictures 07:40-08:10: nothing for 3 hours 50 minutes
+        inc = self.stretch_fire([460, 470, 480, 490], [(450, 1), (720, 1)])
+        self.assertNotIn("new_heat", inc)
+        joined = self.stretch_fire([460, 470, 480, 490, 600, 640], [(450, 1), (720, 1)])   # seen in between
+        self.assertEqual(joined.get("new_heat_path"), "b")
+
+    def test_each_stretch_is_judged_on_its_own(self):
+        # a sparse flicker 00:00-07:00 (a picture every 80 minutes), four hours of nothing, then a
+        # steady fire 11:00-17:10 with 38 pictures: the second stretch alone is heat that burns on
+        sparse = [80 * k for k in range(6)] + [420]
+        steady = [660 + 10 * k for k in range(38)]
+        inc = self.stretch_fire(sparse + steady, [(30, None), (700, None)])
+        self.assertEqual((inc.get("new_heat_path"), inc["priority"]), ("b", "high"))
+        self.assertGreater(len(patterns.stretches(inc)), 1)
+
+    def test_a_stretch_does_not_borrow_another_stretchs_pictures(self):
+        # seven sparse hours (5 pictures and NASA passes between them), four hours of nothing, then a
+        # one-hour burst of 10 pictures: neither stretch is heat that burns on, though together
+        # they hold 15 pictures over seven hours
+        sparse = [0, 100, 200, 300, 420]
+        burst = [660 + 6 * k for k in range(10)]
+        inc = self.stretch_fire(sparse + burst, [(50, None), (150, None), (250, None), (360, None)])
+        self.assertEqual(inc["verdict"], "مؤكد")
+        self.assertNotIn("new_heat", inc)
+
+    def test_rasads_own_reading_gaps_do_not_break_a_fire(self):
+        # Judah-like: pictures 17:40-18:40, no reading 18:45-20:50 (the check's own outage), pictures
+        # again 21:40-23:40, NASA at 22:16 and 23:01: one stretch of six hours
+        pictures = [1060 + 10 * k for k in range(7)] + [1300 + 10 * k for k in range(15)]
+        inc = self.stretch_fire(pictures, [(1336, None), (1381, None)])
+        self.assertEqual(len(patterns.stretches(inc)), 1)
+        self.assertEqual(inc.get("new_heat_path"), "b")
+
+    def test_the_road_of_15_november_and_the_strong_burst_are_unchanged(self):
+        judah = week(JUDAH, facility=None)
+        self.assertEqual((judah["new_heat_path"], judah["headline"]), ("a", "حريق جديد في السعودية"))
+        self.assertIn("ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر", alert_message(judah, config()))
+        harad = week(HARAD, facility=None)
+        self.assertEqual((harad["new_heat_path"], harad["priority"], harad["headline"]),
+                         ("strong", "high", "حريق جديد في السعودية"))
+        self.assertEqual(harad["pattern"]["key"], "short", "posted, but not called sustained")
+
+    def test_sun_glint_on_solar_panels_is_not_posted(self):
+        self.assertEqual(week(DUBAI)["priority"], "high", "as it went out on 11 Nov")
+        glint = week(DUBAI, solar_km=1.4, geo_read_at_pass=True)
+        self.assertEqual(glint["priority"], "low")
+        self.assertEqual(glint["pattern"]["key"], "solar")
+        off = config()
+        off["alerts"]["solar_glint_stop"] = False
+        inc = copy.deepcopy(WEEK[DUBAI])
+        inc.pop("_case")
+        inc.update(solar_km=1.4, geo_read_at_pass=True)
+        self.assertEqual(finalize(inc, off)["priority"], "high")
+
+    def test_sun_glint_never_silences_an_energy_facility_or_a_surge(self):
+        # Bahrain's Awali field, Taweelah, Al Ain power station: panels within 3 km of real plants
+        at_plant = week(DUBAI, solar_km=2.5, geo_read_at_pass=True,
+                        facility={"label": "منشأة نفطية", "code": "oil", "km": 0.2})
+        self.assertEqual(at_plant["priority"], "high")
+        nearer = week(DUBAI, solar_km=2.5, geo_read_at_pass=True,
+                      facility={"label": "محطة كهرباء", "code": "power", "km": 2.2})
+        self.assertNotEqual(nearer["pattern"]["key"], "solar", "the plant is nearer than the panels")
+        surge = week(DUBAI, solar_km=1.4, geo_read_at_pass=True, kind="unusual", typical_frp=5.0, known_days=20)
+        self.assertEqual(surge["priority"], "high")
+        weak = week(DUBAI, solar_km=1.4, geo_read_at_pass=True, max_frp=30.0)
+        self.assertNotEqual(weak["pattern"]["key"], "solar", "Meteosat misses 30 MW by day: its silence says little")
+
+    def test_noaas_panel_tag_alone_never_takes_a_post_away(self):
+        inc = copy.deepcopy(WEEK[DUBAI])
+        inc.pop("_case")
+        for o in inc["observations"]:
+            o["pa"] = patterns.PA_SOLAR
+        for o in sorted(inc["observations"], key=lambda o: o["t"]):
+            patterns.note_pass(inc, o)
+        inc.update(geo_read_at_pass=True)
+        inc = finalize(inc, config())
+        self.assertEqual(inc["priority"], "high")
+        self.assertEqual(inc["pattern"]["key"], "solar", "the app may still say what it looks like")
+
+    def test_the_video_line_promises_only_what_can_be_kept(self):
+        self.assertEqual(brain.video_note({"geo_slots": ["2026-11-15T17:40:00Z"]}),
+                         "🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور.")
+
+
 class SeveralPlaces(unittest.TestCase):
     NOW = dt.datetime(2026, 11, 15, 20, 0, tzinfo=UTC)
 
@@ -408,7 +603,7 @@ class InACheck(unittest.TestCase):
     """A whole check keeps what the patterns need when it makes an incident, and the app gets the label."""
     NOW = dt.datetime(2026, 11, 15, 22, 50, tzinfo=UTC)
 
-    def run_check(self, root, noaa_rows, slots=None, now=None):
+    def run_check(self, root, noaa_rows, slots=None, now=None, rules=None, facility=None):
         now = now or self.NOW
         cfg = copy.deepcopy(engine.DEFAULTS)
         cfg.update(_state_dir=root / "state", _site_dir=root / "site", _geodata_dir=root / "geo")
@@ -422,10 +617,10 @@ class InACheck(unittest.TestCase):
         session.get.side_effect = AssertionError("No network")
         geo = Mock(version="offline-map")
         geo.place_kind.return_value = "land"
-        geo.facility.return_value = {"label": "معمل بقيق", "code": "oil", "km": 1.0}
+        geo.facility.return_value = facility or {"label": "معمل بقيق", "code": "oil", "km": 1.0}
         geo.describe.return_value = ("في السعودية", "السعودية")
         geo.solar_km.return_value = None
-        state = {"schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE, "sea_check": engine.SEA_CHECK,
+        state = {"schema": 3, "rules": rules or engine.RULES, "clip_style": engine.CLIP_STYLE, "sea_check": engine.SEA_CHECK,
                  "bootstrapped": iso(now), "hello_sent": iso(now), "slots": slots or {}}
         save_json(root / "state" / "state.json", state)
         memory = Memory({})
@@ -493,6 +688,28 @@ class InACheck(unittest.TestCase):
             self.assertEqual(inc["quiet_days"], 14)
             self.assertEqual(inc["pattern"]["key"], "new_sustained")
             self.assertEqual(load_json(root / "state" / "state.json", {})["patterns"], engine.PATTERNS)
+
+    def test_the_new_rules_do_not_post_abqaiq_a_day_late(self):
+        # 16 Nov 09:00 UTC, the first check under the new rules: Abqaiq north is news now, but it
+        # started 24 hours before; it is marked late and shown in the app, never posted
+        stored = copy.deepcopy(WEEK[ABQAIQ])
+        stored.pop("_case")
+        old = config()
+        old["alerts"]["new_heat_sustained"] = False
+        finalize(stored, old)
+        self.assertEqual(stored["priority"], "low")
+        stored["status"] = "new"
+        far = {"label": "محطة كهرباء (AC Plant #2)", "code": "power", "km": 25.6}
+        stored["_pos"] = [round(stored["lat"], 3), round(stored["lon"], 3), "offline-map"]
+        stored["facility"] = far
+        deliver = Mock(return_value=None)
+        with tempfile.TemporaryDirectory() as folder, patch.object(engine, "deliver", deliver):
+            root = Path(folder)
+            save_json(root / "state" / "incidents.json", [stored])
+            S = self.run_check(root, [], now=dt.datetime(2026, 11, 16, 9, 0, tzinfo=UTC), rules=19, facility=far)
+            inc = next(i for i in S.incidents if i["id"] == ABQAIQ)
+            self.assertEqual((inc["priority"], inc.get("new_heat"), inc["status"]), ("high", True, "late"))
+            deliver.assert_not_called()
 
     def test_a_failing_fact_never_stops_the_check(self):
         with tempfile.TemporaryDirectory() as folder, \

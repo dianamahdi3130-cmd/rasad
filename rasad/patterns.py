@@ -223,6 +223,140 @@ def onset_facts(inc, det, slots):
                                        t - dt.timedelta(minutes=10), layer=det.get("src"))
 
 
+# ----------------------------------------------------------------- what may post (since 16 Nov 2026)
+def quiet_enough(inc, days):
+    """Quiet for `days` before the first sighting. An event made before its quiet days were kept is
+    quiet only if no earlier day had heat at all."""
+    if "quiet_days" in inc:   # None: no heat here within the whole window
+        return inc["quiet_days"] is None or inc["quiet_days"] >= days
+    return not inc.get("known_days")
+
+
+def stretches(inc, max_gap_h=3.5):
+    """[(hours, Meteosat pictures)] of each stretch of sightings with no gap over `max_gap_h`. A gap
+    is a break only when it is long: Rasad reads about half of Meteosat's slots (none at all from
+    18:45 to 20:50 UTC on 15 Nov while Abqaiq and Judah burned on), and Meteosat misses small fires
+    by day that NASA sees (Judah on 16 Nov). What two snapshots hours apart lack is pictures, and
+    each stretch is judged on its own pictures. Abqaiq north, 15 Nov: gaps of 3.2, 2.3 and 3 hours,
+    one stretch of 22 hours with 69 pictures."""
+    times = sorted({parse_time(t) for t in inc.get("geo_slots") or []}
+                   | {parse_time(o["t"]) for o in inc.get("observations") or [] if o.get("t")}
+                   | {parse_time(p["t"]) for p in inc.get("passes") or [] if p.get("t")})
+    geo = sorted({parse_time(t) for t in inc.get("geo_slots") or []}
+                 | {parse_time(o["t"]) for o in inc.get("observations") or [] if o.get("kind") == "geo"})
+    out, start = [], 0
+    for k in range(1, len(times) + 1):
+        if k == len(times) or (times[k] - times[k - 1]).total_seconds() > max_gap_h * 3600:
+            hours = (times[k - 1] - times[start]).total_seconds() / 3600.0
+            out.append((hours, sum(1 for t in geo if times[start] <= t <= times[k - 1])))
+            start = k
+    return out
+
+
+def near_earlier_heat(incidents, inc, lat, lon, when, reach):
+    """Another event at this place that started before `when` and was seen within the day before it:
+    the place was not quiet, whatever the memory's earlier days say (it holds whole days, not hours).
+    A part of the same pass made into its own event (one NASA pass, two groups 3 km apart) started at
+    the same moment: it is not earlier heat."""
+    t0 = parse_time(when)
+    radius = 2.2 * reach + 2.0
+    for other in incidents:
+        if other is inc or other.get("id") == inc.get("id"):
+            continue
+        try:
+            first, last = parse_time(other["first"]), parse_time(other["last"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if first < t0 and t0 - last <= dt.timedelta(days=1) \
+                and haversine_km(lat, lon, other["lat"], other["lon"]) <= radius:
+            return True
+    return False
+
+
+def new_heat_path(inc, cfg):
+    """Which road makes confirmed heat on land in the dry Gulf countries news far from every mapped
+    facility (None when none):
+    'a'      no heat here nor around for the memory's whole window, 4 pictures (the rule of 15 Nov:
+             the pumping station south of Judah);
+    'strong' the same quiet place, 20 MW at once: two families already agree (a strong fire is not
+             made to wait);
+    'b'      quiet for a week, heat on at most two earlier days here, at most one around, and burning
+             on in one stretch (no gap over 3.5 hours): 6 hours and 12 pictures, or 3 hours and 4
+             pictures where NOAA tags the place oil and gas (Abqaiq north, 15 Nov: confirmed, 22 hours, 60
+             pictures, last heat 14 days before, never posted). Only far from mapped facilities:
+             near one, the facility rules decide (alert_worthy).
+    The words of a post on road 'b' say what is known: «حرارة جديدة مستمرة», never a cause."""
+    A = cfg["alerts"]
+    names = A.get("new_heat_countries") or []
+    country = inc.get("country") or ""
+    if inc.get("kind") != "new" or inc.get("place") != "land" or inc.get("verdict") != "مؤكد" \
+            or not any(n in country for n in names):
+        return None
+    known, area = inc.get("known_days") or 0, inc.get("area_days") or 0
+    frp = inc.get("max_frp") or 0
+    pictures = len(inc.get("geo_slots") or [])
+    if known == 0 and area == 0 and frp >= float(A.get("new_heat_min_mw", 5)):
+        if pictures >= int(A.get("new_heat_min_pictures", 4)):
+            return "a"
+        if frp >= float(A.get("new_heat_strong_mw", 20)):
+            return "strong"
+    if not A.get("new_heat_sustained", True):
+        return None
+    if known <= int(A.get("new_heat_max_known_days", 2)) and area <= int(A.get("new_heat_max_area_days", 1)) \
+            and quiet_enough(inc, int(A.get("new_heat_quiet_days", 7))) \
+            and frp >= float(A.get("new_heat_sustained_min_mw", 10)) and len(inc.get("families") or []) >= 2:
+        tagged = PA_OIL_GAS in _tags(inc)
+        for hours, run_pictures in stretches(inc, float(A.get("new_heat_max_gap_h", 3.5))):
+            if (hours >= float(A.get("new_heat_sustained_hours", 6))
+                    and run_pictures >= int(A.get("new_heat_sustained_pictures", 12))) \
+                    or (tagged and hours >= float(A.get("new_heat_tagged_hours", 3))
+                        and run_pictures >= int(A.get("new_heat_min_pictures", 4))):
+                return "b"
+    return None
+
+
+def quiet_words(inc):
+    """What a quiet-place post may say of the place and of the heat, nothing more: «لم تُرصد حرارة في
+    هذا المكان منذ 14 يوماً، ورُصدت فيه على مدى نحو 22 ساعة». 'Since N days' only when an earlier day of
+    heat is known; otherwise over the days the memory holds. The span is first to last, said as a span
+    (the heat may have stopped by the time it is read)."""
+    hours = (parse_time(inc["last"]) - parse_time(inc["first"])).total_seconds() / 3600.0
+    quiet = inc.get("quiet_days")
+    if inc.get("known_days") and quiet:
+        before = f"لم تُرصد حرارة في هذا المكان منذ {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}"
+    else:
+        days = int(inc.get("memory_days") or 30)
+        before = f"لم تُرصد حرارة في هذا المكان خلال {_n(days, 'يوم', 'يومين', 'أيام', 'يوماً')}"
+    return f"{before}، ورُصدت فيه على مدى {duration(hours)}"
+
+
+def solar_glint(inc, cfg, label=False):
+    """NASA's daytime pixels on the panels of a mapped solar plant, strong enough that Meteosat would
+    show real heat (50 MW), while a Meteosat picture read at that time showed nothing: sun glint, not
+    heat on the ground. The «حريق جديد في الإمارات» post of 11 Nov 2026 (141.6 MW, 15 day pixels
+    1.4 km from the Dubai solar park, Meteosat read at 09:20 and 09:30 UTC) was one. Kept out of the
+    channel since 16 Nov. Never at an energy facility (one within 2 km, or nearer than the panels) or
+    for a plant's surge: Meteosat misses real daytime fires of 10-40 MW there, and Bahrain's Awali
+    field, Taweelah or Al Ain power station have panels within 3 km. NOAA's panel tag (a 2017 mask)
+    may stand in for the map in the app's label only (`label`), never take a post away."""
+    A = cfg["alerts"]
+    obs = inc.get("observations") or []
+    if inc.get("place") != "land" or not obs or inc.get("geo_slots") or inc.get("geo_read_at_pass") is not True:
+        return False
+    if inc.get("kind") == "unusual" or not all(o.get("kind") == "polar" and not o.get("night") for o in obs):
+        return False
+    if float(inc.get("max_frp") or 0) < float(A.get("solar_glint_min_mw", 50)):
+        return False
+    km = inc.get("solar_km")
+    mapped = km is not None and float(km) <= float(A.get("solar_glint_km", 3))
+    if not mapped:
+        return label and PA_SOLAR in _tags(inc)
+    f = inc.get("facility") or {}
+    if f.get("km") is not None and (float(f["km"]) <= float(A.get("at_facility_km", 2)) or float(f["km"]) < float(km)):
+        return False
+    return True
+
+
 # ----------------------------------------------------------------- the label
 def footprint(inc):
     """The widest VIIRS pass over this event, or None: pixels, farthest pair (km), the sum of its
@@ -292,15 +426,10 @@ def pattern_of(inc, cfg):
     if not P.get("enabled", True) or not in_scope(inc, cfg):
         return None
     tags = _tags(inc)
-    obs = inc.get("observations") or []
     pictures = len(inc.get("geo_slots") or [])
     mw = float(inc.get("max_frp") or 0.0)
     known, area, quiet = inc.get("known_days") or 0, inc.get("area_days") or 0, inc.get("quiet_days")
     window = int(cfg["memory"].get("window_days", 30))
-    if "quiet_days" in inc:   # None: no heat here within the whole window
-        quiet_enough = quiet is None or quiet >= int(P.get("sustained_quiet_days", 7))
-    else:                     # made before the patterns: quiet only if no earlier day had heat at all
-        quiet_enough = known == 0
     foot = footprint(inc)
     also = []
     if inc.get("linked"):
@@ -311,13 +440,11 @@ def pattern_of(inc, cfg):
     window = int(inc.get("memory_days") or window)   # never claim more days than the memory holds
 
     # 1) sun on solar panels: daytime NASA pixels only, at a mapped solar plant (or a place NOAA tags
-    #    as panels), while a Meteosat picture read at that time showed nothing
+    #    as panels), while a Meteosat picture read at that time showed nothing (not posted since 16 Nov)
     solar_km = inc.get("solar_km")
-    day_nasa_only = bool(obs) and all(o.get("kind") == "polar" and not o.get("night") for o in obs) \
-        and not inc.get("geo_slots")
-    near_panels = (solar_km is not None and float(solar_km) <= float(P.get("solar_km", 3))) or PA_SOLAR in tags
-    if day_nasa_only and near_panels and inc.get("geo_read_at_pass") is True:
-        where = (f"على بعد {float(solar_km):.1f} كم من محطة طاقة شمسية مرسومة" if solar_km is not None
+    if solar_glint(inc, cfg, label=True):
+        where = (f"على بعد {float(solar_km):.1f} كم من محطة طاقة شمسية مرسومة"
+                 if solar_km is not None and float(solar_km) <= float(cfg["alerts"].get("solar_glint_km", 3))
                  else "NOAA تصنّف هذه النقطة ألواحاً شمسية")
         return _out("solar", [where, "رآه قمر ناسا نهاراً فقط",
                               "لم تُظهره صور Meteosat المقروءة في الوقت نفسه",
@@ -354,18 +481,10 @@ def pattern_of(inc, cfg):
         return _out("surge", reasons + ["قد يكون حرق غاز تشغيلياً أو حريقاً", NO_CAUSE], [])
 
     # 4) sustained heat where none burned recently: an unmapped site starting up, a well test, or a
-    #    fire (Judah and Abqaiq north, 15 Nov 2026)
-    confirmed = inc.get("kind") == "new" and inc.get("verdict") == "مؤكد" and _country_ok(inc, cfg)
+    #    fire (Judah and Abqaiq north, 15 Nov 2026). The same roads as the posts (new_heat_path), but
+    #    a single strong burst is not 'sustained'
     hours = _hours(inc)
-    path_a = confirmed and known == 0 and area == 0 and mw >= float(cfg["alerts"].get("new_heat_min_mw", 5)) \
-        and pictures >= int(cfg["alerts"].get("new_heat_min_pictures", 4))
-    base_b = confirmed and known <= int(P.get("sustained_max_known_days", 2)) and quiet_enough \
-        and area <= int(P.get("sustained_max_area_days", 2)) and mw >= float(P.get("sustained_min_mw", 10)) \
-        and len(inc.get("families") or []) >= 2
-    path_b = base_b and hours >= float(P.get("sustained_hours", 6)) \
-        and pictures >= int(P.get("sustained_pictures", 12))
-    tagged = base_b and PA_OIL_GAS in tags and hours >= float(P.get("sustained_tagged_hours", 3))
-    if path_a or path_b or tagged:
+    if new_heat_path(inc, cfg) in ("a", "b"):
         if quiet is None or known == 0:
             reasons = [f"لم تُرصد حرارة هنا خلال {_n(window, 'يوم', 'يومين', 'أيام', 'يوماً')}"]
         else:
@@ -382,7 +501,7 @@ def pattern_of(inc, cfg):
     #    نشطة»; anything else (not confirmed yet, outside the dry Gulf countries) has no clear pattern
     passes = len(inc.get("passes") or [])
     brief = hours < 3 and pictures < int(cfg["alerts"].get("new_heat_min_pictures", 4))
-    again = "quiet_days" in inc and quiet is not None and quiet < int(P.get("sustained_quiet_days", 7))
+    again = "quiet_days" in inc and quiet is not None and quiet < int(cfg["alerts"].get("new_heat_quiet_days", 7))
     reasons = []
     if brief:
         if pictures:
@@ -394,7 +513,8 @@ def pattern_of(inc, cfg):
     if known:
         reasons.append(f"رُصدت حرارة هنا في {_n(known, 'يوم واحد', 'يومين', 'أيام', 'يوماً')} خلال الشهر")
     elif again:
-        reasons.append(f"آخر حرارة هنا قبل {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}")
+        reasons.append("رُصدت حرارة قربه خلال اليوم السابق" if quiet == 0 else
+                       f"آخر حرارة هنا قبل {_n(quiet, 'يوم واحد', 'يومين', 'أيام', 'يوماً')}")
     if area >= 2:
         reasons.append(f"المنطقة حولها نشطة (حرارة في {_n(area, 'يوم', 'يومين', 'أيام', 'يوماً')} خلال الشهر)")
     if not _country_ok(inc, cfg):
@@ -405,10 +525,15 @@ def pattern_of(inc, cfg):
     return _out(key, reasons, [])
 
 
-def _span(hours):
+def duration(hours):
+    """«أقل من ساعة», «نحو ساعتين», «نحو 22 ساعة»."""
     if hours < 1:
-        return "استمرت أقل من ساعة"
-    return f"استمرت نحو {_n(round(hours), 'ساعة', 'ساعتين', 'ساعات', 'ساعة')}"
+        return "أقل من ساعة"
+    return f"نحو {_n(round(hours), 'ساعة', 'ساعتين', 'ساعات', 'ساعة')}"
+
+
+def _span(hours):
+    return "استمرت " + duration(hours)
 
 
 def _out(key, reasons, also):
