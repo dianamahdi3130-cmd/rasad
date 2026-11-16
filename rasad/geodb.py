@@ -293,6 +293,8 @@ def build_geodata(cfg, session, budget_s=None):
     for _, i, _, key, name in queue:
         if budget_s is not None and tried and time.time() - t0 > budget_s:
             break  # at least one part per run, then stop when the time slice is used
+        if deadline is not None and deadline - time.monotonic() < 60:
+            break  # no time to finish a request: the part waits, it has not failed
         tried += 1
         kind, (w, s, e, n) = part_of(name)
         els = overpass(session, G["overpass_urls"], QUERIES[kind].format(b=f"{s:.4f},{w:.4f},{n:.4f},{e:.4f}"),

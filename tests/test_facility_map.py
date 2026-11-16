@@ -242,6 +242,40 @@ class MapRebuildInSlices(unittest.TestCase):
         self.assertIsNone(geodb.overpass(session2, ["https://a"], "q", deadline=real_time.monotonic() + 59))
         session2.post.assert_not_called()
 
+    def test_a_part_left_for_lack_of_time_has_not_failed(self):
+        import time as real_time
+        from unittest.mock import Mock
+        from rasad.util import load_json
+
+        class Clock:
+            now = 1000.0
+
+            def monotonic(self):
+                return self.now
+
+            def time(self):
+                return self.now
+
+            def sleep(self, s):
+                self.now += s
+
+        clock = Clock()
+
+        def post(url, data, timeout):
+            clock.now += 55                                 # every answer takes 55 s (16 Nov: 36-79 s)
+            return self.post(url, data, timeout)
+        session = Mock()
+        session.post.side_effect = post
+        geodb.time = clock
+        try:
+            self.assertFalse(geodb.build_geodata(self.cfg, session, budget_s=150))
+        finally:
+            geodb.time = real_time
+        prog = load_json(self.cfg["_geodata_dir"] / "progress.json", {})
+        self.assertEqual([c[0] for c in self.calls], ["fac", "oil"], "a third request could not finish by 160 s")
+        self.assertEqual(prog["fails"], {}, "the place part is left for the next slice, not counted as failed")
+        self.assertEqual([n.split("|")[0] for n in prog["work"]["48.00,25.00,50.00,27.00"]], ["place"])
+
     def test_a_progress_file_of_another_map_version_is_started_afresh(self):
         from rasad.util import save_json
         tile = "48.00,25.00,50.00,27.00"
