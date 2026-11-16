@@ -23,8 +23,6 @@ FACILITY_QUERY = """[out:json][timeout:90];
   nwr["industrial"="port"]({b});
   nwr["man_made"="storage_tank"]["content"~"oil|fuel|gas|crude|petrol",i]({b});
   nwr["man_made"="pumping_station"]["substance"~"oil|gas",i]({b});
-  nwr["landuse"="industrial"]["name"~"{names}",i]({b});
-  nwr["landuse"="industrial"]["operator"~"{owners}",i]({b});
 );
 out center tags;"""
 # Many oil and gas plants are drawn on the map only as industrial land with a name: «محطة ضخ أرامكو
@@ -32,7 +30,17 @@ out center tags;"""
 # facility there (docs/reviews/judah_pumping_station_20261115.md). Named so, they are facilities.
 OIL_OWNERS = "aramco|أرامكو|ارامكو|adnoc|أدنوك|ادنوك|kuwait oil|نفط الكويت|knpc|qatarenergy|قطر للطاقة|bapco|بابكو|petroleum development oman|تنمية نفط عمان|sabic|سابك"
 OIL_NAMES = OIL_OWNERS + "|pump station|pumping station|محطة ضخ|gosp|فرز الغاز|عزل الغاز|نفط|بترول|petrol|crude|refiner|مصفا|مصفى|gas plant|معمل غاز|معمل الغاز|tank farm"
-FACILITY_QUERY = FACILITY_QUERY.replace("{names}", OIL_NAMES).replace("{owners}", OIL_OWNERS)
+# Its own query, run on parts of a tile. Asked inside the facility query, the name and operator
+# patterns made Overpass look at every named object of a 7-degree tile: both servers gave up after
+# 70 s (16 Nov 2026), so the rebuilt map never came. Here the industrial land of the box is taken
+# first (an exact tag, quick) and only its names are matched.
+OIL_QUERY = """[out:json][timeout:90];
+nwr["landuse"="industrial"]({b})->.ind;
+(
+  nwr.ind["name"~"{names}",i];
+  nwr.ind["operator"~"{owners}",i];
+);
+out center tags;""".replace("{names}", OIL_NAMES).replace("{owners}", OIL_OWNERS)
 
 PLACE_QUERY = """[out:json][timeout:90];
 (
@@ -162,16 +170,35 @@ def facility_label(name, cat):
     return name if any(w in name for w in TYPE_WORDS) else f"{cat} {name}"
 
 
-def overpass(session, urls, query, timeout=70):
-    """One attempt per server; a failed tile is simply retried in a later run."""
+def overpass(session, urls, query, timeout=95, deadline=None, min_left=60):
+    """One attempt per server; a failed part is simply retried in a later run. With a deadline
+    (time.monotonic()), no server is asked once less than min_left seconds are left (a request that
+    cannot finish only loads the public server), and none is waited for past it: the watching loop
+    stops the map worker at a fixed time, and what it had not saved was lost. A query that ran out
+    of time or memory on the server comes back as HTTP 200 with a "remark" and few or no objects:
+    that is a failure, never an empty answer."""
     for url in urls:
+        wait = timeout
+        if deadline is not None:
+            wait = min(timeout, deadline - time.monotonic())
+            if wait < min_left:
+                log.info("Overpass: not enough time left in this slice")
+                break
+        t0 = time.monotonic()
         try:
-            r = session.post(url, data={"data": query}, timeout=timeout)
+            r = session.post(url, data={"data": query}, timeout=wait)
             if r.status_code == 200:
-                return r.json().get("elements", [])
-            log.warning("Overpass %s: HTTP %s", url, r.status_code)
+                body = r.json()
+                remark = str(body.get("remark") or "")
+                if "elements" not in body or "error" in remark.lower():
+                    log.warning("Overpass %s: %s after %.0f s", url, remark[:120] or "no elements", time.monotonic() - t0)
+                    continue
+                els = body["elements"]
+                log.info("Overpass %s: %d objects in %.0f s", url, len(els), time.monotonic() - t0)
+                return els
+            log.warning("Overpass %s: HTTP %s after %.0f s", url, r.status_code, time.monotonic() - t0)
         except (requests.RequestException, ValueError) as e:
-            log.warning("Overpass %s: %s", url, type(e).__name__)
+            log.warning("Overpass %s: %s after %.0f s", url, type(e).__name__, time.monotonic() - t0)
     return None
 
 
@@ -210,58 +237,108 @@ def geodata_status(cfg):
     return age, bool(prog.get("done"))
 
 
+def quarters(w, s, e, n, split=2):
+    """The box cut into split x split parts."""
+    dx, dy = (e - w) / split, (n - s) / split
+    return [(w + i * dx, s + j * dy, w + (i + 1) * dx, s + (j + 1) * dy) for i in range(split) for j in range(split)]
+
+
+QUERIES = {"fac": FACILITY_QUERY, "oil": OIL_QUERY, "place": PLACE_QUERY}
+
+
+def part_name(kind, box):
+    """A part says what it asks and where: «oil|48.0000,25.0000,50.0000,27.0000»."""
+    return kind + "|" + ",".join(f"{v:.4f}" for v in box)
+
+
+def part_of(name):
+    kind, box = name.split("|")
+    return kind, tuple(float(v) for v in box.split(","))
+
+
+def tile_parts(tile, G):
+    """What one tile asks the map for, each part saved by itself: the facilities, the named oil and
+    gas land (geodata.oil_query_split x split boxes), the places."""
+    split = max(1, int(G.get("oil_query_split", 1)))
+    return ([part_name("fac", tile)] + [part_name("oil", box) for box in quarters(*tile, split)]
+            + [part_name("place", tile)])
+
+
 def build_geodata(cfg, session, budget_s=None):
-    """Download facilities and places tile by tile; resumable, so it can run in short slices."""
+    """Download facilities and places tile by tile, part by part; resumable, so it runs in the slices
+    the watching loop gives it (150 s, stopped after 180). Every finished part is kept at once. The
+    part that failed least goes first, so one slow box cannot hold the rest back; a part that failed
+    twice is asked as its four quarters (down to geodata.min_part_deg), so a heavy box shrinks until
+    the server can answer it. 16 Nov 2026: the facility part of a 7-degree tile took 43 s, places
+    timed out three slices in a row on both public servers; with whole tiles the map never came."""
     G = cfg["geodata"]
     out_dir = Path(cfg["_geodata_dir"])
     tiles = region_tiles(cfg["regions"], max_deg=float(G.get("query_tile_deg", 8)))
     keys = [",".join(f"{v:.2f}" for v in t) for t in tiles]
     prog = load_json(out_dir / "progress.json", {})
-    if prog.get("tiles") != keys:
-        prog = {"tiles": keys, "done": {}, "fac": {}, "place": {}}
-    t0, pause, tried = time.time(), float(G.get("overpass_pause_s", 5)), 0
-    for i, (key, (w, s, e, n)) in enumerate(zip(keys, tiles), 1):
-        if prog["done"].get(key):
-            continue
+    if prog.get("tiles") != keys or prog.get("version") != GEO_VERSION or "work" not in prog:
+        prog = {"tiles": keys, "version": GEO_VERSION, "done": {}, "fac": {}, "place": {}, "work": {}, "fails": {}}
+    for key, tile in zip(keys, tiles):
+        if not prog["done"].get(key):
+            prog["work"].setdefault(key, tile_parts(tile, G))
+    pause = float(G.get("overpass_pause_s", 5))
+    min_deg = float(G.get("min_part_deg", 1.0))
+    t0, tried = time.time(), 0
+    # the loop stops this worker 30 s after its budget: no request may outlive budget + 10 s
+    deadline = None if budget_s is None else time.monotonic() + budget_s + 10
+    order = {key: i for i, key in enumerate(keys)}
+    queue = sorted(((prog["fails"].get(name, 0), order[key], k, key, name)
+                    for key, names in prog["work"].items() if key in order
+                    for k, name in enumerate(names)))
+    for _, i, _, key, name in queue:
         if budget_s is not None and tried and time.time() - t0 > budget_s:
-            break  # at least one tile per run, then stop when the time slice is used
+            break  # at least one part per run, then stop when the time slice is used
+        if deadline is not None and deadline - time.monotonic() < 60:
+            break  # no time to finish a request: the part waits, it has not failed
         tried += 1
-        b = f"{s:.4f},{w:.4f},{n:.4f},{e:.4f}"
-        ok = True
-        for kind, query in (("fac", FACILITY_QUERY), ("place", PLACE_QUERY)):
-            if kind == "place" and tried > 1 and budget_s is not None and time.time() - t0 > budget_s * 1.5:
-                ok = False
-                break
-            els = overpass(session, G["overpass_urls"], query.format(b=b))
-            if els is None:
-                ok = False
-                break
-            for el in els:
-                lat, lon = _center(el)
-                if lat is None:
-                    continue
-                tags = el.get("tags") or {}
-                oid = f"{el['type'][0]}{el['id']}"
-                if kind == "fac":
-                    kind_of = facility_category(tags)
-                    if kind_of:
-                        prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), *kind_of,
-                                            osm_owner(tags)]
-                else:
-                    prog["place"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), tags.get("place", "")]
-            time.sleep(pause)
-        if ok:
+        kind, (w, s, e, n) = part_of(name)
+        els = overpass(session, G["overpass_urls"], QUERIES[kind].format(b=f"{s:.4f},{w:.4f},{n:.4f},{e:.4f}"),
+                       deadline=deadline)
+        if els is None:
+            fails = prog["fails"].get(name, 0) + 1
+            if fails >= 2 and min(e - w, n - s) / 2 >= min_deg:
+                prog["work"][key] = [x for x in prog["work"][key] if x != name] + \
+                    [part_name(kind, box) for box in quarters(w, s, e, n)]
+                prog["fails"].pop(name, None)
+                log.info("facility map: tile %d/%d, %s failed twice: asked as four smaller parts from now on",
+                         i + 1, len(tiles), name)
+            else:
+                prog["fails"][name] = fails
+                log.info("facility map: tile %d/%d, %s failed, retry later", i + 1, len(tiles), name)
+            save_json(out_dir / "progress.json", prog, compact=True)
+            break  # the map servers are busy: do not spend this run's time on more parts
+        for el in els:
+            lat, lon = _center(el)
+            if lat is None:
+                continue
+            tags = el.get("tags") or {}
+            oid = f"{el['type'][0]}{el['id']}"
+            if kind == "place":
+                prog["place"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), tags.get("place", "")]
+            else:
+                kind_of = facility_category(tags)
+                if kind_of:
+                    prog["fac"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), *kind_of, osm_owner(tags)]
+        prog["work"][key] = [x for x in prog["work"][key] if x != name]
+        prog["fails"].pop(name, None)
+        if not prog["work"][key]:
             prog["done"][key] = True
-        log.info("facility map: tile %d/%d %s", i, len(tiles), "done" if ok else "failed, retry next run")
-        save_json(out_dir / "progress.json", prog, compact=True)
-        if not ok:
-            break  # the map servers are busy: do not spend this run's time on more tiles
+            del prog["work"][key]
+            log.info("facility map: tile %d/%d done", i + 1, len(tiles))
+        save_json(out_dir / "progress.json", prog, compact=True)   # a finished part is never asked again
+        time.sleep(pause)
     complete = all(prog["done"].get(k) for k in keys)
     first_build = not (out_dir / "facilities.json").exists() or not load_json(
         out_dir / "facilities.json", {}).get("built")
     if complete:
         nf, npl = _write_db(out_dir, prog["fac"], prog["place"], iso(utcnow()))
-        save_json(out_dir / "progress.json", {"tiles": keys, "done": {}, "fac": {}, "place": {}}, compact=True)
+        save_json(out_dir / "progress.json", {"tiles": keys, "version": GEO_VERSION, "done": {}, "fac": {},
+                                               "place": {}, "work": {}, "fails": {}}, compact=True)
         log.info("facility map complete: %d facilities, %d places", nf, npl)
     elif first_build:
         nf, npl = _write_db(out_dir, prog["fac"], prog["place"], None)  # usable while still loading

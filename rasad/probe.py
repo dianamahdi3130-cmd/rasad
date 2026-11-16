@@ -394,7 +394,7 @@ def osm_near(cfg, lat, lon, km=5.0, out_dir="probe-out"):
     from .geodb import OIL_NAMES, OIL_OWNERS, _center, facility_category, overpass
     from .util import haversine_km
 
-    def asked_for(tags):                 # the same conditions as geodb.FACILITY_QUERY
+    def asked_for(tags):                 # the same conditions as geodb.FACILITY_QUERY and OIL_QUERY
         has = lambda key, pattern: bool(re.search(pattern, tags.get(key, ""), re.I))   # noqa: E731
         return (tags.get("man_made") == "offshore_platform"
                 or has("industrial", r"^(refinery|oil_refinery|oil|gas|petroleum|petrochemical|liquefied_natural_gas|fuel|port)$")
