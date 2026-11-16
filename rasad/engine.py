@@ -1004,8 +1004,8 @@ def run_cycle(cfg, send=True, alert_now=False):
                 if geo.facility_within(d["lat"], d["lon"], float(SG.get("spot_record_km", 5))) is True or (
                         A and patterns.usual_flare_km(A, d["lat"], d["lon"], float(SG.get("flare_near_km", 5)),
                                                       float(SG.get("usual_share", 0.10))) is not None):
-                    d["spot"] = patterns.spot_days(S.state, d["lat"], d["lon"], day, float(SG.get("spot_km", 0.75)))
                     patterns.record_spot(S.state, d, day)
+                    d["_spot"] = True            # its earlier days are counted once its event is known
             except Exception as e:  # noqa: BLE001 - a silent signal must never stop a check
                 log.warning("heat spots: %s", e)
         group = membership[id(d)]
@@ -1050,6 +1050,12 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["recovered_historical"] = True
         elif not d.get("_recovered") and now - parse_time(d["t"]) <= dt.timedelta(hours=8):
             inc.pop("recovered_historical", None)
+        if d.pop("_spot", None):
+            try:   # days with heat at this spot before this event began (its own days never count)
+                d["spot"] = patterns.spot_days(S.state, d["lat"], d["lon"], min(inc["first"], d["t"])[:10],
+                                               float(SG.get("spot_km", 0.5)))
+            except Exception as e:  # noqa: BLE001
+                log.warning("heat spots: %s", e)
         add_to_incident(inc, d)
         touched.add(inc["id"])
     log.info("judged %d detections: %d incidents touched, %d heat cells remembered",

@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 data/
+!rasad/data/
 _state/
 _site/
 /fonts/

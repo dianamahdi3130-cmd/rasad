@@ -636,7 +636,7 @@ class Signals(unittest.TestCase):
         self.assertNotEqual(inc["verdict"], "مؤكد")
         self.assertEqual(sig["n"], 0)
         self.assertEqual([w["key"] for w in sig["wait"]], ["odd_spot_weak"])
-        self.assertTrue(sig["wait"][0]["text"].endswith("؛ لكنها ضعيفة أو لم تتأكد بعد"))
+        self.assertTrue(sig["wait"][0]["text"].endswith("؛ لكنها ضعيفة أو غير مؤكدة"))
 
     def test_heat_at_the_plants_own_flare_is_said_to_be_its_habit(self):
         sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1702, 49.7602, 30.0)])
@@ -690,13 +690,11 @@ class Signals(unittest.TestCase):
         sig, _ = self.signals([], "2026-11-16T12:40:00Z", kind="unusual", known_days=24, typical_frp=19.6,
                               site_record=130.7, site_habit=95.9)
         self.assertEqual([c["text"] for c in sig["calm"]],
-                         ["في هذا المكان حرارة شبه يومية (شعلة أو مصنع): ظهرت في 24 يوماً من الشهر الماضي",
-                          "بلغت حرارة هذا المكان 131 MW في يوم سابق من الشهر، وهي الآن 30 MW"])
+                         ["بلغت حرارة هذا المكان 131 MW في يوم سابق من الشهر، وأعلى ما بلغه هذا الحدث 30 MW"])
         # Ras Laffan, 16 Nov: 206 MW against a record of 131: the record is not called its habit
         rows = [pixel("2026-11-16T12:14:00Z", 26.1702, 49.7602, 206.0)]
         sig, _ = self.signals(rows, kind="unusual", known_days=24, typical_frp=19.6, site_record=130.7, site_habit=95.9)
         self.assertNotIn("record", [c["key"] for c in sig["calm"]])
-        self.assertIn("daily", [c["key"] for c in sig["calm"]])
 
     def test_sea_and_far_away_land_get_no_signals(self):
         rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]
@@ -745,6 +743,90 @@ class Signals(unittest.TestCase):
         for k in range(8):
             patterns.record_spot(state, {"lat": 30.0, "lon": 48.0}, (dt.date(2026, 11, 10) + dt.timedelta(days=k)).isoformat())
         self.assertEqual(len(state["spots"]), 1, "the January flare (half a year quiet) and October's one-offs are gone")
+
+    def test_a_damaged_map_is_left_aside_never_stops_a_check(self):
+        import gzip as gz
+        with tempfile.TemporaryDirectory() as folder:
+            for content in (b"\x1f\x8b\x08\x00broken", None):
+                path = Path(folder) / "heat_atlas.json.gz"
+                if content is None:
+                    with gz.open(path, "wt") as f:
+                        f.write('["not", "a", "map"]')
+                else:
+                    path.write_bytes(content)
+                with patch.object(patterns, "ATLAS_PATH", path), patch.object(patterns, "_atlas", None):
+                    self.assertEqual(patterns.atlas(), {})
+                    inc = fire_from([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)])
+                    self.assertEqual(inc["verdict"], "مرجّح")
+        with patch.object(patterns, "signals_of", Mock(side_effect=KeyError("cells"))):
+            inc = {"id": "x"}
+            patterns.refresh_signals(inc, config())
+            self.assertNotIn("signals", inc)
+
+    def test_a_fire_burning_for_days_does_not_make_its_own_spot_usual(self):
+        state = {}
+        for k in range(12):        # the fire itself, every day from 1 Nov
+            patterns.record_spot(state, {"lat": 26.1575, "lon": 49.7600}, (dt.date(2026, 11, 1) + dt.timedelta(days=k)).isoformat())
+        self.assertEqual(patterns.spot_days(state, 26.1575, 49.7600, "2026-11-01"), 0, "counted from the event's first day")
+        self.assertEqual(patterns.spot_days(state, 26.1575, 49.7600, "2026-11-12"), 11, "for a later event, its habit")
+
+    def test_a_sudden_start_waits_for_its_first_strengths(self):
+        geo = ["2026-11-15T22:50:00Z", "2026-11-15T23:00:00Z", "2026-11-15T23:10:00Z", "2026-11-15T23:40:00Z"]
+        inc = fire_from([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=True, quiet_days=14)
+        inc.pop("start_mw", None)
+        for o in inc["observations"]:
+            if o["kind"] == "geo" and o["t"] < "2026-11-15T23:20:00Z":
+                o["frp"] = None                   # the strengths of the first half hour are still being read
+        self.assertIsNone(patterns.sudden_start(inc))
+        self.assertNotIn("start_mw", inc, "not decided yet")
+        for o in inc["observations"]:
+            if o["kind"] == "geo":
+                o["frp"] = 45.0
+        self.assertEqual(patterns.sudden_start(inc), 45.0)
+
+    def test_modis_with_meteosat_is_not_called_alone_among_all_satellites(self):
+        rows = [dict(pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0, src="MODIS_NRT"), family="modis", scan=1.8)]
+        sig, inc = self.signals(rows, "2026-11-15T22:50:00Z", "2026-11-15T23:00:00Z")
+        self.assertEqual(sig["wait"][0]["text"], "من أجهزة ناسا رآها MODIS وحده (دقته نحو 1 كم)، فلا يُعرف من أيّ نقطة في "
+                                                 "المكان تأتي الحرارة")
+
+    def test_in_a_check_each_pixel_carries_its_spots_days_before_the_event(self):
+        state = {"spots": {}}
+        for k in range(12):        # a flare Rasad saw on 12 days before this event
+            patterns.record_spot(state, {"lat": 26.1693, "lon": 49.7580}, (dt.date(2026, 11, 1) + dt.timedelta(days=k)).isoformat())
+        rows = [pixel("2026-11-15T22:59:00Z", 26.1693, 49.758, 9.23), pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 9.0)]
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg.update(_state_dir=root / "state", _site_dir=root / "site", _geodata_dir=root / "geo")
+            cfg["regions"] = [{"id": "gulf", "name": "الخليج الفارسي", "bbox": [47, 22, 57, 30]}]
+            cfg["seawatch"].update(enabled=False, look_back=False)
+            cfg["eumetview"]["fire_layers"] = []
+            cfg["clip"]["enabled"] = False
+            cfg["firms"]["map_key"] = "offline-test-key"
+            cfg["noaa"]["enabled"] = True
+            geo = Mock(version="offline-map")
+            geo.place_kind.return_value = "land"
+            geo.facility.return_value = {"label": "معمل بقيق", "code": "oil", "km": 1.0}
+            geo.describe.return_value = ("في السعودية", "السعودية")
+            geo.solar_km.return_value = None
+            geo.facility_within.return_value = True
+            now = dt.datetime(2026, 11, 15, 23, 30, tzinfo=UTC)
+            save_json(root / "state" / "state.json", dict(state, schema=3, rules=engine.RULES, clip_style=engine.CLIP_STYLE,
+                                                          sea_check=engine.SEA_CHECK, bootstrapped=iso(now), hello_sent=iso(now)))
+            memory = Memory({})
+            memory.record(30, 48, "2026-11-14", 10)
+            save_json(root / "state" / "memory.json", memory.cells)
+            forbidden = Mock(side_effect=AssertionError("Unexpected source"))
+            with patch.multiple(engine, utcnow=Mock(return_value=now), make_session=Mock(), WMS=Mock(),
+                                Geo=Mock(return_value=geo), Availability=Mock(), firms_fetch=Mock(return_value=[]),
+                                latest_time=forbidden, detect_geo_layer=forbidden, deliver=Mock(return_value=None),
+                                tg_send=forbidden), \
+                    patch.object(engine.noaafire, "collect", Mock(return_value=copy.deepcopy(rows))):
+                S = engine.run_cycle(cfg, send=False)
+            spots = sorted(o.get("spot") for i in S.incidents for o in i["observations"] if o["kind"] == "polar")
+            self.assertEqual(spots, [0, 12], "the flare's 12 days; the new spot 0 (this event's own day does not count)")
+            self.assertEqual(len(load_json(root / "state" / "state.json", {})["spots"]), 2)
 
     def test_no_signal_ever_names_a_cause_and_posts_do_not_change(self):
         rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]

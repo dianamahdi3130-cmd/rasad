@@ -215,8 +215,10 @@ def main():
              "step_days": a.step, "satellites": ["NOAA-20", "NOAA-21"], "source": "NOAA VIIRS EFIRE (AWS)",
              "built": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ"), "cells": kept}
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(a.out, "wt", encoding="utf-8") as f:
+    tmp = Path(str(a.out) + ".tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8") as f:     # whole or not at all: the monitor reads this file
         json.dump(atlas, f, separators=(",", ":"))
+    tmp.replace(a.out)
     print("atlas:", len(kept), "cells on 2+ of", atlas["dates"], "dates ->", a.out, flush=True)
 
 

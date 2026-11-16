@@ -643,8 +643,11 @@ def atlas():
     if _atlas is None:
         try:
             with gzip.open(ATLAS_PATH, "rt", encoding="utf-8") as f:
-                _atlas = json.load(f)
-        except (OSError, ValueError):
+                data = json.load(f)
+            ok = isinstance(data, dict) and isinstance(data.get("cells"), dict) and float(data.get("cell") or 0) > 0 \
+                and int(data.get("dates") or 0) > 0
+            _atlas = data if ok else {}
+        except Exception:  # noqa: BLE001 - missing, truncated or damaged: the signals go without it
             _atlas = {}
     return _atlas
 
@@ -710,8 +713,9 @@ def record_spot(state, det, day, keep_days=180):
 
 
 def spot_days(state, lat, lon, before_day, km=0.75):
-    """On how many days Rasad saw NASA heat within km of the point, counting only spots first seen
-    before `before_day` (a spot that only this event has lit does not make itself usual)."""
+    """On how many days before `before_day` (the event's first day) Rasad saw NASA heat within km of
+    the point: a spot that only this event has lit does not make itself usual, and the days since the
+    event began are taken off (as if it burned every day: the count leans towards 'rare')."""
     spots = state.get("spots") or {}
     if not spots:
         return 0
@@ -725,7 +729,8 @@ def spot_days(state, lat, lon, before_day, km=0.75):
         for dj in range(-rj, rj + 1):
             row = spots.get(f"{i0 + di},{j0 + dj}")
             if row and row[2] < limit and haversine_km(lat, lon, (i0 + di + 0.5) * cell, (j0 + dj + 0.5) * cell) <= km:
-                best = max(best, int(row[0]))
+                since = max(0, int(row[1]) - limit + 1)            # days from the event's start to the spot's last
+                best = max(best, max(0, int(row[0]) - since))
     return best
 
 
@@ -756,13 +761,22 @@ def sudden_start(inc):
     if not later:
         return None                      # the half hour is not over yet
     values = [float(o["frp"]) for o in window if o.get("frp") is not None]
+    pending = any(o.get("frp") is None for o in window)
+    if pending and parse_time(obs[-1]["t"]) - t0 < dt.timedelta(hours=6):
+        return None                      # a strength of the first half hour is still being read
     inc["start_mw"] = round(max(values), 1) if values else None
     return inc["start_mw"]
 
 
 def refresh_signals(inc, cfg):
-    """Write the signals again (after a before/after picture or a 'several places' tag arrives)."""
-    signals = signals_of(inc, cfg)
+    """Write the signals again (after a before/after picture or a 'several places' tag arrives). App
+    only: an error here is logged and leaves the event without signals, never stops a check."""
+    try:
+        signals = signals_of(inc, cfg)
+    except Exception as e:  # noqa: BLE001
+        from .util import log
+        log.warning("signals for %s: %s", inc.get("id"), e)
+        signals = None
     if signals:
         inc["signals"] = signals
     else:
@@ -822,30 +836,30 @@ def signals_of(inc, cfg, A=None):
                 if inc.get("verdict") in ("مؤكد", "مرجّح") and float(inc.get("max_frp") or 0) >= float(SG.get("odd_min_mw", 5)):
                     warn.append({"key": "odd_spot", "text": text})
                 else:
-                    wait.append({"key": "odd_spot_weak", "text": text + "؛ لكنها ضعيفة أو لم تتأكد بعد"})
+                    wait.append({"key": "odd_spot_weak", "text": text + "؛ لكنها ضعيفة أو غير مؤكدة"})
             elif all(x[2] == "usual" for x in looks):
                 weakest = min(looks, key=lambda x: (x[0], x[1]))
                 if weakest[0] >= usual_need:
                     calm.append({"key": "usual_spot", "text": "الحرارة في مكان تظهر فيه حرارة عادةً (شعلة أو مصنع): في نحو "
                                                               f"{round(100.0 * weakest[0] / dates)}% من الأيام منذ {_since(A)}"})
                 else:
-                    calm.append({"key": "usual_spot", "text": "الحرارة في مكان تظهر فيه حرارة عادةً: رأى رصد حرارة هنا في "
+                    calm.append({"key": "usual_spot", "text": "الحرارة في مكان تظهر فيه حرارة عادةً: رُصدت حرارة هنا في "
                                                               f"{_n(weakest[1], 'يوم واحد', 'يومين', 'أيام', 'يوماً')} خلال الأشهر الأخيرة"})
             else:
                 odd = min((x for x in looks if x[2] == "sometimes"), key=lambda x: (x[0], x[1]))
                 share = round(100.0 * odd[0] / dates)
-                if share >= 1:
+                if odd[0] > rare_max:            # the long-term map decided it
                     text = f"تظهر حرارة في هذه النقطة أحياناً (في نحو {share}% من الأيام منذ {_since(A)})"
                 else:
                     text = (f"ظهرت حرارة في هذه النقطة في {_n(odd[1], 'يوم واحد', 'يومين', 'أيام', 'يوماً')} مؤخراً، "
                             "ونادراً قبل ذلك")
                 calm.append({"key": "sometimes", "text": text})
         elif modis_only:
-            wait.append({"key": "spot_unknown", "text": "رآه قمر MODIS التابع لناسا وحده (دقته نحو 1 كم)، فلا يُعرف بعدُ من أيّ "
-                                                        "نقطة في المكان تأتي الحرارة؛ قد يتضح ذلك عند مرور قمر VIIRS"})
+            wait.append({"key": "spot_unknown", "text": "من أجهزة ناسا رآها MODIS وحده (دقته نحو 1 كم)، فلا يُعرف من أيّ نقطة "
+                                                        "في المكان تأتي الحرارة"})
         else:
-            wait.append({"key": "spot_unknown", "text": "رأتها صور Meteosat وحدها (دقتها نحو 3 كم)، فلا يُعرف بعدُ من أيّ نقطة "
-                                                        "في المكان تأتي الحرارة؛ قد يتضح ذلك عند مرور قمر ناسا"})
+            wait.append({"key": "spot_unknown", "text": "لم يرَها جهاز VIIRS الدقيق لناسا، ودقة صور Meteosat نحو 3 كم، فلا يُعرف "
+                                                        "من أيّ نقطة في المكان تأتي الحرارة"})
 
     # 2) a sudden strong start at a quiet place: decided once, from the first half hour after the first
     #    sighting, and kept (`inc["start_mw"]`): the strength series keeps only its last 40 readings
@@ -866,12 +880,10 @@ def signals_of(inc, cfg, A=None):
 
     # the site's habit: heat there on most days (a flare or a plant); a level it reached before
     mw = float(inc.get("max_frp") or 0)
-    if inc.get("kind") == "unusual" and inc.get("known_days"):
-        calm.append({"key": "daily", "text": "في هذا المكان حرارة شبه يومية (شعلة أو مصنع): ظهرت في "
-                                             f"{_n(int(inc['known_days']), 'يوم واحد', 'يومين', 'أيام', 'يوماً')} من الشهر الماضي"})
+    # (its heat on most days of the month is said in the confidence reasons and the usual-heat box)
     if inc.get("kind") == "unusual" and inc.get("site_record") and float(inc["site_record"]) >= mw > 0:
         calm.append({"key": "record", "text": f"بلغت حرارة هذا المكان {_mw(float(inc['site_record']))} في يوم سابق من الشهر، "
-                                              f"وهي الآن {_mw(mw)}"})
+                                              f"وأعلى ما بلغه هذا الحدث {_mw(mw)}"})
 
     if not (warn or calm or wait):
         return None
