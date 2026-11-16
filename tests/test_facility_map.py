@@ -21,10 +21,15 @@ class NamedIndustrialLand(unittest.TestCase):
         category = geodb.facility_category(self.JUDAH)
         self.assertEqual(category, ("محطة ضخ نفط وغاز", "pumping"))
         self.assertEqual(geodb.facility_label(geodb.osm_name(self.JUDAH), category[0]), "محطة ضخ أرامكو السعودية 1")
-        self.assertIn('nwr["landuse"="industrial"]["name"~"', geodb.FACILITY_QUERY)
-        self.assertIn('nwr["landuse"="industrial"]["operator"~"', geodb.FACILITY_QUERY)
-        self.assertNotIn("{names}", geodb.FACILITY_QUERY)
-        self.assertEqual(geodb.FACILITY_QUERY.count("{b}"), 11, "every line of the query still takes the box")
+        # the industrial land of the box first (an exact tag), then only its names are matched
+        self.assertIn('nwr["landuse"="industrial"]({b})->.ind;', geodb.OIL_QUERY)
+        self.assertIn('nwr.ind["name"~"', geodb.OIL_QUERY)
+        self.assertIn('nwr.ind["operator"~"', geodb.OIL_QUERY)
+        self.assertNotIn("{names}", geodb.OIL_QUERY)
+        self.assertNotIn("{owners}", geodb.OIL_QUERY)
+        self.assertEqual(geodb.OIL_QUERY.count("{b}"), 1)
+        self.assertNotIn('"name"~', geodb.FACILITY_QUERY, "no name pattern over a whole tile (it timed out)")
+        self.assertEqual(geodb.FACILITY_QUERY.count("{b}"), 9, "every line of the query still takes the box")
         self.assertGreaterEqual(geodb.GEO_VERSION, 3, "the map is built again with the wider question")
 
     def test_other_oil_sites_drawn_as_industrial_land(self):
@@ -101,6 +106,83 @@ class HandKeptFacilities(unittest.TestCase):
         names = [item[2] for item in geodb.extra_facilities(cfg)]
         self.assertIn("محطة ضخ أرامكو السعودية 1", names)
         self.assertTrue(cfg["geodata"]["overpass_urls"], "the rest of the map settings are still there")
+
+
+class MapRebuildInSlices(unittest.TestCase):
+    """16 Nov 2026: with the oil names inside the facility query, both map servers gave up after 70 s
+    on the first tile, every ten minutes for five hours: the rebuilt map never came. Each part of a tile
+    is now asked and saved by itself, and no request outlives the slice the watching loop gives."""
+
+    def setUp(self):
+        import copy
+        import tempfile
+        from pathlib import Path
+
+        from rasad import engine
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.cfg = copy.deepcopy(engine.DEFAULTS)
+        self.cfg["_geodata_dir"] = Path(folder.name) / "geo"
+        self.cfg["regions"] = [{"id": "east", "name": "شرق السعودية", "bbox": [48.0, 25.0, 50.0, 27.0]}]
+        self.cfg["geodata"]["overpass_pause_s"] = 0
+        self.calls = []
+        self.fail = set()
+
+    def post(self, url, data, timeout):
+        from unittest.mock import Mock
+        query = data["data"]
+        kind = "oil" if "->.ind" in query else "place" if '"place"' in query else "fac"
+        self.calls.append((kind, query, timeout))
+        nth = len([c for c in self.calls if c[0] == kind])       # the how-many-th request of this kind
+        if (kind, nth) in self.fail:
+            raise geodb.requests.ReadTimeout()
+        els = []
+        if kind == "oil" and nth == 2:
+            els = [{"type": "way", "id": 1, "center": {"lat": 25.61143, "lon": 48.88608},
+                    "tags": {"landuse": "industrial", "name": "محطة ضخ أرامكو السعودية 1"}}]
+        if kind == "fac":
+            els = [{"type": "node", "id": 2, "lat": 26.6, "lon": 49.9,
+                    "tags": {"industrial": "refinery", "name": "Ras Tanura Refinery"}}]
+        if kind == "place":
+            els = [{"type": "node", "id": 3, "lat": 26.4, "lon": 50.0, "tags": {"place": "city", "name": "الدمام"}}]
+        return Mock(status_code=200, json=Mock(return_value={"elements": els}))
+
+    def build(self, budget_s=None):
+        from unittest.mock import Mock
+        session = Mock()
+        session.post.side_effect = self.post
+        return geodb.build_geodata(self.cfg, session, budget_s=budget_s)
+
+    def test_a_tile_is_asked_in_parts_and_the_named_station_lands_in_the_map(self):
+        from rasad.util import load_json
+        self.assertTrue(self.build())
+        kinds = [c[0] for c in self.calls]
+        self.assertEqual(kinds, ["fac", "oil", "oil", "oil", "oil", "place"], "one tile: facilities, 4 boxes of oil land, places")
+        fac = load_json(self.cfg["_geodata_dir"] / "facilities.json", {})
+        self.assertEqual(fac["version"], geodb.GEO_VERSION)
+        names = {item[2]: item[4] for item in fac["items"]}
+        self.assertEqual(names.get("محطة ضخ أرامكو السعودية 1"), "pumping")
+        self.assertIn("refinery", names.values())
+
+    def test_a_failed_part_keeps_what_was_done_before_it(self):
+        self.fail = {("oil", 2), ("oil", 3)}                   # the second oil box times out on both servers
+        self.assertFalse(self.build(budget_s=45))
+        first = [c[0] for c in self.calls]
+        self.assertEqual(first, ["fac", "oil", "oil", "oil"], "both servers asked for the failed part, then stop")
+        self.calls.clear()
+        self.fail = set()
+        self.assertTrue(self.build(budget_s=45))
+        self.assertEqual([c[0] for c in self.calls], ["oil", "oil", "oil", "place"],
+                         "the facilities and the first oil box are not asked again")
+
+    def test_no_request_outlives_the_slice(self):
+        self.assertTrue(self.build(budget_s=45))
+        self.assertTrue(all(c[2] <= 55 for c in self.calls), [c[2] for c in self.calls])
+        from unittest.mock import Mock
+        session = Mock()
+        import time as clock
+        self.assertIsNone(geodb.overpass(session, ["https://a", "https://b"], "q", deadline=clock.monotonic() + 10))
+        session.post.assert_not_called()
 
 
 class NewsByChange(unittest.TestCase):
