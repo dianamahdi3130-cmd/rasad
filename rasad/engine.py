@@ -27,11 +27,11 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 19  # bump when the importance rules change, so stored incidents are judged again
+RULES = 20  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
-PATTERNS = 1     # bump when the heat patterns' rules change, so every stored event is labelled again
+PATTERNS = 2     # bump when the heat patterns' rules change, so every stored event is labelled again
 # fire symbols whose strength (MW) the server can tell; the second European satellite's cannot
 STRENGTH_SOURCES = frozenset({"mtg_frp"})
 
@@ -50,6 +50,12 @@ DEFAULTS = {
                # the Gulf, is news even far from every mapped facility (brain.new_heat)
                "new_heat_countries": ["السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان", "عُمان"],
                "new_heat_min_mw": 5, "new_heat_min_pictures": 4, "new_heat_strong_mw": 20,
+               # ...and heat that comes back to a place quiet for a week and burns on (patterns.new_heat_path)
+               "new_heat_sustained": True, "new_heat_quiet_days": 7, "new_heat_max_known_days": 2,
+               "new_heat_max_area_days": 1, "new_heat_sustained_min_mw": 10, "new_heat_sustained_hours": 6,
+               "new_heat_sustained_pictures": 12, "new_heat_tagged_hours": 3,
+               # NASA's daytime pixels on a mapped solar plant's panels, Meteosat cold: not posted
+               "solar_glint_stop": True, "solar_glint_km": 3,
                "intensity_ratio": 1.5, "intensity_add_mw": 1, "intensity_interval_min": 30,
                "intensity_max_age_hours": 24,
                "focus_countries": ["العراق", "السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان",
@@ -75,9 +81,7 @@ DEFAULTS = {
     "patterns": {"enabled": True, "scope_facility_km": 10, "solar_km": 3,
                  "wide_min_px": 8, "wide_min_km": 1.5, "wide_min_mw": 50, "wide_usual_ratio": 3,
                  "second_look_h": 3, "footprint_learn_days": 7,
-                 "sustained_quiet_days": 7, "sustained_max_known_days": 2, "sustained_max_area_days": 2,
-                 "sustained_min_mw": 10, "sustained_hours": 6, "sustained_pictures": 12,
-                 "sustained_tagged_hours": 3, "link_h": 3, "link_min_km": 5, "link_max_km": 500},
+                 "link_h": 3, "link_min_km": 5, "link_max_km": 500},
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
@@ -1483,7 +1487,7 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         elif item.get("clip_note"):
             item["clip_status_text"] = item["clip_note"]
         elif item.get("priority") == "high" and now - parse_time(item["last"]) <= dt.timedelta(days=2):
-            item["clip_status_text"] = "الفيديو قيد التجهيز؛ سيظهر عند توفر صور صالحة"
+            item["clip_status_text"] = "يظهر الفيديو هنا إن ظهر الحدث بوضوح في الصور"
         else:
             item["clip_status_text"] = "لا يتوفر فيديو لهذا الحدث حالياً"
         item["smoke_text"] = smoke.text(item.get("smoke"))

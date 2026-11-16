@@ -130,7 +130,7 @@ class SeaCloserLook(unittest.TestCase):
         post = self.deliver.call_args
         self.assertIn("حريق في البحر قرب عُمان", post.args[2])
         self.assertEqual(post.args[3], self.cfg["_site_dir"] / "clips/speck.mp4")
-        self.assertNotIn("الفيديو قيد التجهيز", post.args[2])
+        self.assertNotIn("يُرسل الفيديو هنا", post.args[2])
         self.assertEqual((inc["status"], inc["alerted_verdict"], inc["tg_msg"]), ("alerted", "مرجّح", 1219))
         self.assertFalse(inc["clip_video_pending"])
         self.check(3)
@@ -143,7 +143,7 @@ class SeaCloserLook(unittest.TestCase):
         inc = self.check(6)                        # sixteen minutes and the worker has not answered
         self.deliver.assert_called_once()
         self.assertIsNone(self.deliver.call_args.args[3])
-        self.assertIn("الفيديو قيد التجهيز", self.deliver.call_args.args[2])
+        self.assertIn("🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور.", self.deliver.call_args.args[2])
         self.assertTrue(inc["clip_video_pending"])
 
     def test_seen_by_another_source_too_it_does_not_wait(self):

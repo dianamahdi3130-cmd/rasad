@@ -343,6 +343,89 @@ class Silent(unittest.TestCase):
         self.assertNotIn("pattern", archive.slim(week(JUDAH, place="sea")))
 
 
+class Posting(unittest.TestCase):
+    """What the channel gets since 16 Nov 2026: heat that comes back to a quiet place and burns on
+    (Abqaiq north), never sun glint on solar panels; strong single bursts and Judah's road unchanged."""
+    CAUSES = ("هجوم", "استهداف", "ضربة", "قصف", "مسيّرة", "تخريب")
+
+    def test_abqaiq_north_is_posted_as_new_sustained_heat(self):
+        inc = week(ABQAIQ)
+        self.assertEqual((inc["priority"], inc["new_heat"], inc["new_heat_path"]), ("high", True, "b"))
+        self.assertEqual(inc["headline"], "حرارة جديدة مستمرة في موقع نفط وغاز في السعودية")
+        message = alert_message(inc, config())
+        self.assertIn("🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ 14 يوماً، وهي مستمرة منذ "
+                      "نحو 22 ساعة. تصنّف NOAA هذه النقطة موقع نفط وغاز. صور الأقمار ترى الحرارة ولا ترى سببها.", message)
+        self.assertNotIn("خلال شهر", message, "there was heat here two weeks before: never say a month")
+        for cause in self.CAUSES:
+            self.assertNotIn(cause, message)
+        self.assertTrue(any(e["text"].startswith("حرارة عادت إلى مكان هادئ منذ أسبوع على الأقل واستمرت")
+                            for e in inc["evidence"]))
+
+    def test_without_noaas_tag_the_headline_says_heat_only(self):
+        inc = copy.deepcopy(WEEK[ABQAIQ])
+        inc.pop("_case")
+        for o in inc["observations"]:
+            o.pop("pa", None)
+        for o in sorted(inc["observations"], key=lambda o: o["t"]):
+            patterns.note_pass(inc, o)
+        inc = finalize(inc, config())
+        self.assertEqual(inc["headline"], "حرارة جديدة مستمرة في السعودية")
+        self.assertNotIn("NOAA", alert_message(inc, config()))
+
+    def test_the_road_needs_a_quiet_week_a_quiet_area_and_heat_that_burns_on(self):
+        self.assertNotIn("new_heat", week(ABQAIQ, quiet_days=3), "burned here three days before")
+        self.assertNotIn("new_heat", week(ABQAIQ, area_days=2), "the area around burns often")
+        self.assertNotIn("new_heat", week(ABQAIQ, known_days=3), "a place that burns now and then")
+        short = copy.deepcopy(WEEK[ABQAIQ])
+        short.pop("_case")
+        short["observations"] = [o for o in short["observations"] if o["t"] < "2026-11-15T10:30:00Z"]
+        short["geo_slots"] = [t for t in short["geo_slots"] if t < "2026-11-15T10:30:00Z"]
+        short["last"] = max(o["t"] for o in short["observations"])
+        for o in sorted(short["observations"], key=lambda o: o["t"]):
+            patterns.note_pass(short, o)
+        self.assertNotIn("new_heat", finalize(short, config()), "an hour and a half is not 'burning on' yet")
+        off = config()
+        off["alerts"]["new_heat_sustained"] = False
+        inc = copy.deepcopy(WEEK[ABQAIQ])
+        inc.pop("_case")
+        self.assertNotIn("new_heat", finalize(inc, off))
+
+    def test_where_noaa_tags_oil_and_gas_three_hours_are_enough(self):
+        rows = [pixel("2026-11-15T08:53:00Z", 26.1667, 49.7592, 8.66, pa=1),
+                pixel("2026-11-15T09:50:00Z", 26.1642, 49.7615, 32.9, src="VIIRS_NOAA20_NRT", pa=1)]
+        geo = ["2026-11-15T09:30:00Z", "2026-11-15T10:00:00Z", "2026-11-15T11:00:00Z", "2026-11-15T12:10:00Z"]
+        inc = fire_from(rows, *geo, known_days=1, quiet_days=14, area_days=1, facility=None)
+        self.assertEqual((inc["verdict"], inc["new_heat_path"], inc["priority"]), ("مؤكد", "b", "high"))
+        untagged = fire_from([dict(r, pa=None) for r in rows], *geo, known_days=1, quiet_days=14, area_days=1,
+                             facility=None)
+        self.assertNotIn("new_heat", untagged, "elsewhere six hours and twelve pictures")
+
+    def test_the_road_of_15_november_and_the_strong_burst_are_unchanged(self):
+        judah = week(JUDAH, facility=None)
+        self.assertEqual((judah["new_heat_path"], judah["headline"]), ("a", "حريق جديد في السعودية"))
+        self.assertIn("ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر", alert_message(judah, config()))
+        harad = week(HARAD, facility=None)
+        self.assertEqual((harad["new_heat_path"], harad["priority"], harad["headline"]),
+                         ("strong", "high", "حريق جديد في السعودية"))
+        self.assertEqual(harad["pattern"]["key"], "short", "posted, but not called sustained")
+
+    def test_sun_glint_on_solar_panels_is_not_posted(self):
+        self.assertEqual(week(DUBAI)["priority"], "high", "as it went out on 11 Nov")
+        glint = week(DUBAI, solar_km=1.4, geo_read_at_pass=True)
+        self.assertEqual(glint["priority"], "low")
+        self.assertEqual(glint["pattern"]["key"], "solar")
+        off = config()
+        off["alerts"]["solar_glint_stop"] = False
+        inc = copy.deepcopy(WEEK[DUBAI])
+        inc.pop("_case")
+        inc.update(solar_km=1.4, geo_read_at_pass=True)
+        self.assertEqual(finalize(inc, off)["priority"], "high")
+
+    def test_the_video_line_promises_only_what_can_be_kept(self):
+        self.assertEqual(brain.video_note({"geo_slots": ["2026-11-15T17:40:00Z"]}),
+                         "🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور.")
+
+
 class SeveralPlaces(unittest.TestCase):
     NOW = dt.datetime(2026, 11, 15, 20, 0, tzinfo=UTC)
 
@@ -408,7 +491,7 @@ class InACheck(unittest.TestCase):
     """A whole check keeps what the patterns need when it makes an incident, and the app gets the label."""
     NOW = dt.datetime(2026, 11, 15, 22, 50, tzinfo=UTC)
 
-    def run_check(self, root, noaa_rows, slots=None, now=None):
+    def run_check(self, root, noaa_rows, slots=None, now=None, rules=None, facility=None):
         now = now or self.NOW
         cfg = copy.deepcopy(engine.DEFAULTS)
         cfg.update(_state_dir=root / "state", _site_dir=root / "site", _geodata_dir=root / "geo")
@@ -422,10 +505,10 @@ class InACheck(unittest.TestCase):
         session.get.side_effect = AssertionError("No network")
         geo = Mock(version="offline-map")
         geo.place_kind.return_value = "land"
-        geo.facility.return_value = {"label": "معمل بقيق", "code": "oil", "km": 1.0}
+        geo.facility.return_value = facility or {"label": "معمل بقيق", "code": "oil", "km": 1.0}
         geo.describe.return_value = ("في السعودية", "السعودية")
         geo.solar_km.return_value = None
-        state = {"schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE, "sea_check": engine.SEA_CHECK,
+        state = {"schema": 3, "rules": rules or engine.RULES, "clip_style": engine.CLIP_STYLE, "sea_check": engine.SEA_CHECK,
                  "bootstrapped": iso(now), "hello_sent": iso(now), "slots": slots or {}}
         save_json(root / "state" / "state.json", state)
         memory = Memory({})
@@ -493,6 +576,28 @@ class InACheck(unittest.TestCase):
             self.assertEqual(inc["quiet_days"], 14)
             self.assertEqual(inc["pattern"]["key"], "new_sustained")
             self.assertEqual(load_json(root / "state" / "state.json", {})["patterns"], engine.PATTERNS)
+
+    def test_the_new_rules_do_not_post_abqaiq_a_day_late(self):
+        # 16 Nov 09:00 UTC, the first check under the new rules: Abqaiq north is news now, but it
+        # started 24 hours before; it is marked late and shown in the app, never posted
+        stored = copy.deepcopy(WEEK[ABQAIQ])
+        stored.pop("_case")
+        old = config()
+        old["alerts"]["new_heat_sustained"] = False
+        finalize(stored, old)
+        self.assertEqual(stored["priority"], "low")
+        stored["status"] = "new"
+        far = {"label": "محطة كهرباء (AC Plant #2)", "code": "power", "km": 25.6}
+        stored["_pos"] = [round(stored["lat"], 3), round(stored["lon"], 3), "offline-map"]
+        stored["facility"] = far
+        deliver = Mock(return_value=None)
+        with tempfile.TemporaryDirectory() as folder, patch.object(engine, "deliver", deliver):
+            root = Path(folder)
+            save_json(root / "state" / "incidents.json", [stored])
+            S = self.run_check(root, [], now=dt.datetime(2026, 11, 16, 9, 0, tzinfo=UTC), rules=19, facility=far)
+            inc = next(i for i in S.incidents if i["id"] == ABQAIQ)
+            self.assertEqual((inc["priority"], inc.get("new_heat"), inc["status"]), ("high", True, "late"))
+            deliver.assert_not_called()
 
     def test_a_failing_fact_never_stops_the_check(self):
         with tempfile.TemporaryDirectory() as folder, \

@@ -465,7 +465,7 @@ class AlertTextTests(unittest.TestCase):
         nasa = {"first": "2026-11-10T09:43:00Z", "geo_slots": [], "polar": [{"conf": "n"}]}
         self.assertIn("لا يُتوقع فيديو", video_note(nasa))
         geo = {"first": "2026-11-10T12:10:00Z", "geo_slots": ["x"], "polar": []}
-        self.assertEqual(video_note(geo), "🎞 الفيديو قيد التجهيز؛ سيُرسل عند توفر صور واضحة للرصد.")
+        self.assertEqual(video_note(geo), "🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور.")
 
 
 class CycleTests(unittest.TestCase):
