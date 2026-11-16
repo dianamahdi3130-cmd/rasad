@@ -31,7 +31,7 @@ RULES = 20  # bump when the importance rules change, so stored incidents are jud
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
-PATTERNS = 2     # bump when the heat patterns' rules change, so every stored event is labelled again
+PATTERNS = 3     # bump when the heat patterns' rules change, so every stored event is labelled again
 # fire symbols whose strength (MW) the server can tell; the second European satellite's cannot
 STRENGTH_SOURCES = frozenset({"mtg_frp"})
 
@@ -82,6 +82,9 @@ DEFAULTS = {
                  "wide_min_px": 8, "wide_min_km": 1.5, "wide_min_mw": 50, "wide_usual_ratio": 3,
                  "second_look_h": 3, "footprint_learn_days": 7,
                  "link_h": 3, "link_min_km": 5, "link_max_km": 500},
+    # «مؤشرات تستحق الانتباه» (patterns.signals_of): app only, never a cause
+    "signals": {"enabled": True, "spot_km": 0.75, "rare_max": 3, "usual_share": 0.10, "flare_near_km": 5,
+                "facility_km": 3, "sudden_mw": 20, "burn_min_ha": 0.5, "min_atlas_dates": 50},
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
@@ -1451,7 +1454,9 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
           "known_days", "typical_frp", "site_record", "site_habit", "new_heat",
           # the heat pattern (patterns.py): a label with its reasons, shown in the app only
-          "pattern"]
+          "pattern",
+          # signals worth attention (patterns.signals_of), app only
+          "signals"]
 # the longer parts of the assessment go out only for events worth opening, to keep the feed light
 PUBLIC_DETAIL = ["evidence", "sources", "agreement"]
 

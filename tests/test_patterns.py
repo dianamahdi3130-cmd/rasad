@@ -5,6 +5,7 @@ import copy
 import datetime as dt
 import io
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -57,8 +58,9 @@ def pixel(t, lat, lon, frp=10.0, src="VIIRS_NOAA21_NRT", night=True, pa=None):
 
 def fire_from(rows, *geo, **fields):
     """An incident on land in Saudi Arabia made of NOAA rows and Meteosat pictures."""
-    dets = sorted(list(rows) + [{"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": t, "lat": rows[0]["lat"],
-                                 "lon": rows[0]["lon"], "frp": 30.0} for t in geo], key=lambda d: d["t"])
+    lat, lon = (rows[0]["lat"], rows[0]["lon"]) if rows else fields.pop("at", (26.1575, 49.7600))
+    dets = sorted(list(rows) + [{"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": t, "lat": lat,
+                                 "lon": lon, "frp": 30.0} for t in geo], key=lambda d: d["t"])
     inc = new_incident(dets[0], fields.pop("kind", "new"))
     for d in dets:
         add_to_incident(inc, d)
@@ -597,6 +599,106 @@ class SeveralPlaces(unittest.TestCase):
         text = inc["evidence"][-1]["text"]
         self.assertIn("حرارة جديدة مستمرة · عدة مواقع في وقت متقارب", text)
         self.assertIn("ظهرت حرارة جديدة في موقع آخر على بعد 120 كم خلال 40 دقيقة", text)
+
+
+class Signals(unittest.TestCase):
+    """«مؤشرات تستحق الانتباه»: facts that make heat at an energy site worth a closer look, and facts
+    that make it look like the site's everyday heat. In the app only, never a cause."""
+
+    @staticmethod
+    def atlas(**cells):
+        """A small long-term map: 200 sampled dates; a flare at 26.170,49.760 hot on 120 of them."""
+        A = {"cell": 0.005, "dates": 200, "first": "2024-03-05", "cells": {}}
+        def put(lat, lon, n):
+            A["cells"][f"{math.floor(lat / 0.005)},{math.floor(lon / 0.005)}"] = n
+        put(26.170, 49.760, 120)
+        for (lat, lon), n in cells.items():
+            put(lat, lon, n)
+        return A
+
+    def signals(self, rows, *geo, A=None, **fields):
+        inc = fire_from(rows, *geo, **fields)
+        return patterns.signals_of(inc, config(), self.atlas() if A is None else A), inc
+
+    def test_heat_at_a_spot_of_the_plant_that_rarely_burns(self):
+        # a tank farm 1.4 km from the plant's flare, which burns on 60% of the dates
+        rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]
+        sig, inc = self.signals(rows)
+        self.assertEqual(sig["n"], 1)
+        self.assertEqual(sig["warn"][0]["key"], "odd_spot")
+        self.assertIn("الحرارة في نقطة لم تظهر فيها حرارة إلا نادراً منذ آذار 2024", sig["warn"][0]["text"])
+        self.assertIn("بينما الشعلات المعتادة قربها على بعد 1.", sig["warn"][0]["text"])
+        self.assertEqual(sig["note"], patterns.SIGNALS_NOTE)
+
+    def test_heat_at_the_plants_own_flare_is_said_to_be_its_habit(self):
+        sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1702, 49.7602, 30.0)])
+        self.assertEqual((sig["n"], [c["key"] for c in sig["calm"]]), (0, ["usual_spot"]))
+        self.assertIn("ظهرت حرارة فيه في نحو 60% من الأيام منذ آذار 2024", sig["calm"][0]["text"])
+
+    def test_only_meteosat_saw_it_so_the_spot_is_not_known_yet(self):
+        sig, _ = self.signals([], "2026-11-15T22:50:00Z", "2026-11-15T23:00:00Z")
+        self.assertEqual([w["key"] for w in sig["wait"]], ["spot_unknown"])
+        self.assertEqual(sig["n"], 0)
+
+    def test_an_atlas_too_short_or_missing_says_nothing_about_spots(self):
+        short = dict(self.atlas(), dates=20)
+        sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], A=short)
+        self.assertTrue(sig is None or not any(w["key"] == "odd_spot" for w in sig["warn"]))
+        sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], A={})
+        self.assertTrue(sig is None or not sig["warn"])
+
+    def test_a_sudden_strong_start_at_a_quiet_place(self):
+        geo = ["2026-11-15T22:50:00Z", "2026-11-15T23:00:00Z", "2026-11-15T23:10:00Z"]
+        sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=True,
+                              quiet_days=14)
+        self.assertIn("sudden", [w["key"] for w in sig["warn"]])
+        self.assertIn("بدأت فجأة وبقوة: 30 MW في أول نصف ساعة", next(w["text"] for w in sig["warn"] if w["key"] == "sudden"))
+        sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=False)
+        self.assertNotIn("sudden", [w["key"] for w in sig["warn"]], "after a gap in the readings the start is not known")
+        sig, _ = self.signals([pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)], *geo, onset_known=True, quiet_days=0)
+        self.assertNotIn("sudden", [w["key"] for w in sig["warn"]], "heat here the day before")
+
+    def test_several_places_wide_heat_and_a_change_in_the_picture_after(self):
+        rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]
+        inc = fire_from(rows, "2026-11-15T23:10:00Z", "2026-11-15T23:20:00Z", linked={"id": "x", "km": 120, "min": 40},
+                        wide={"n": 27, "km": 3.0, "mw": 142.0, "t": "2026-11-15T22:59:00Z", "usual": 2.0},
+                        satpic={"before": "2026-11-10", "after": "2026-11-17", "area_ha": 8.1, "quiet": False},
+                        known_days=0, quiet_days=None)
+        sig = patterns.signals_of(inc, config(), self.atlas())
+        keys = [w["key"] for w in sig["warn"]]
+        self.assertTrue({"odd_spot", "wide", "change"} <= set(keys), keys)
+        self.assertIn("انتشرت على 27 نقطة في مساحة 3.0 كم في مرور واحد لقمر ناسا", " ".join(w["text"] for w in sig["warn"]))
+        self.assertIn("تُظهر تغيّراً على نحو 8.1 هكتار", " ".join(w["text"] for w in sig["warn"]))
+
+    def test_a_plants_surge_to_a_level_it_reached_before(self):
+        sig, _ = self.signals([], "2026-11-16T12:40:00Z", kind="unusual", known_days=24, typical_frp=19.6,
+                              site_record=130.7, site_habit=95.9)
+        self.assertIn("سبق أن بلغت حرارة هذا الموقع 131 MW خلال الشهر", [c["text"] for c in sig["calm"]])
+
+    def test_sea_and_far_away_land_get_no_signals(self):
+        rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]
+        self.assertIsNone(self.signals(rows, place="sea")[0])
+        far, _ = self.signals([pixel("2026-11-15T22:59:00Z", 31.0, 46.0, 30.0)], facility=None, country="العراق")
+        self.assertIsNone(far)
+
+    def test_no_signal_ever_names_a_cause_and_posts_do_not_change(self):
+        rows = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, 30.0)]
+        with patch.object(patterns, "_atlas", self.atlas()):
+            inc = fire_from(rows, "2026-11-15T22:50:00Z", "2026-11-15T23:00:00Z", onset_known=True, quiet_days=14)
+            self.assertGreaterEqual(inc["signals"]["n"], 1)
+            text = json.dumps(inc["signals"], ensure_ascii=False)
+            for cause in ("هجوم", "استهداف", "ضربة", "قصف", "مسيّرة", "تخريب"):
+                self.assertNotIn(cause, text)
+            message = alert_message(inc, config())
+            self.assertNotIn("مؤشر", message)
+            self.assertNotIn("نادراً", message)
+            off = config()
+            off["signals"]["enabled"] = False
+            again = finalize(copy.deepcopy(inc), off)
+            self.assertNotIn("signals", again)
+            self.assertEqual((again["priority"], again["headline"], again["confidence"]),
+                             (inc["priority"], inc["headline"], inc["confidence"]))
+            self.assertEqual(alert_message(again, off), message)
 
 
 class InACheck(unittest.TestCase):

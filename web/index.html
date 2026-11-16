@@ -499,6 +499,15 @@ video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display
 .ev .plus{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
 .ev .minus{background:color-mix(in srgb,var(--likely) 18%,transparent);color:var(--likely)}
 .ev .dotn{background:var(--surface-2);color:var(--muted)}
+/* «مؤشرات تستحق الانتباه»: facts that make heat at an energy site worth a closer look, never a cause */
+.sig{border:1px solid var(--line);border-radius:var(--r-l);padding:10px 12px;margin-top:12px}
+.sig.on{border-color:color-mix(in srgb,var(--likely) 55%,var(--line));background:color-mix(in srgb,var(--likely) 7%,transparent)}
+.sig>h3{font:700 14.5px/1.6 var(--font-display);margin:0 0 6px;display:flex;align-items:center;gap:8px}
+.sig .ev .warn{background:color-mix(in srgb,var(--likely) 22%,transparent);color:var(--likely)}
+.sig .ev .calm{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.sig .ev .wait{background:var(--surface-2);color:var(--muted)}
+.sig .nt{margin:8px 0 0;color:var(--muted);font-size:12.5px;line-height:1.6}
+.tag.sig-n{color:var(--likely);background:color-mix(in srgb,var(--likely) 14%,transparent);font-weight:600}
 .srcs{width:100%;border-collapse:collapse;font-size:12.5px}
 .srcs th{font-weight:500;color:var(--muted);text-align:start;padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
 .srcs td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -1009,7 +1018,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <div id="report" aria-hidden="true"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="access.js?v=19"></script>
+<script src="access.js?v=20"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24,
@@ -1522,7 +1531,7 @@ function cardHTML(it){
       <button class="card" type="button" data-id="${esc(it.id)}"${it.id === S.sel ? ' aria-current="true"' : ""}>
         <span class="stripe ${c.cls}${cat === "candidate" ? " spot" : ""}"></span>
         <span class="main">
-          <span class="top">${kindHTML(cat)}${sevHTML(it)}${it.alerted ? sentTag() : ""}
+          <span class="top">${kindHTML(cat)}${sevHTML(it)}${it.alerted ? sentTag() : ""}${signalCount(it) ? `<span class="tag sig-n" title="مؤشرات تستحق الانتباه">⚠ ${esc(signalWord(signalCount(it)))}</span>` : ""}
             <span class="when">${Number.isFinite(Date.parse(it.first)) ? "بدأ " + ago(it.first) : "آخر رصد " + ago(it.last)}</span></span>
           <h3>${bidi(it.headline)}</h3>
           <span class="where">${bidi(it.where||"")}</span>
@@ -1786,6 +1795,23 @@ function dialHTML(c){
   return `<div class="dial ${c.lcls}" role="img" aria-label="${esc(c.label)} ${c.n} من 100"><svg viewBox="0 0 62 62" aria-hidden="true"><circle class="t" cx="31" cy="31" r="${r}"/>`
     + `<circle class="f" cx="31" cy="31" r="${r}" stroke-dasharray="${(len * c.n / 100).toFixed(1)} ${len.toFixed(1)}"/></svg><b>${c.n}</b></div>`;
 }
+// «مؤشرات تستحق الانتباه» (rasad/patterns.py → signals_of): facts with their numbers, never a cause
+function signalCount(it){ const n = it && it.signals && +it.signals.n; return n > 0 ? n : 0; }
+function signalWord(n){ return plural(n, "مؤشر واحد", "مؤشران", "مؤشرات", "مؤشراً"); }
+function signalsHTML(it, report = false){
+  const S2 = it && it.signals;
+  if (!S2) return "";
+  const rows = [...(S2.warn || []).map(x => ["warn", "!", "يستحق الانتباه", x.text]),
+                ...(S2.wait || []).map(x => ["wait", "…", "ننتظر", x.text]),
+                ...(S2.calm || []).map(x => ["calm", "✓", "يشبه المعتاد", x.text])].filter(r => r[3]);
+  if (!rows.length) return "";
+  const n = signalCount(it);
+  const title = n ? `مؤشرات تستحق الانتباه <span class="tag sig-n">${esc(signalWord(n))}</span>` : "مؤشرات تستحق الانتباه: لا شيء لافت حتى الآن";
+  const list = `<ul class="ev">${rows.map(([cls, mark, label, text]) =>
+    `<li><span class="s ${cls}" role="img" aria-label="${label}" title="${label}">${mark}</span><span>${bidi(text)}</span></li>`).join("")}</ul>`;
+  if (report) return `<h2>${title}</h2>${list}<p>${esc(S2.note || "")}</p>`;
+  return `<section class="sig${n ? " on" : ""}"><h3>${title}</h3>${list}<p class="nt">${esc(S2.note || "")}</p></section>`;
+}
 function evidenceHTML(it){
   const rows = Array.isArray(it.evidence) ? it.evidence.filter(e => e && e.text) : [];
   if (!rows.length) return "";
@@ -1901,7 +1927,8 @@ function usualHTML(it){
 }
 function detailSig(it){
   return [it.last, it.verdict, it.confidence, it.severity, it.max_frp, it.clip, it.snap, it.clip_status_text, it.clip_note,
-    (it.timeline || []).length, (it.frp_series || []).length, it.smoke_text, it.satpic && it.satpic.after, it.alerted].join("|");
+    (it.timeline || []).length, (it.frp_series || []).length, it.smoke_text, it.satpic && it.satpic.after, it.alerted,
+    it.signals ? JSON.stringify(it.signals) : ""].join("|");
 }
 function detailHTML(it){
   const f = it.facility, cat = categoryOf(it), c = confOf(it), m = latestMeasure(it);
@@ -1912,6 +1939,7 @@ function detailHTML(it){
     <div class="sub">${bidi(it.where||"")}</div>
     ${it.early_promotion_ambiguous ? `<p class="note" role="status" style="margin-top:10px">توجد عدة بقع أولية قرب هذا الموقع؛ ارتباطها بهذا الحدث قيد المراجعة.</p>` : ""}
     <div class="verdict">${dialHTML(c)}<div class="v"><span class="badge ${c.cls}">${esc(it.verdict || "غير محدد")}</span><span class="lvl">${esc(c.label)}: ${esc(c.level)}</span><p>${esc(it.reason)}</p></div></div>
+    ${signalsHTML(it)}
     <div class="media">
     ${it.clip ? `<video src="${esc(it.clip)}" ${it.snap?`poster="${esc(it.snap)}"`:""} controls playsinline muted loop preload="none"></video>`
               : it.snap ? `<img class="snap" src="${esc(it.snap)}" alt="صورة القمر الصناعي" loading="lazy">`
@@ -1981,6 +2009,7 @@ function reportHTML(it){
       ${row("أقرب منشأة", it.preliminary ? "لم تُراجع المنشآت القريبة بعد" : f ? bidi(f.text) : "لا توجد منشأة طاقة قريبة")}
       ${row("تنبيه القناة", it.alerted ? "نُشر في قناة تلكرام" : "لم يُنشر")}
     </dl>
+    ${signalsHTML(it, true)}
     <h2>لماذا هذه الدرجة؟</h2>
     <p>${esc(it.reason || "")}</p>${evidence}
     ${sources ? `<h2>من رآه ومتى</h2>${sources}` : ""}
@@ -3059,7 +3088,7 @@ async function signOut(){
 // The «قبل وبعد» screen (imagery.js, beforeafter.js) is behind the door on the private app, so its
 // scripts are added only once the app may run: at once on the open site, after a sign-in on the
 // private one. The app does not wait for them, and everything else works without them (hasBA()).
-const TOOLS = ["imagery.js?v=19", "beforeafter.js?v=19"];
+const TOOLS = ["imagery.js?v=20", "beforeafter.js?v=20"];
 function loadTools(){
   if (hasBA() || S.toolsBusy) return;
   S.toolsBusy = true;
@@ -3402,7 +3431,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 19;                    // the same number as CACHE in sw.js and ?v= of the scripts
+const APP_V = 20;                    // the same number as CACHE in sw.js and ?v= of the scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {

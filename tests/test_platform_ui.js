@@ -17,7 +17,7 @@ const NOW = Date.parse("2026-11-15T13:45:00Z");
 const NAMES = ["S", "UI", "ARC", "ADM", "WATCH", "NAV", "visible", "scoped", "passes", "shown", "render", "normAr", "kmBetween", "categoryOf", "confOf", "markerStyle",
   "sourceTags", "timelineView", "tlRange", "dashStats", "archiveFilter", "archiveMonths", "csvOf", "nearPlace", "watchNews", "sourceState", "statusInfo", "looksLikeKey", "gateText",
   "expiryInfo", "keyMessage", "subsHTML", "adminHTML", "nasaUrl", "nightDefault", "dailyUrl", "NASA_VIEWS", "chartModel", "strengthChart", "niceStep", "detailHTML", "reportHTML",
-  "suggestions", "parseCoords", "route", "setRoute", "go", "leave", "setTab", "openDetail", "lock", "cardHTML", "usualHTML", "histHTML", "TOOLS", "SEV", "flareCards", "showTab"];
+  "suggestions", "parseCoords", "route", "setRoute", "go", "leave", "setTab", "openDetail", "lock", "cardHTML", "usualHTML", "histHTML", "TOOLS", "SEV", "flareCards", "showTab", "signalsHTML", "signalCount"];
 
 function page(extra = {}) {
   const elements = new Map(), body = new Set(), storage = new Map(Object.entries(extra.storage || {}));
@@ -315,6 +315,30 @@ test("the details explain the confidence, list who saw it, and compare a plant w
   assert.equal(app.usualHTML(incident("fire", {typical_frp: 3, max_frp: 60})), "", "only a plant is compared with its usual heat");
 });
 
+test("«مؤشرات تستحق الانتباه»: facts in the details, a count on the card, and never a cause", () => {
+  const {app} = page({meta: {local_offset_hours: 3, local_name: "بغداد"}});
+  const signals = {n: 2, note: "هذه علامات وليست حكماً: الأقمار ترى الحرارة ولا ترى سببها، والتأكيد يأتي من خبر أو بيان رسمي.",
+    warn: [{key: "odd_spot", text: "الحرارة في نقطة لم تظهر فيها حرارة إلا نادراً منذ آذار 2024، بينما الشعلات المعتادة قربها على بعد 1.2 كم"},
+           {key: "sudden", text: "بدأت فجأة وبقوة: 45 MW في أول نصف ساعة، ولم تظهر في الصورة التي قبلها"}],
+    calm: [], wait: []};
+  const it = incident("s1", {signals, place: "land", evidence: [{s: "+", text: "رصدته أقمار ناسا بثقة عادية"}]});
+  const d = app.detailHTML(it);
+  assert.match(d, /<section class="sig on"><h3>مؤشرات تستحق الانتباه <span class="tag sig-n">مؤشران<\/span><\/h3>/);
+  assert.equal((d.match(/class="s warn"/g) || []).length, 2);
+  assert.match(d, /الشعلات المعتادة قربها على بعد 1.2 كم/);
+  assert.match(d, /هذه علامات وليست حكماً/);
+  assert.ok(d.indexOf('class="sig on"') < d.indexOf("لماذا هذه الدرجة؟"), "seen before the confidence reasons");
+  assert.match(app.cardHTML(it), /class="tag sig-n"[^>]*>⚠ مؤشران</);
+  assert.match(app.reportHTML(it), /<h2>مؤشرات تستحق الانتباه/);
+  const calm = incident("s2", {signals: {n: 0, note: signals.note, warn: [], wait: [],
+    calm: [{key: "usual_spot", text: "الحرارة في مكان شعلة معتادة: ظهرت حرارة فيه في نحو 62% من الأيام منذ آذار 2024"}]}});
+  assert.match(app.detailHTML(calm), /<section class="sig"><h3>مؤشرات تستحق الانتباه: لا شيء لافت حتى الآن<\/h3>/);
+  assert.match(app.detailHTML(calm), /class="s calm"/);
+  assert.doesNotMatch(app.cardHTML(calm), /sig-n/, "no badge without a signal");
+  assert.equal(app.signalsHTML(incident("s3")), "", "older data without signals shows nothing");
+  for (const text of [d, app.reportHTML(it)]) for (const cause of ["هجوم", "استهداف", "ضربة"]) assert.ok(!text.includes(cause));
+});
+
 test("«تقرير الحدث»: everything on one printable page, and never a cause", () => {
   const {app} = page({meta: {local_offset_hours: 3, local_name: "بغداد"}});
   const it = incident("r1", {verdict: "مؤكد", confidence: 92, confidence_level: "عالية", severity: "حرج", timeline, snap: "clips/r1.jpg", alerted: true,
@@ -478,7 +502,7 @@ test("the page keeps what the before/after screen and the phone need", () => {
   assert.doesNotMatch(html, /الخليج العربي/);
   assert.match(html, /viewport-fit=cover/); assert.match(html, /prefers-reduced-motion/); assert.match(html, /@media print/);
   assert.match(html, /preload="none"/); assert.doesNotMatch(html, /<video[^>]*autoplay/);
-  assert.match(sw, /const CACHE = "firms-v19"/); assert.match(html, /const APP_V = 19;/);
+  assert.match(sw, /const CACHE = "firms-v20"/); assert.match(html, /const APP_V = 20;/);
   // the three sizes of the phone's sheet are states of the page, not page reloads
   for (const state of ["sheet-peek", "sheet-half", "sheet-full"]) assert.ok(html.includes(state), state);
 });
