@@ -77,6 +77,10 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     and then goes out as a normal alert.
 12. A post that was sent is never sent again: after sending, the memory is saved at once
     (`.state_urgent` → `branches.sh save-state-if-due`).
+18. The heat patterns (`rasad/patterns.py`: «حرارة جديدة مستمرة», «حرارة واسعة الانتشار», «عدة مواقع
+    في وقت متقارب»…) are app-only until reviewed with the owner: no post may use `inc["pattern"]` or
+    its «النمط: …» line. When they are allowed to post (`docs/plans/heat_patterns.md`, step 2), the
+    words describe the heat and say «صور الأقمار ترى الحرارة ولا ترى سببها»; never «هجوم» or «استهداف».
 
 ## Checking a message without posting
 In a test or a Python shell: build an incident (see the helpers in `tests/test_alert_updates.py`),

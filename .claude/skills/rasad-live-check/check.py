@@ -136,6 +136,11 @@ def overview():
         levels = collections.Counter(i.get("confidence_level") or "?" for i in items)
         print("  kinds: " + " · ".join(f"{k} {v}" for k, v in kinds.most_common())
               + "   confidence: " + " · ".join(f"{k} {v}" for k, v in levels.most_common()))
+        pats = collections.Counter((i.get("pattern") or {}).get("label") for i in items if i.get("pattern"))
+        linked = sum(1 for i in items if (i.get("pattern") or {}).get("also"))
+        print("  heat patterns (silent, app only): "
+              + (" · ".join(f"{k} {v}" for k, v in pats.most_common()) or "none yet")
+              + (f" · several places at once {linked}" if linked else ""))
         print(f"  videos: being made {sum(1 for i in items if i.get('clip_video_pending'))}"
               f" · to refresh {sum(1 for i in items if i.get('clip_needs_refresh'))}"
               f" · with a note {sum(1 for i in items if i.get('clip_note'))}"

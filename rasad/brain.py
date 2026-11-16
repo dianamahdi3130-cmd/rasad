@@ -7,7 +7,7 @@ import math
 import re
 import statistics
 
-from . import assess
+from . import assess, patterns
 from .util import esc, haversine_km, in_a_row, local_text, parse_time, size_word
 from .updates import latest_reading, peak_reading
 
@@ -165,12 +165,13 @@ def add_to_incident(inc, det):
         reading = {"t": det["t"], "frp": det.get("frp"), "conf": det.get("conf"),
                    "night": det.get("night"), "src": det["src"], "family": det["family"],
                    "lat": det["lat"], "lon": det["lon"]}
-        for key in ("scan", "track", "instrument", "satellite", "via"):
+        for key in ("scan", "track", "instrument", "satellite", "via", "pa"):
             if det.get(key) is not None:
                 reading[key] = det[key]
         if reading not in inc["polar"]:
             inc["polar"].append(reading)
         inc["polar"] = inc["polar"][-20:]
+        patterns.note_pass(inc, det)   # how wide this satellite pass saw it (heat patterns, silent)
         if inc["best"] != "polar":  # NASA's position is accurate to a few hundred metres
             inc["lat"], inc["lon"], inc["best"] = det["lat"], det["lon"], "polar"
     if det.get("frp") is not None:

@@ -41,6 +41,12 @@ and usually one `pending` (the next one, queued every 10 minutes; older pending 
 - **flares busier than usual (silent, app only)**: plants whose flare burned far busier than
   usual in the last 48 hours (`rasad/flares.py`); shown in the app as «نشاط حراري أعلى من المعتاد»,
   never posted. Review with the owner before it may do more.
+- **heat patterns (silent, app only)**: the label each event at or near an energy site got
+  (`rasad/patterns.py`): «حرارة جديدة مستمرة», «اشتداد في موقع حرارة معتاد», «حرارة قصيرة أو متقطعة»,
+  «حرارة واسعة الانتشار», «انعكاس محتمل في محطة شمسية»; «several places at once» counts the
+  «عدة مواقع في وقت متقارب» tags. Never posted; «واسعة الانتشار» cannot appear in the first 7 days
+  after the upgrade (each place's usual footprint is still being learnt). Review with the owner
+  (`docs/plans/heat_patterns.md`) before any of it may post.
 - **kinds / confidence**: `fire`, `industrial` (a plant's flare well above its own habit), `candidate`
   (a first sea speck); `?` right after the upgrade means the first check has not re-judged yet.
 - **sea pictures checked in the last 6 h**: one count per sea box (ten boxes; `day …` = the

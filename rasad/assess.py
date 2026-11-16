@@ -13,6 +13,7 @@ records are still under review with the owner.
 """
 from __future__ import annotations
 
+from . import patterns
 from .util import in_a_row, parse_time
 
 OFFICIAL = {"mtg_frp": "mtg", "iodc_fire": "msg_iodc"}
@@ -274,6 +275,14 @@ def assess(inc, cfg):
     inc["confidence"] = score
     inc["confidence_level"] = level_of(score)
     inc["confidence_label"] = CONFIDENCE_AR[category]
+    # the heat pattern (patterns.py): a neutral line, silent; it takes the last of the eight places
+    # so that no line before it moves (the post's main reason is the first '+' line)
+    pattern = patterns.pattern_of(inc, cfg)
+    if pattern:
+        inc["pattern"] = pattern
+        ev = ev[:7] + [{"s": "·", "text": patterns.line(pattern)}]
+    else:
+        inc.pop("pattern", None)
     inc["evidence"] = ev[:8]
     inc["severity"] = severity_of(inc, cfg, category)
     sources = sources_of(inc)

@@ -427,6 +427,13 @@ class Geo:
     def platform_within(self, lat, lon, km):
         return self.fac.nearest(lat, lon, km, accept=lambda it: it[4] == "platform")[0] is not None
 
+    def solar_km(self, lat, lon, km):
+        """How far the nearest mapped solar plant is, within km (None when there is none). Solar parks
+        are in the map but never count as facilities (SKIP_CATS); NASA's daytime pixels on panels are
+        sun glint, not heat (the post of 11 Nov 2026 near Dubai, docs/plans/heat_patterns.md)."""
+        it, d = self.fac.nearest(lat, lon, km, accept=lambda it: "شمسية" in (it[3] or ""))
+        return round(d, 2) if it else None
+
     def facility_within(self, lat, lon, km):
         """Is there an oil/gas/power/port facility within km? (no network, used while judging)"""
         return self.fac.nearest(lat, lon, km, accept=relevant_item)[0] is not None
