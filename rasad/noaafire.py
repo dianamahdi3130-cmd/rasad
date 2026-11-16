@@ -98,6 +98,10 @@ def rows_from(data, key, sat, box):
         day = np.asarray(f["FP_Day"][:], int)
         line = np.asarray(f["FP_Line"][:], float)
         area = np.asarray(f["FP_PixelArea"][:], float)
+        # NOAA's own tag for places that burn all the time (a 2017 mask: 1 oil and gas, 3 solar
+        # panels, ...). Evidence for the heat patterns only, never a reason to keep an alert back.
+        tag = np.asarray(f["FP_PersistentAnomalyCategory"][:], int) if "FP_PersistentAnomalyCategory" in f \
+            else np.zeros(len(lat), int)
         lines = max(1, int(f["y"].shape[0]) if "y" in f else 1536)
     w, s, e, n = box
     out = []
@@ -111,12 +115,15 @@ def rows_from(data, key, sat, box):
         size = NADIR_SIZE_KM * math.sqrt(area[i] / NADIR_AREA_KM2) if math.isfinite(area[i]) and area[i] > 0 \
             else NADIR_SIZE_KM
         value = float(frp[i])
-        out.append({"src": info["src"], "family": "viirs", "kind": "polar", "t": iso(t),
-                    "lat": round(la, 4), "lon": round(lo, 4),
-                    "frp": round(value, 2) if math.isfinite(value) and value >= 0 else None,
-                    "conf": CONFIDENCE.get(int(mask[i]), ""), "night": int(day[i]) == 0,
-                    "scan": round(size, 2), "track": round(size, 2),
-                    "instrument": "VIIRS", "satellite": info["satellite"], "via": "noaa"})
+        row = {"src": info["src"], "family": "viirs", "kind": "polar", "t": iso(t),
+               "lat": round(la, 4), "lon": round(lo, 4),
+               "frp": round(value, 2) if math.isfinite(value) and value >= 0 else None,
+               "conf": CONFIDENCE.get(int(mask[i]), ""), "night": int(day[i]) == 0,
+               "scan": round(size, 2), "track": round(size, 2),
+               "instrument": "VIIRS", "satellite": info["satellite"], "via": "noaa"}
+        if i < len(tag) and 0 < int(tag[i]) < 100:
+            row["pa"] = int(tag[i])
+        out.append(row)
     return out
 
 

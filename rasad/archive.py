@@ -36,6 +36,8 @@ def slim(inc):
     row["facility_km"] = f.get("km")
     row["alerted"] = bool(inc.get("alerted_at"))
     row["pictures"] = len(inc.get("geo_slots") or [])
+    if inc.get("pattern"):   # the heat pattern's key (patterns.py), for searching the record later
+        row["pattern"] = inc["pattern"].get("key")
     if isinstance(row.get("max_frp"), float):
         row["max_frp"] = round(row["max_frp"], 1)
     return row

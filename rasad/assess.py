@@ -13,6 +13,7 @@ records are still under review with the owner.
 """
 from __future__ import annotations
 
+from . import patterns
 from .util import in_a_row, parse_time
 
 OFFICIAL = {"mtg_frp": "mtg", "iodc_fire": "msg_iodc"}
@@ -274,7 +275,9 @@ def assess(inc, cfg):
     inc["confidence"] = score
     inc["confidence_level"] = level_of(score)
     inc["confidence_label"] = CONFIDENCE_AR[category]
-    inc["evidence"] = ev[:8]
+    # the heat pattern (patterns.py): a neutral line, silent; it takes the last of the eight places
+    # so that no line before it moves (the post's main reason is the first '+' line)
+    patterns.apply(inc, cfg, ev)
     inc["severity"] = severity_of(inc, cfg, category)
     sources = sources_of(inc)
     if not sources and category == "candidate":   # the app's preview carries no sighting list

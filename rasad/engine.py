@@ -18,7 +18,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue, earlyalerts
-from . import acquisitions, archive, assess, flares, noaafire, repairs, satpic, smoke
+from . import acquisitions, archive, assess, flares, noaafire, patterns, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -31,6 +31,7 @@ RULES = 19  # bump when the importance rules change, so stored incidents are jud
 CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
+PATTERNS = 1     # bump when the heat patterns' rules change, so every stored event is labelled again
 # fire symbols whose strength (MW) the server can tell; the second European satellite's cannot
 STRENGTH_SOURCES = frozenset({"mtg_frp"})
 
@@ -69,6 +70,14 @@ DEFAULTS = {
               "budget_s": 25, "request_timeout_s": 20, "max_workers": 2},
     # NOAA's own files of NOAA-20/21 (public AWS buckets, no account): noaafire.py; on in config.yaml
     "noaa": {"enabled": False, "budget_s": 12, "request_timeout_s": 10, "workers": 4, "max_age_hours": 6},
+    # heat patterns (patterns.py): a label for heat at or near energy sites, shown in the app only;
+    # never posted and never part of a verdict until reviewed with the owner (docs/plans/heat_patterns.md)
+    "patterns": {"enabled": True, "scope_facility_km": 10, "solar_km": 3,
+                 "wide_min_px": 8, "wide_min_km": 1.5, "wide_min_mw": 50, "wide_usual_ratio": 3,
+                 "second_look_h": 3, "footprint_learn_days": 7,
+                 "sustained_quiet_days": 7, "sustained_max_known_days": 2, "sustained_max_area_days": 2,
+                 "sustained_min_mw": 10, "sustained_hours": 6, "sustained_pictures": 12,
+                 "sustained_tagged_hours": 3, "link_h": 3, "link_min_km": 5, "link_max_km": 500},
     "recovery": {"enabled": False, "budget_s": 15, "max_images_per_run": 2,
                  "auto_targets": True, "auto_hours": 24, "max_targets": 6,
                  "targets": []},
@@ -307,9 +316,10 @@ def _merge_records(keep, other):
         keep["lat"], keep["lon"], keep["best"] = other["lat"], other["lon"], "polar"
     if keep.get("kind") != "unusual" and other.get("kind") == "unusual":
         keep["kind"] = "unusual"
-    for key in ("known_days", "typical_frp", "area_days"):
+    for key in ("known_days", "typical_frp", "area_days", "quiet_days", "usual_px", "solar_km", "memory_days", "wide"):
         if keep.get(key) is None and other.get(key) is not None:
             keep[key] = other[key]
+    patterns.merge_passes(keep, other)
     keep["n"] = len(keep["observations"]) or max(keep.get("n") or 1, other.get("n") or 1)
 
 
@@ -852,12 +862,14 @@ def run_cycle(cfg, send=True, alert_now=False):
     avail = mem.days_known(today, int(M["window_days"]))  # days of real history, not days the bot ran
     learning = avail == 0 and not alert_now
     merge_km, merge_h = float(I["merge_km"]), float(I["merge_hours"])
+    PT = cfg.get("patterns") or {}
     # Decide the association once for all connected pixels of one pass. A CSV's
     # row order must not split a pass or let its last pixel join another incident.
     grouped = acquisitions.groups(
         [d for d in dets if any(in_bbox(r["bbox"], d["lat"], d["lon"]) for r in regions)], merge_km)
     membership = {id(det): group for group in grouped for det in group}
     dets = [det for group in grouped for det in group]
+    patterns.record_footprints(S.state, dets, today)
     group_matches = {}
     # A detection is matched against incidents near its own time. Most are fresh (the last
     # hours), but a late picture, a recovered past slot or a strength read later can be up to
@@ -866,6 +878,22 @@ def run_cycle(cfg, send=True, alert_now=False):
     fresh_from = now - dt.timedelta(hours=merge_h)
     open_incs = [i for i in S.incidents if parse_time(i["last"]) >= fresh_from - dt.timedelta(hours=merge_h)]
     by_id = {i["id"]: i for i in S.incidents}
+
+    def pattern_facts(inc, det, reach):
+        """What the heat patterns need from this moment (patterns.py, silent): how long the place
+        was quiet, its usual footprint, the nearest solar plant, and whether Meteosat was read here
+        around the first sighting (the readings are kept only six hours)."""
+        try:
+            inc["quiet_days"] = patterns.quiet_days(mem, det["lat"], det["lon"], det["t"][:10],
+                                                    int(M["window_days"]), reach)
+            inc["memory_days"] = min(avail, int(M["window_days"]))   # what 'no heat for N days' may say
+            inc["usual_px"] = patterns.usual_pixels(S.state, det["lat"], det["lon"], det["t"][:10],
+                                                    int(M["window_days"]), int(PT.get("footprint_learn_days", 7)))
+            solar = geo.solar_km(det["lat"], det["lon"], float(PT.get("solar_km", 3)))
+            inc["solar_km"] = round(float(solar), 2) if isinstance(solar, (int, float)) else None
+            patterns.onset_facts(inc, det, slots)
+        except Exception as e:  # noqa: BLE001 - a silent label must never stop a check
+            log.warning("heat pattern facts for %s: %s", inc.get("id"), e)
 
     def candidates(det):
         return open_incs if parse_time(det["t"]) >= fresh_from else S.incidents
@@ -990,6 +1018,7 @@ def run_cycle(cfg, send=True, alert_now=False):
                     inc["site_habit"] = round(float(site_habit), 1)
                 # days with heat within ~10 km: farmland burnt every season and flare fields are busy
                 inc["area_days"] = mem.profile(d["lat"], d["lon"], day, int(M["window_days"]), 5)[0]
+                pattern_facts(inc, d, reach)
                 S.incidents.append(inc)
                 open_incs.append(inc)
                 by_id[inc["id"]] = inc
@@ -1123,6 +1152,21 @@ def run_cycle(cfg, send=True, alert_now=False):
         S.incidents = keep
         S.state["rules"] = RULES
         log.info("re-judged stored incidents with the current rules: %d kept, %d dropped", len(keep), dropped)
+    # heat patterns: events made before them learn how long their place had been quiet (once)
+    for inc in S.incidents:
+        if "quiet_days" not in inc and inc.get("place") == "land" \
+                and now - parse_time(inc["last"]) <= dt.timedelta(days=3):
+            first = min(inc.get("observations") or [{}], key=lambda o: o.get("t") or "9")
+            reach = {"mtg": 3, "msg_iodc": 2}.get(first.get("family"), 2) if first.get("kind") == "geo" else 1
+            inc["quiet_days"] = patterns.quiet_days(mem, inc["lat"], inc["lon"], inc["first"][:10],
+                                                    int(M["window_days"]), reach)
+            inc["memory_days"] = min(mem.days_known(inc["first"][:10], int(M["window_days"])), int(M["window_days"]))
+    if S.state.get("patterns") != PATTERNS:   # once: every stored event gets (or renews) its label
+        try:
+            patterns.label_stored(S.incidents, cfg)
+            S.state["patterns"] = PATTERNS
+        except Exception as e:  # noqa: BLE001 - a silent label must never stop a check
+            log.warning("heat patterns: labelling stored events failed: %s", e)
     # Transfer only an exact originating observation to a genuine incident, so
     # confirmation replies to its early post without merging a different nearby fire.
     earlyalerts.sync(cfg, S, now)
@@ -1176,6 +1220,14 @@ def run_cycle(cfg, send=True, alert_now=False):
                     updates.append((inc, intensity_changed))
             elif verdict_changed:
                 inc["alerted_verdict"] = inc["verdict"]  # remember it quietly: the app shows it
+
+    # heat patterns (silent): new sustained or wide heat that started at another such place within
+    # hours is tagged in the app; its reasons line is written again
+    try:
+        for inc in patterns.link_sites(S.incidents, cfg, now):
+            patterns.apply(inc, cfg)
+    except Exception as e:  # noqa: BLE001 - a silent label must never stop a check
+        log.warning("heat patterns: linking places failed: %s", e)
 
     def post_early(message, media=None, reply_to=None):
         result = post(message, media, reply_to=reply_to)
@@ -1389,7 +1441,9 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "early_ids", "early_promotion_ambiguous",
           # the assessment (assess.py): what kind of event, how sure and why, how serious
           "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
-          "known_days", "typical_frp", "site_record", "site_habit", "new_heat"]
+          "known_days", "typical_frp", "site_record", "site_habit", "new_heat",
+          # the heat pattern (patterns.py): a label with its reasons, shown in the app only
+          "pattern"]
 # the longer parts of the assessment go out only for events worth opening, to keep the feed light
 PUBLIC_DETAIL = ["evidence", "sources", "agreement"]
 

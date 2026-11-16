@@ -1,0 +1,144 @@
+# Heat patterns («أنماط الحرارة»): telling unusual heat at energy sites from their daily flares
+
+Status: **step 1 built (16 Nov 2026): the labels are silent, in the app only.** Code: `rasad/patterns.py`;
+tests: `tests/test_patterns.py` (this week's real events and NOAA's real passes). Step 2 (posting)
+waits for the owner's review of the live labels.
+
+## Why
+The owner asked, after a competitor posted the Abqaiq fire of 15 Nov 2026, for "a smart system that
+recognises fires and their pattern, and the fire caused by an attack". Rasad had seen that fire 11 hours
+before the competitor's video (incident `20261115-0930_26.164_49.752`: three satellite families, 33 MW,
+confidence 99%) and did not post it: the facility map had nothing within 25.6 km, the spot had heat on
+1 Nov (`known_days` 1, and `brain.new_heat` wants 0), and away from facilities only 100 MW is news.
+
+## What satellites can and cannot say (research of 16 Nov 2026)
+30 events in the region and 30 elsewhere: strikes, accidents and fires at oil and gas sites. 43 claims
+were checked; none was refuted and 3 remained uncertain.
+- **No signal identifies an attack.** A pumping station burning after a drone strike is as hot as a flare.
+  A refinery accident (Ras Laffan, Abadan) has the same profile as a strike. Many strikes leave no heat
+  satellites see: Khor Mor (8 Nov 2026, inside Rasad's area), Bapco, Ras Tanura, the Hormuz tankers.
+  A strike can even show as heat disappearing when a plant shuts down.
+- **What separates heat sources in the data:**
+  - How often the exact spot burns. Steady flares appear on 77-95% of sampled dates in NOAA's archive
+    since Feb 2024; Judah and Abqaiq north appear on 0%.
+  - Its strength against the site's own habit (`Memory.habit`).
+  - The footprint of one NASA pass: the number of 375 m pixels, their spread, and the sum of their
+    distinct MW.
+  - How long it lasts across families.
+  - The mapped facilities, solar parks included.
+- **What does not separate fires from flares:** onset, flicker, peak MW, day/night share, BT4/BT11,
+  NOAA's tag distance.
+- **The multi-site signature.** New heat at separate places within hours is the one sign of
+  coordinated waves: Abqaiq and Khurais 2019, the Tehran depots in Mar 2026, the East-West pipeline in
+  Sep 2026. It is never read as a cause.
+
+## The labels (step 1: silent)
+These apply to every land event at or near an energy site: a mapped facility within 10 km, a plant
+surge, a spot NOAA tags as oil and gas (`FP_PersistentAnomalyCategory` 1), or anywhere in the dry Gulf
+countries (`alerts.new_heat_countries`). They are checked in this order:
+
+| Key | Label | Rule (settings in `engine.DEFAULTS["patterns"]`) |
+|---|---|---|
+| `solar` | انعكاس محتمل في محطة شمسية | Only daytime NASA pixels, no Meteosat sighting, a mapped solar plant within 3 km (or NOAA tag 3), and a Meteosat picture of the place read successfully within ±20 min of the pass (`geo_read_at_pass`) |
+| `wide` | حرارة واسعة الانتشار | The widest VIIRS pass has ≥8 pixels, ≥1.5 km between the farthest two, ≥50 MW of distinct strengths, and ≥3× the place's usual footprint (`usual_px`). A second look (another pass, or 2 Meteosat pictures) must come within 3 h |
+| `surge` | اشتداد في موقع حرارة معتاد | The existing `unusual` kind (a steady site far above its own habit) |
+| `new_sustained` | حرارة جديدة مستمرة | Confirmed, kind `new`, a dry Gulf country, and one of three paths: (a) today's new-heat rule without its one-picture 20 MW path (`known_days` 0, `area_days` 0, ≥5 MW, ≥4 pictures); (b) `known_days` ≤2, quiet for ≥7 days before (`quiet_days`), `area_days` ≤2, ≥10 MW, ≥2 families, ≥6 h and ≥12 pictures; (b') the same as (b) with NOAA's oil/gas tag, ≥3 h and no picture count |
+| `short` | حرارة قصيرة أو متقطعة | Brief (under 3 h and fewer than 4 pictures), or a place that burned again within the week or on other days of the month |
+| `busy` | حرارة في منطقة نشطة | Longer heat in an area that burns often (`area_days` ≥ 2) |
+| `unclear` | حرارة دون نمط واضح | Anything else in scope: not confirmed yet, or outside the dry Gulf countries |
+| tag | عدة مواقع في وقت متقارب | A `new_sustained` or `wide` event when another one, 5-500 km away, started within 3 h. Both starts must be known (`onset_known`: a picture of the same product, read 10-40 min before, showed nothing). After a gap in the readings every place seems to start at once. Plant surges never count. Events older than two days keep their tag and are still found as a partner, so a pair never turns one-sided |
+
+How it is shown:
+- **In the app:** the event carries `pattern` = {key, label, reasons, also}. The reasons list ends with
+  one neutral line, «النمط: <label> (<reasons>). صور الأقمار ترى الحرارة ولا ترى سببها». It takes the last of
+  the eight places, so no earlier line moves. `assess.main_reason`, and so every post, reads only `+` lines.
+- **In the archive:** `pattern` (the key).
+- **In the live check:** the label counts.
+
+Facts kept for the labels:
+- **When an incident is made:**
+  - `quiet_days`: days since the place last had heat, from the memory.
+  - `usual_px`: the place's usual pixels per pass. It sums the 3×3 cells (~5 km) around the place, from
+    `state["footprint_days"]`, which records every VIIRS pass, routine flares included. It is None for
+    the first 7 days, so nothing is called wide while it is still being learnt. Big fields show many
+    pixels every night: West Qurna 7-30 and Rumaila 20-50. Summing the cells leans high on purpose.
+  - `solar_km`.
+  - `geo_read_at_pass` or `onset_known`, from `state["slots"]`, which keeps only 6 h.
+- **Per NASA pass:** `inc["passes"]`, written as each pixel arrives (`patterns.note_pass`). A pass is one
+  satellite within 10 min. It holds the pixel count, the farthest pair, the distinct MW, and NOAA's tag
+  `pa`. `inc["polar"]` keeps only 20 readings, too few for a wide pass.
+- **Events made before this version:** their `quiet_days` is measured once, along with `memory_days`
+  (a reason never claims more days than the memory holds). Until then, such an event counts as quiet
+  only if no earlier day had heat. On the first check of a version the passes of every stored event
+  are rebuilt from its NASA readings and the event is labelled (`patterns.label_stored`). Bump `PATTERNS`
+  in `engine.py` when the rules change, so the stored events are labelled again.
+- **A wide pass stays wide** (`inc["wide"]`) once it was seen with its second look. On a fire that
+  burns for days, passes beyond twelve and pictures beyond sixty are dropped, and the label must not
+  fall back.
+
+## The replay on 9-16 Nov 2026 (`tests/test_patterns.py` → `WeekLabels`)
+- **Abqaiq north** (15 Nov): `new_sustained`. Its last heat was 14 days before (1 Nov), it was seen in 60
+  pictures over 22 h, and NOAA tags it oil and gas. Posted by step 2's path (b) it would have gone at
+  about 15:00-15:15 UTC (12 pictures over 6 h), and by (b') at about 13:15 UTC: 10.5 to 12.5 hours
+  before the competitor's video (01:45 UTC on 16 Nov).
+- **Judah pumping station and the new heat near Qurayyah** (10 Nov): `new_sustained`, path (a).
+- **Harad** (15 Nov): `short`. One 49 MW picture and one NASA pixel, then nothing.
+- **Bateen Liwa** (13 Nov): `busy`. 5 pictures in an area with heat on 21 days of the month.
+- **The «حريق جديد في الإمارات» post of 11 Nov, 141.6 MW:** `solar`. It was 15 NOAA-20 day pixels in
+  one pass, 1.4 km from the mapped Mohammed bin Rashid solar park (Phase 3 - Field A). Meteosat was read
+  at 09:20 and 09:30 UTC and showed nothing. Most likely sun glint on the panels.
+- **Shedgum and Ahmadi:** `surge`.
+- **Uyun** (one NASA pixel) `short` and **Bateen Liwa** `busy`. They were posted because they are at
+  mapped facilities, a rule that is unchanged.
+- **All 1,047 stored events (16 Nov):** labelling them takes 0.02 s and changes no verdict, priority,
+  headline or confidence. 297 get a label: 266 `short`, 19 `surge`, 5 `new_sustained`, 5 `busy` and 2
+  `unclear`; the rest are at sea or out of scope. The memory grows by about 0.25 MB (the passes) and
+  `footprint_days` by about 0.3 MB after a month.
+
+Before the merge an independent review checked the change from four sides:
+- **Silence and cost:** nothing found.
+- **Labels:** ten findings, all fixed with a test each:
+  - a wide fire lost its label after a day;
+  - the tag turned one-sided;
+  - stored events had no label;
+  - long events were called «قصيرة»;
+  - the reasons claimed 30 days the memory did not hold;
+  - «بدأت للتو»;
+  - «خلال 0 دقيقة»;
+  - a start counted as known from another product's reading.
+- **`wide`:** no event this week. It is pinned on NOAA's real Abqaiq pass of 26 Jul 2026 (27 pixels over
+  3.0 km, 142 MW) and on a West Qurna night that is not wide: 9 pixels over 6.6 km, every night.
+
+## Step 2 (posting): only after the owner reviews the live labels
+1. `brain.new_heat`:
+   - Add path (b) and (b'), the Abqaiq type.
+   - Ask 4 or more pictures in path (a). This drops the one-picture 20 MW path; Harad would not be posted.
+   - Settings: `alerts.new_heat_quiet_days`, `new_heat_max_known_days`, `new_heat_sustained_hours`,
+     `new_heat_sustained_pictures`.
+   - Headline «حرارة جديدة مستمرة في موقع نفط وغاز» when NOAA tags the place, with a line that says
+     what is known and «صور الأقمار ترى الحرارة ولا ترى سببها».
+2. `alert_worthy` False for `solar`, so sun glint is not posted.
+3. `wide`: its line replaces `surge_note` at a plant. It is posted in the focus countries at any distance.
+4. Bump `RULES`. Add exact-text tests, and update CLAUDE.md and the `rasad-telegram` skill.
+
+What it costs, said to the owner:
+- Path (b) will sometimes post operational burning at unmapped oil sites. The Abqaiq-north spot itself
+  is tagged oil/gas by NOAA's 2017 mask.
+- Path (a) already posts burns that look like vegetation: Sakaka and Muhafir this week.
+- The thresholds of (b) rest on one event.
+
+## Later (research, silent)
+- A long-term atlas: NOAA's archive since Feb 2024, sampled dates, giving the share of days a spot
+  burns. Steady flares burn on 77-95% of dates; quiet places on 0%.
+- The night flame temperature from the VIIRS SDR files.
+- The app's pattern chip and archive filter (`web/`, a cache bump).
+- Replies under a first post: «عادت الحرارة إلى الموقع نفسه» and «لم تُرصد حرارة منذ …».
+
+## Limits to keep in mind
+- **No pattern means an attack.** «حرارة واسعة الانتشار» and «عدة مواقع في وقت متقارب» can be read as
+  hints. That is why they stay silent until reviewed, and every line says the pictures do not show the cause.
+- **NOAA's persistent-anomaly mask is from 2017.** It misses newer plants, and it tags a plant's own
+  flare even during a strike. It may add evidence; it must never take an alert away.
+- **Rasad read about 56% of Meteosat slots on 10-16 Nov.** That delays picture counts and creates false
+  simultaneous starts; hence `onset_known`.
+- **The solar rule depends on the open map's solar parks** and on Meteosat being read at the time.
