@@ -239,7 +239,7 @@ def tile_parts(tile, G):
     """What one tile asks the map for, each part saved by itself: the facilities, the named oil and
     gas land (in smaller boxes: geodata.oil_query_split), the places."""
     w, s, e, n = tile
-    split = max(1, int(G.get("oil_query_split", 2)))
+    split = max(1, int(G.get("oil_query_split", 1)))
     parts = [("fac", FACILITY_QUERY, tile)]
     parts += [(f"oil{k}", OIL_QUERY, box) for k, box in enumerate(quarters(w, s, e, n, split))]
     parts.append(("place", PLACE_QUERY, tile))
@@ -248,7 +248,7 @@ def tile_parts(tile, G):
 
 def build_geodata(cfg, session, budget_s=None):
     """Download facilities and places tile by tile, part by part; resumable, so it can run in the
-    short slices the watching loop gives it (45 s, stopped after 60): every finished part is kept."""
+    slices the watching loop gives it (150 s, stopped after 180): every finished part is kept."""
     G = cfg["geodata"]
     out_dir = Path(cfg["_geodata_dir"])
     tiles = region_tiles(cfg["regions"], max_deg=float(G.get("query_tile_deg", 8)))

@@ -124,7 +124,7 @@ class MapRebuildInSlices(unittest.TestCase):
         self.cfg = copy.deepcopy(engine.DEFAULTS)
         self.cfg["_geodata_dir"] = Path(folder.name) / "geo"
         self.cfg["regions"] = [{"id": "east", "name": "شرق السعودية", "bbox": [48.0, 25.0, 50.0, 27.0]}]
-        self.cfg["geodata"]["overpass_pause_s"] = 0
+        self.cfg["geodata"].update(overpass_pause_s=0, oil_query_split=2, query_tile_deg=8)
         self.calls = []
         self.fail = set()
 
@@ -178,6 +178,9 @@ class MapRebuildInSlices(unittest.TestCase):
     def test_no_request_outlives_the_slice(self):
         self.assertTrue(self.build(budget_s=45))
         self.assertTrue(all(c[2] <= 55 for c in self.calls), [c[2] for c in self.calls])
+        from rasad import engine
+        self.assertEqual((engine.DEFAULTS["geodata"]["query_tile_deg"], engine.DEFAULTS["geodata"]["oil_query_split"]), (4, 1),
+                         "4-degree tiles, the oil land of a tile in one request")
         from unittest.mock import Mock
         session = Mock()
         import time as clock

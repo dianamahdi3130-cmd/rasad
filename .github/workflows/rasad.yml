@@ -108,7 +108,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RASAD_EVERY_SECONDS: "150"
           RASAD_LOOP_MINUTES: "335"
-          RASAD_GEO_BUDGET: "45"
+          RASAD_GEO_BUDGET: "150"
         run: bash scripts/loop.sh
 
       - name: Save the memory and publish the app

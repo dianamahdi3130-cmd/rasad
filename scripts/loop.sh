@@ -10,9 +10,9 @@ set -uo pipefail
 
 EVERY=${RASAD_EVERY_SECONDS:-150}        # start a check this often (a long check is followed at once)
 MINUTES=${RASAD_LOOP_MINUTES:-340}       # GitHub stops a job after 6 hours
-GEO=${RASAD_GEO_BUDGET:-45}              # seconds per background facility-map pass
+GEO=${RASAD_GEO_BUDGET:-150}             # seconds per background facility-map pass (Overpass alone, never EUMETView)
 CYCLE_LIMIT=${RASAD_SCAN_TIMEOUT_SECONDS:-210}
-GEO_LIMIT=${RASAD_GEO_TIMEOUT_SECONDS:-60}
+GEO_LIMIT=${RASAD_GEO_TIMEOUT_SECONDS:-$((GEO + 30))}
 LOCKED=${RASAD_CLOUD_URL:+1}
 WATCHED="web rasad scripts config.yaml requirements.txt .github/workflows/rasad.yml"
 start_sha=$(git rev-parse HEAD)
