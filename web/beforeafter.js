@@ -2181,17 +2181,28 @@ function drawFilm(g, look, state) {
   g.fillStyle = "#93a0b8"; g.font = `500 17px ${look.ui}`;
   g.fillText(`\u2066${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}\u2069 · مربع ${v.half * 2}×${v.half * 2} كم`, W - 20, 104);
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
-  g.drawImage(look.b, M, Y, P, P);
+  const rings = side => {                                     // «النقاط الحارة», as on the screen
+    if (!look.rings || !look.rings.n) return;
+    const s = P / look.rings.n;
+    g.lineWidth = 2.5; g.strokeStyle = "#ffd60a";
+    for (const h of look.rings[side]) {
+      g.beginPath(); g.arc(M + h.x * s, Y + h.y * s, Math.max(9, Math.sqrt(h.pixels) * s * 0.9), 0, 6.2832); g.stroke();
+    }
+  };
   const X = Math.round(state.split * P);
+  g.save(); g.beginPath(); g.rect(M + X, Y, P - X, P); g.clip();
+  g.drawImage(look.b, M, Y, P, P); rings("before"); g.restore();
   if (X > 0) {
     g.save(); g.beginPath(); g.rect(M, Y, X, P); g.clip();
     g.drawImage(look.a, M, Y, P, P);
-    if (state.change > 0 && look.layer) {
-      g.globalAlpha = state.change;
+    const alpha = look.layerOn ? 1 : state.change;
+    if (alpha > 0 && look.layer) {
+      g.globalAlpha = alpha;
       g.fillStyle = "rgba(5,8,13,.3)"; g.fillRect(M, Y, P, P);
       g.imageSmoothingEnabled = false; g.drawImage(look.layer, M, Y, P, P);
       g.globalAlpha = 1;
     }
+    rings("after");
     g.restore();
   }
   if (X > 0 && X < P) {                                       // the divider and its knob
@@ -2225,8 +2236,14 @@ async function recordFilm(canvas, type, onProgress, cancelled) {
   for (; titleSize > 20; titleSize -= 2) { g.font = `800 ${titleSize}px ${display}`; if (g.measureText(title).width <= 680) break; }
   while (title.length > 8 && g.measureText(title + "…").width > 680) title = title.slice(0, -1);
   if (title !== titleOf()) title += "…";
-  const look = {ui, display, title, titleSize, b: picture("before", v.combo), a: picture("after", v.combo), layer: quiet ? null : layerCanvas(burn ? "burn" : "change"),
-    head: (landsat ? "قبل وبعد · صور الأقمار" : "قبل وبعد · صور القمر الأوروبي Sentinel-2") + (v.combo === "color" ? "" : " · " + COMBO_AR[v.combo].name),
+  // the film follows the owner's own choices on the screen: the band view and «تحسين العرض» (in the
+  // pictures), the layer that is on (kept on the «بعد» side, as on the screen), and the hot rings
+  const chosen = v.layer ? layerCanvas(v.layer) : null;
+  const look = {ui, display, title, titleSize, b: picture("before", v.combo), a: picture("after", v.combo),
+    layer: chosen || (quiet ? null : layerCanvas(burn ? "burn" : "change")), layerOn: !!chosen,
+    rings: marksOn(v) ? {before: v.hot.before.slice(), after: v.hot.after.slice(), n: v.grid.size} : null,
+    head: (landsat ? "قبل وبعد · صور الأقمار" : "قبل وبعد · صور القمر الأوروبي Sentinel-2") + (v.combo === "color" ? "" : " · " + COMBO_AR[v.combo].name)
+      + (v.enhance ? " · عرض محسَّن" : ""),
     before: "قبل · " + dateAr(v.shown.before.pass.time), after: "بعد · " + dateAr(v.shown.after.pass.time),
     found: quiet ? "" : burn ? "أثر احتراق محتمل: نحو " + areaText(p.burn.areaHa) : "تغيّر مرصود: نحو " + areaText(c.areaHa),
     credit: (landsat ? "Sentinel-2 (Copernicus) · Landsat (USGS/NASA) " : "Contains modified Copernicus Sentinel data ") + new Date().getUTCFullYear()};
