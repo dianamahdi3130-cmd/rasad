@@ -312,7 +312,7 @@ def _message(cfg, record, video=False):
               "إشارة حرارية أولية؛ لم يؤكدها رصد إضافي بعد."),
              f"<code>{record['lat']:.4f}, {record['lon']:.4f}</code>"]
     if not video and cfg.get("clip", {}).get("enabled", True):
-        lines.append("🎞 إذا لم يُرفق الفيديو، فهو قيد التجهيز وسيُرسل هنا عند توفر الصور الصالحة.")
+        lines.append("🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور.")
     if cfg.get("app_url"):
         lines.append(f'<a href="{escape(app_link(cfg, record), quote=True)}">فتح الرصد في التطبيق</a>')
     return "\n".join(lines)

@@ -722,11 +722,20 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         if resume_job is not None:
             todo.remove(resume_job)
             todo.insert(0, resume_job)
+    # The priority seas (the Strait of Hormuz) come first, every picture of theirs not read yet, before
+    # any other sea: when a check's time ran out, the boxes left were skipped, the box order rotates,
+    # and a newer picture then came first. On 17 Nov 2026 the strait's 20:40 and 21:00 (Baghdad)
+    # pictures were never read; a ship fire that showed from 21:00 went out from the 21:10 picture.
+    prio = set(C.get("priority_boxes") or [])
+    first = [(t, [b for b in nb if b["id"] in prio], [], True) for t, nb, _ in todo if any(b["id"] in prio for b in nb)]
+    todo = first + [(t, [b for b in nb if b["id"] not in prio], db, False) for t, nb, db in todo]
     resume_candidate = None
     day_attempted = set()
     checked, waiting, lost = [], 0, 0
-    for t, night_boxes, day_boxes in todo:
-        if len(checked) >= per_run or time.time() - t_start > budget:
+    for t, night_boxes, day_boxes, urgent in todo:
+        if not night_boxes and not day_boxes:
+            continue
+        if (not urgent and len(checked) >= per_run) or time.time() - t_start > budget:
             waiting += 1
             day_status["waiting"] += len(day_boxes)
             continue
@@ -838,7 +847,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         state["sea_day_resume"] = {"t": resume_candidate,
                                    "attempts": attempts + 1 if resume.get("t") == resume_candidate else 1}
     elif (resume.get("t") in day_attempted
-          or not any(iso(t) == resume.get("t") and day for t, _, day in todo)):
+          or not any(iso(t) == resume.get("t") and day for t, _, day, _u in todo)):
         state.pop("sea_day_resume", None)
     if checked or lost:
         log.info("sea watch: %d slot(s) checked%s, %d waiting, %d missing at the source", len(checked),
