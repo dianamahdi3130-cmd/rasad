@@ -167,6 +167,8 @@ DEFAULTS = {
         # that is also one picture behind, in which a small fire all but disappears
         # (docs/reviews/hormuz_ras_al_khaimah_20261114.md)
         "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.25,
+        # read first in every check, every picture of theirs (never skipped when the time runs out)
+        "priority_boxes": ["hormuz_oman"],
         # slots missed in the last hours (the source late or down) are checked later, newest first,
         # within this many seconds per run
         "catchup_hours": 3, "budget_s": 240,
@@ -464,8 +466,14 @@ def clip_for(cfg, wms, S, inc, focus_time=None):
     from .updates import peak_reading
 
     if inc.get("preliminary") is True:
-        from .earlyclip import render
-        return render(cfg, wms, inc, utcnow())
+        # A first sighting gets the same video as every alert (owner, 17 Nov 2026); its own close-up
+        # of the finder's picture is kept for when the usual video cannot show the speck
+        try:
+            return clip_for(cfg, wms, S, dict(inc, preliminary=False), focus_time)
+        except Exception as e:  # noqa: BLE001
+            log.info("first sighting %s: the usual video could not show it (%s); its own close-up", inc.get("id"), e)
+            from .earlyclip import render
+            return render(cfg, wms, inc, utcnow())
 
     peak = peak_reading(inc)
     focus = parse_time(focus_time) if focus_time is not None else \
