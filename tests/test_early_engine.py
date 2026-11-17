@@ -288,16 +288,25 @@ class EarlyEngineTests(TestCase):
 
 
 class EarlyClipDispatchTests(TestCase):
-    def test_preliminary_clip_uses_original_grid_renderer_without_latest_image_wait(self):
+    def test_preliminary_clip_falls_back_to_the_finders_close_up(self):
+        # the usual video first (owner, 17 Nov 2026); when it cannot be made, the finder's own close-up
         now = dt.datetime(2026, 11, 13, 19, 5, tzinfo=UTC)
         inc = {"id": "early", "preliminary": True}
         cfg, wms, state = {}, Mock(), Mock()
         with patch("rasad.earlyclip.render", return_value=(Path("first.mp4"), Path("first.jpg"))) as render, \
                 patch.object(engine, "utcnow", return_value=now), \
-                patch.object(engine, "latest_time", side_effect=AssertionError("Do not wait for a future image")):
+                patch.object(engine, "latest_time", side_effect=AssertionError("no pictures")):
             result = engine.clip_for(cfg, wms, state, inc)
         self.assertEqual(result[0], Path("first.mp4"))
         render.assert_called_once_with(cfg, wms, inc, now)
+
+    def test_preliminary_clip_uses_the_usual_video_template(self):
+        inc = {"id": "early", "preliminary": True, "first": "2026-11-17T18:10:00Z"}
+        with patch("rasad.earlyclip.render", side_effect=AssertionError("not the close-up")):
+            real = engine.clip_for
+            with patch.object(engine, "clip_for", side_effect=lambda cfg, wms, S, i, f=None:
+                              ("usual.mp4", "usual.jpg") if i.get("preliminary") is False else real(cfg, wms, S, i, f)):
+                self.assertEqual(engine.clip_for({}, Mock(), Mock(), inc)[0], "usual.mp4")
 
     def test_invisible_preliminary_clip_is_not_reclassified_as_a_confirmed_incident(self):
         now = dt.datetime(2026, 11, 13, 19, 5, tzinfo=UTC)
