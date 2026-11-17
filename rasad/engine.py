@@ -168,7 +168,7 @@ DEFAULTS = {
         # (docs/reviews/hormuz_ras_al_khaimah_20261114.md)
         "cadence_min": 10, "delay_min": 0, "slots_per_run": 6, "km_per_px": 0.25,
         # read first in every check, every picture of theirs (never skipped when the time runs out)
-        "priority_boxes": ["hormuz_oman"],
+        "priority_boxes": ["hormuz_oman", "gulf_south", "gulf_north"],
         # slots missed in the last hours (the source late or down) are checked later, newest first,
         # within this many seconds per run
         "catchup_hours": 3, "budget_s": 240,
