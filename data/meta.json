@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T18:32:06Z",
- "scan_started": "2026-11-21T18:31:07Z",
- "scan_finished": "2026-11-21T18:32:06Z",
- "scan_duration_s": 59.5,
- "scan_partial": false,
+ "generated": "2026-11-21T18:41:41Z",
+ "scan_started": "2026-11-21T18:41:07Z",
+ "scan_finished": "2026-11-21T18:41:41Z",
+ "scan_duration_s": 33.4,
+ "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 45,
+ "detections_this_run": 3,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -207,7 +207,7 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-21T18:15:00Z",
+   "latest": "2026-11-21T18:30:00Z",
    "checked": 0,
    "missing": 0,
    "pending": 16,
@@ -219,14 +219,14 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-21T18:00:00Z",
+   "latest": "2026-11-21T18:20:00Z",
    "checked": 20,
-   "missing": 0,
-   "pending": 0,
-   "pending_recent": 0,
-   "scan_complete": true,
+   "missing": 16,
+   "pending": 28,
+   "pending_recent": 28,
+   "scan_complete": false,
    "clock_cached": true,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -249,12 +249,12 @@
    "latest": "2026-11-21T14:10:00Z"
   },
   "noaa": {
-   "read": 14,
+   "read": 0,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-21T17:58:14Z",
+   "latest": "2026-11-21T18:16:43Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -275,7 +275,7 @@
    "images_fetched": 2,
    "images_reused": 0,
    "detections": 0,
-   "pending": 212,
+   "pending": 213,
    "targets": 6,
    "invalid_targets": 1,
    "historical": true,
@@ -291,7 +291,7 @@
    "lon": 38.2359,
    "label": "مصفاة (Yanpet)",
    "first": "2026-11-21T13:50:00Z",
-   "last": "2026-11-21T18:00:00Z",
+   "last": "2026-11-21T18:10:00Z",
    "peak": 28.3,
    "typical": 5.5,
    "pictures": 18,
