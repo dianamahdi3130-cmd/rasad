@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T01:03:38Z",
- "scan_started": "2026-11-21T01:03:27Z",
- "scan_finished": "2026-11-21T01:03:38Z",
- "scan_duration_s": 11.2,
+ "generated": "2026-11-21T01:14:10Z",
+ "scan_started": "2026-11-21T01:13:27Z",
+ "scan_finished": "2026-11-21T01:14:10Z",
+ "scan_duration_s": 43.0,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 14,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -249,12 +249,12 @@
    "latest": null
   },
   "noaa": {
-   "read": 1,
+   "read": 0,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-21T00:36:57Z",
+   "latest": "2026-11-21T00:38:21Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -265,7 +265,7 @@
    "deferred": 0,
    "ok": true,
    "name": "الأقمار الأمريكية (ناسا)",
-   "latest": "2026-11-20T21:29:00Z"
+   "latest": "2026-11-20T22:26:00Z"
   },
   "recovery": {
    "enabled": true,
@@ -274,12 +274,12 @@
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 0,
-   "pending": 344,
+   "detections": 8,
+   "pending": 334,
    "targets": 4,
    "invalid_targets": 1,
    "historical": true,
-   "latest": null,
+   "latest": "2026-11-20T13:30:00Z",
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
