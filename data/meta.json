@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T05:26:56Z",
- "scan_started": "2026-11-21T05:26:33Z",
- "scan_finished": "2026-11-21T05:26:56Z",
- "scan_duration_s": 22.7,
+ "generated": "2026-11-21T05:37:21Z",
+ "scan_started": "2026-11-21T05:36:33Z",
+ "scan_finished": "2026-11-21T05:37:21Z",
+ "scan_duration_s": 47.7,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 29,
+ "detections_this_run": 30,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -207,7 +207,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-21T05:00:00Z",
+   "latest": "2026-11-21T05:10:00Z",
    "checked": 16,
    "missing": 0,
    "pending": 0,
@@ -219,14 +219,14 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-21T05:15:00Z",
-   "checked": 4,
+   "latest": "2026-11-21T05:30:00Z",
+   "checked": 0,
    "missing": 0,
-   "pending": 12,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -238,15 +238,15 @@
    "experimental": true,
    "checked": 0,
    "missing": 4,
-   "waiting": 6,
+   "waiting": 4,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-21T05:00:00Z",
-   "last_attempt": "2026-11-21T05:20:00Z",
+   "last_checked": "2026-11-21T05:10:00Z",
+   "last_attempt": "2026-11-21T05:30:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-21T05:00:00Z"
+   "latest": "2026-11-21T05:10:00Z"
   },
   "noaa": {
    "read": 0,
@@ -274,12 +274,12 @@
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 4,
-   "pending": 138,
+   "detections": 8,
+   "pending": 135,
    "targets": 6,
    "invalid_targets": 1,
    "historical": true,
-   "latest": "2026-11-20T07:30:00Z",
+   "latest": "2026-11-20T08:20:00Z",
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
@@ -291,7 +291,7 @@
    "lon": 48.0192,
    "label": "منشأة نفطية في منطقة الأحمدي",
    "first": "2026-11-19T19:50:00Z",
-   "last": "2026-11-21T05:00:00Z",
+   "last": "2026-11-21T05:10:00Z",
    "peak": 62.0,
    "typical": 5.78,
    "pictures": 18,
