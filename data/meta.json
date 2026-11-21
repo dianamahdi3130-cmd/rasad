@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T02:32:47Z",
- "scan_started": "2026-11-21T02:31:32Z",
- "scan_finished": "2026-11-21T02:32:47Z",
- "scan_duration_s": 74.7,
- "scan_partial": false,
+ "generated": "2026-11-21T02:42:20Z",
+ "scan_started": "2026-11-21T02:41:34Z",
+ "scan_finished": "2026-11-21T02:42:20Z",
+ "scan_duration_s": 46.0,
+ "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 47,
+ "detections_this_run": 5,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -207,26 +207,26 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-21T02:10:00Z",
-   "checked": 16,
-   "missing": 0,
-   "pending": 0,
-   "pending_recent": 0,
-   "scan_complete": true,
+   "latest": "2026-11-21T02:20:00Z",
+   "checked": 20,
+   "missing": 20,
+   "pending": 16,
+   "pending_recent": 16,
+   "scan_complete": false,
    "clock_cached": false,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-21T02:15:00Z",
+   "latest": "2026-11-21T02:30:00Z",
    "checked": 0,
    "missing": 0,
-   "pending": 0,
+   "pending": 16,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -241,20 +241,20 @@
    "waiting": 2,
    "candidates": 0,
    "spots": 0,
-   "last_checked": null,
-   "last_attempt": "2026-11-21T02:30:00Z",
+   "last_checked": "2026-11-21T02:20:00Z",
+   "last_attempt": "2026-11-21T02:40:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": null
+   "latest": "2026-11-21T02:20:00Z"
   },
   "noaa": {
-   "read": 26,
+   "read": 2,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-21T02:13:40Z",
+   "latest": "2026-11-21T02:19:21Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -274,12 +274,12 @@
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 4,
-   "pending": 272,
+   "detections": 5,
+   "pending": 263,
    "targets": 5,
    "invalid_targets": 1,
    "historical": true,
-   "latest": "2026-11-20T23:50:00Z",
+   "latest": "2026-11-21T01:10:00Z",
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
