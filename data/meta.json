@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T12:27:31Z",
- "scan_started": "2026-11-21T12:27:02Z",
- "scan_finished": "2026-11-21T12:27:31Z",
- "scan_duration_s": 28.9,
+ "generated": "2026-11-21T12:31:15Z",
+ "scan_started": "2026-11-21T12:30:16Z",
+ "scan_finished": "2026-11-21T12:31:15Z",
+ "scan_duration_s": 58.7,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 21,
+ "detections_this_run": 0,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -204,11 +204,11 @@
   }
  ],
  "sources": {
-  "mtg_frp": {
-   "name": "القمر الأوروبي Meteosat-12",
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-21T12:00:00Z",
-   "checked": 16,
+   "latest": "2026-11-21T12:15:00Z",
+   "checked": 12,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -216,17 +216,17 @@
    "clock_cached": false,
    "budget_exhausted": false
   },
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
+  "mtg_frp": {
+   "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-21T12:15:00Z",
-   "checked": 4,
+   "latest": "2026-11-21T12:00:00Z",
+   "checked": 0,
    "missing": 0,
-   "pending": 12,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -238,7 +238,7 @@
    "experimental": true,
    "checked": 0,
    "missing": 4,
-   "waiting": 11,
+   "waiting": 13,
    "candidates": 0,
    "spots": 0,
    "last_checked": "2026-11-21T12:00:00Z",
@@ -249,12 +249,12 @@
    "latest": "2026-11-21T12:00:00Z"
   },
   "noaa": {
-   "read": 2,
+   "read": 12,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-21T11:38:24Z",
+   "latest": "2026-11-21T11:44:05Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -270,12 +270,12 @@
   "recovery": {
    "enabled": true,
    "checked": 2,
-   "missing": 1,
+   "missing": 2,
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
    "detections": 0,
-   "pending": 69,
+   "pending": 71,
    "targets": 6,
    "invalid_targets": 1,
    "historical": true,
