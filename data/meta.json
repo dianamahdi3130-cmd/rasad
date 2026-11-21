@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T03:27:11Z",
- "scan_started": "2026-11-21T03:26:34Z",
- "scan_finished": "2026-11-21T03:27:11Z",
- "scan_duration_s": 37.1,
+ "generated": "2026-11-21T03:37:07Z",
+ "scan_started": "2026-11-21T03:36:34Z",
+ "scan_finished": "2026-11-21T03:37:07Z",
+ "scan_duration_s": 33.9,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 82,
+ "detections_this_run": 50,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -207,14 +207,14 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-21T03:00:00Z",
-   "checked": 20,
+   "latest": "2026-11-21T03:10:00Z",
+   "checked": 16,
    "missing": 0,
-   "pending": 20,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": false,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
@@ -222,11 +222,11 @@
    "latest": "2026-11-21T03:15:00Z",
    "checked": 0,
    "missing": 0,
-   "pending": 16,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -241,20 +241,20 @@
    "waiting": 10,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-21T02:20:00Z",
-   "last_attempt": "2026-11-21T03:20:00Z",
+   "last_checked": "2026-11-21T03:10:00Z",
+   "last_attempt": "2026-11-21T03:30:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-21T02:20:00Z"
+   "latest": "2026-11-21T03:10:00Z"
   },
   "noaa": {
-   "read": 6,
+   "read": 0,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-21T03:04:52Z",
+   "latest": "2026-11-21T03:10:34Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -274,12 +274,12 @@
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 0,
-   "pending": 154,
+   "detections": 6,
+   "pending": 151,
    "targets": 6,
    "invalid_targets": 1,
    "historical": true,
-   "latest": null,
+   "latest": "2026-11-21T02:30:00Z",
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
@@ -291,7 +291,7 @@
    "lon": 48.0192,
    "label": "منشأة نفطية في منطقة الأحمدي",
    "first": "2026-11-19T19:50:00Z",
-   "last": "2026-11-21T03:00:00Z",
+   "last": "2026-11-21T03:10:00Z",
    "peak": 62.0,
    "typical": 5.78,
    "pictures": 18,
@@ -321,14 +321,14 @@
    "id": "flare-9eae419dac",
    "lat": 23.9751,
    "lon": 38.2359,
-   "label": "محطة كهرباء (نفط) (Yanbu 1 IWPP)",
+   "label": "مصفاة سامرف",
    "first": "2026-11-20T12:10:00Z",
    "last": "2026-11-20T23:50:00Z",
    "peak": 28.6,
    "typical": 4.53,
    "pictures": 18,
    "strong": 8,
-   "text": "اشتعلت الشعلة في محطة كهرباء (نفط) (⁨Yanbu 1 IWPP⁩‏) أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 8 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
+   "text": "اشتعلت الشعلة في مصفاة سامرف أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 8 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-9eae419dac-e4c0c86f9910.mp4",
    "snap": "clips/flare-9eae419dac-e4c0c86f9910.jpg",
    "clip_note": null
