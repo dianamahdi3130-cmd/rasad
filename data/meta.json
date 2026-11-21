@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T18:12:03Z",
- "scan_started": "2026-11-21T18:11:07Z",
- "scan_finished": "2026-11-21T18:12:03Z",
- "scan_duration_s": 55.3,
+ "generated": "2026-11-21T18:22:05Z",
+ "scan_started": "2026-11-21T18:21:08Z",
+ "scan_finished": "2026-11-21T18:22:05Z",
+ "scan_duration_s": 57.7,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 2,
+ "detections_this_run": 0,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -207,23 +207,23 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-21T18:00:00Z",
-   "checked": 0,
+   "latest": "2026-11-21T18:15:00Z",
+   "checked": 10,
    "missing": 0,
-   "pending": 16,
-   "pending_recent": 0,
-   "scan_complete": true,
+   "pending": 6,
+   "pending_recent": 6,
+   "scan_complete": false,
    "clock_cached": false,
    "budget_exhausted": true
   },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-21T17:50:00Z",
-   "checked": 20,
-   "missing": 16,
-   "pending": 19,
-   "pending_recent": 19,
+   "latest": "2026-11-21T18:00:00Z",
+   "checked": 10,
+   "missing": 10,
+   "pending": 28,
+   "pending_recent": 28,
    "scan_complete": false,
    "clock_cached": true,
    "budget_exhausted": true
@@ -249,12 +249,12 @@
    "latest": "2026-11-21T14:10:00Z"
   },
   "noaa": {
-   "read": 0,
+   "read": 4,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-21T17:25:30Z",
+   "latest": "2026-11-21T17:32:37Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -275,7 +275,7 @@
    "images_fetched": 2,
    "images_reused": 0,
    "detections": 0,
-   "pending": 209,
+   "pending": 210,
    "targets": 6,
    "invalid_targets": 1,
    "historical": true,
@@ -285,6 +285,22 @@
  },
  "telegram": true,
  "flare_activity": [
+  {
+   "id": "flare-9746c454e4",
+   "lat": 29.0023,
+   "lon": 48.0192,
+   "label": "منشأة نفطية في منطقة الأحمدي",
+   "first": "2026-11-19T19:50:00Z",
+   "last": "2026-11-21T17:50:00Z",
+   "peak": 62.0,
+   "typical": 5.78,
+   "pictures": 18,
+   "strong": 18,
+   "text": "اشتعلت الشعلة في منشأة نفطية في منطقة الأحمدي أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 18 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
+   "clip": "clips/flare-9746c454e4-9233d72441d0.mp4",
+   "snap": "clips/flare-9746c454e4-9233d72441d0.jpg",
+   "clip_note": null
+  },
   {
    "id": "flare-0aea319603",
    "lat": 23.9751,
@@ -299,22 +315,6 @@
    "text": "اشتعلت الشعلة في مصفاة سامرف أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 7 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-0aea319603-20dd0a4d6f74.mp4",
    "snap": "clips/flare-0aea319603-20dd0a4d6f74.jpg",
-   "clip_note": null
-  },
-  {
-   "id": "flare-9746c454e4",
-   "lat": 29.0023,
-   "lon": 48.0192,
-   "label": "منشأة نفطية في منطقة الأحمدي",
-   "first": "2026-11-19T19:50:00Z",
-   "last": "2026-11-21T17:40:00Z",
-   "peak": 62.0,
-   "typical": 5.78,
-   "pictures": 18,
-   "strong": 18,
-   "text": "اشتعلت الشعلة في منشأة نفطية في منطقة الأحمدي أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 18 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-9746c454e4-9233d72441d0.mp4",
-   "snap": "clips/flare-9746c454e4-9233d72441d0.jpg",
    "clip_note": null
   },
   {
@@ -411,22 +411,6 @@
    "text": "اشتعلت الشعلة في مصفاة پالایشگاه گاز پارسیان مُهر أكثر من المعتاد: رمز حريق في 15 صورة خلال 3 ساعات، منها 15 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-bc0f249fd5-79da88db17f4.mp4",
    "snap": "clips/flare-bc0f249fd5-79da88db17f4.jpg",
-   "clip_note": null
-  },
-  {
-   "id": "flare-afba06e935",
-   "lat": 30.868,
-   "lon": 47.9242,
-   "label": "خزانات وقود في منطقة النشوة",
-   "first": "2026-11-19T15:00:00Z",
-   "last": "2026-11-19T18:20:00Z",
-   "peak": 76.7,
-   "typical": 21.7,
-   "pictures": 18,
-   "strong": 4,
-   "text": "اشتعلت الشعلة في خزانات وقود في منطقة النشوة أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 4 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-afba06e935-fff50ee67228.mp4",
-   "snap": "clips/flare-afba06e935-fff50ee67228.jpg",
    "clip_note": null
   }
  ]
