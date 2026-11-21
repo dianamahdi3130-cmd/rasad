@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T15:56:11Z",
- "scan_started": "2026-11-21T15:55:16Z",
- "scan_finished": "2026-11-21T15:56:11Z",
- "scan_duration_s": 55.0,
+ "generated": "2026-11-21T16:03:02Z",
+ "scan_started": "2026-11-21T16:02:46Z",
+ "scan_finished": "2026-11-21T16:03:02Z",
+ "scan_duration_s": 15.9,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 1,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -204,18 +204,6 @@
   }
  ],
  "sources": {
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
-   "ok": true,
-   "latest": "2026-11-21T15:30:00Z",
-   "checked": 2,
-   "missing": 0,
-   "pending": 14,
-   "pending_recent": 0,
-   "scan_complete": true,
-   "clock_cached": false,
-   "budget_exhausted": true
-  },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
@@ -225,6 +213,18 @@
    "pending": 32,
    "pending_recent": 16,
    "scan_complete": false,
+   "clock_cached": false,
+   "budget_exhausted": true
+  },
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
+   "ok": true,
+   "latest": "2026-11-21T15:30:00Z",
+   "checked": 2,
+   "missing": 0,
+   "pending": 8,
+   "pending_recent": 0,
+   "scan_complete": true,
    "clock_cached": true,
    "budget_exhausted": true
   },
@@ -249,12 +249,12 @@
    "latest": "2026-11-21T14:10:00Z"
   },
   "noaa": {
-   "read": 13,
+   "read": 2,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-21T15:11:47Z",
+   "latest": "2026-11-21T15:43:04Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -270,21 +270,37 @@
   "recovery": {
    "enabled": true,
    "checked": 2,
-   "missing": 2,
+   "missing": 1,
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 0,
-   "pending": 83,
+   "detections": 1,
+   "pending": 85,
    "targets": 6,
    "invalid_targets": 1,
    "historical": true,
-   "latest": null,
+   "latest": "2026-11-21T15:40:00Z",
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
  "telegram": true,
  "flare_activity": [
+  {
+   "id": "flare-9746c454e4",
+   "lat": 29.0023,
+   "lon": 48.0192,
+   "label": "منشأة نفطية في منطقة الأحمدي",
+   "first": "2026-11-19T19:50:00Z",
+   "last": "2026-11-21T15:40:00Z",
+   "peak": 62.0,
+   "typical": 5.78,
+   "pictures": 18,
+   "strong": 18,
+   "text": "اشتعلت الشعلة في منشأة نفطية في منطقة الأحمدي أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 18 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
+   "clip": "clips/flare-9746c454e4-9233d72441d0.mp4",
+   "snap": "clips/flare-9746c454e4-9233d72441d0.jpg",
+   "clip_note": null
+  },
   {
    "id": "flare-0aea319603",
    "lat": 23.9751,
@@ -299,22 +315,6 @@
    "text": "اشتعلت الشعلة في مصفاة (⁨Yanpet⁩‏) أكثر من المعتاد: رمز حريق في 14 صورة خلال 3 ساعات، منها 5 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-0aea319603-20dd0a4d6f74.mp4",
    "snap": "clips/flare-0aea319603-20dd0a4d6f74.jpg",
-   "clip_note": null
-  },
-  {
-   "id": "flare-9746c454e4",
-   "lat": 29.0023,
-   "lon": 48.0192,
-   "label": "منشأة نفطية في منطقة الأحمدي",
-   "first": "2026-11-19T19:50:00Z",
-   "last": "2026-11-21T15:20:00Z",
-   "peak": 62.0,
-   "typical": 5.78,
-   "pictures": 18,
-   "strong": 18,
-   "text": "اشتعلت الشعلة في منشأة نفطية في منطقة الأحمدي أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 18 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-9746c454e4-9233d72441d0.mp4",
-   "snap": "clips/flare-9746c454e4-9233d72441d0.jpg",
    "clip_note": null
   },
   {
