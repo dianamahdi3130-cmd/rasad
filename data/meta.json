@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-21T18:01:12Z",
- "scan_started": "2026-11-21T18:00:16Z",
- "scan_finished": "2026-11-21T18:01:12Z",
- "scan_duration_s": 56.0,
+ "generated": "2026-11-21T18:03:08Z",
+ "scan_started": "2026-11-21T18:02:46Z",
+ "scan_finished": "2026-11-21T18:03:08Z",
+ "scan_duration_s": 21.6,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
@@ -204,18 +204,6 @@
   }
  ],
  "sources": {
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
-   "ok": true,
-   "latest": "2026-11-21T17:45:00Z",
-   "checked": 0,
-   "missing": 0,
-   "pending": 12,
-   "pending_recent": 0,
-   "scan_complete": true,
-   "clock_cached": false,
-   "budget_exhausted": true
-  },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
@@ -225,6 +213,18 @@
    "pending": 16,
    "pending_recent": 16,
    "scan_complete": false,
+   "clock_cached": false,
+   "budget_exhausted": true
+  },
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
+   "ok": true,
+   "latest": "2026-11-21T17:45:00Z",
+   "checked": 0,
+   "missing": 0,
+   "pending": 12,
+   "pending_recent": 0,
+   "scan_complete": true,
    "clock_cached": true,
    "budget_exhausted": true
   },
@@ -270,12 +270,12 @@
   "recovery": {
    "enabled": true,
    "checked": 2,
-   "missing": 2,
+   "missing": 1,
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
    "detections": 0,
-   "pending": 99,
+   "pending": 98,
    "targets": 6,
    "invalid_targets": 1,
    "historical": true,
