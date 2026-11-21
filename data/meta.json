@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-21T00:02:26Z",
- "scan_started": "2026-11-21T00:00:57Z",
- "scan_finished": "2026-11-21T00:02:26Z",
- "scan_duration_s": 89.3,
+ "generated": "2026-11-21T00:04:00Z",
+ "scan_started": "2026-11-21T00:03:28Z",
+ "scan_finished": "2026-11-21T00:04:00Z",
+ "scan_duration_s": 32.1,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 39,
+ "detections_this_run": 2,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -204,23 +204,23 @@
   }
  ],
  "sources": {
-  "mtg_frp": {
-   "name": "القمر الأوروبي Meteosat-12",
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-20T23:40:00Z",
-   "checked": 20,
-   "missing": 10,
-   "pending": 6,
-   "pending_recent": 6,
+   "latest": "2026-11-21T00:00:00Z",
+   "checked": 14,
+   "missing": 0,
+   "pending": 2,
+   "pending_recent": 2,
    "scan_complete": false,
    "clock_cached": false,
    "budget_exhausted": true
   },
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
+  "mtg_frp": {
+   "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-20T23:45:00Z",
-   "checked": 0,
+   "latest": "2026-11-20T23:40:00Z",
+   "checked": 6,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -249,12 +249,12 @@
    "latest": null
   },
   "noaa": {
-   "read": 6,
+   "read": 2,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-20T23:42:54Z",
+   "latest": "2026-11-20T23:45:44Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -270,21 +270,37 @@
   "recovery": {
    "enabled": true,
    "checked": 2,
-   "missing": 0,
+   "missing": 1,
    "deferred": 0,
    "images_fetched": 2,
    "images_reused": 0,
-   "detections": 4,
-   "pending": 405,
+   "detections": 0,
+   "pending": 404,
    "targets": 4,
    "invalid_targets": 1,
    "historical": true,
-   "latest": "2026-11-20T23:40:00Z",
+   "latest": null,
    "name": "استرجاع رصد سابق قرب المنشآت"
   }
  },
  "telegram": true,
  "flare_activity": [
+  {
+   "id": "flare-9eae419dac",
+   "lat": 23.9751,
+   "lon": 38.2359,
+   "label": "مصفاة (Yanpet)",
+   "first": "2026-11-20T12:10:00Z",
+   "last": "2026-11-20T23:40:00Z",
+   "peak": 28.6,
+   "typical": 4.53,
+   "pictures": 18,
+   "strong": 8,
+   "text": "اشتعلت الشعلة في مصفاة (⁨Yanpet⁩‏) أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 8 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
+   "clip": "clips/flare-9eae419dac-e4c0c86f9910.mp4",
+   "snap": "clips/flare-9eae419dac-e4c0c86f9910.jpg",
+   "clip_note": null
+  },
   {
    "id": "flare-9746c454e4",
    "lat": 29.0023,
@@ -313,24 +329,8 @@
    "pictures": 18,
    "strong": 18,
    "text": "اشتعلت الشعلة في محطة كهرباء في منطقة حبشان أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 18 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-8754a4ff13-85c46308c280.mp4",
-   "snap": "clips/flare-8754a4ff13-85c46308c280.jpg",
-   "clip_note": null
-  },
-  {
-   "id": "flare-9eae419dac",
-   "lat": 23.9751,
-   "lon": 38.2359,
-   "label": "مصفاة (Yanpet)",
-   "first": "2026-11-20T12:10:00Z",
-   "last": "2026-11-20T23:30:00Z",
-   "peak": 28.6,
-   "typical": 4.53,
-   "pictures": 18,
-   "strong": 8,
-   "text": "اشتعلت الشعلة في مصفاة (⁨Yanpet⁩‏) أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 8 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-9eae419dac-e4c0c86f9910.mp4",
-   "snap": "clips/flare-9eae419dac-e4c0c86f9910.jpg",
+   "clip": "clips/flare-8754a4ff13-c54c9ea8a6d0.mp4",
+   "snap": "clips/flare-8754a4ff13-c54c9ea8a6d0.jpg",
    "clip_note": null
   },
   {
