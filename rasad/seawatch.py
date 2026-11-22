@@ -43,7 +43,7 @@ from PIL import Image, PngImagePlugin
 from .geodb import land_mask_points, ring_points
 from .thermal_history import history_rules, persistent_local_heat
 from .util import box_around, floor_time, iso, log, parse_time, px_to_latlon, sun_elevation
-from .wms import Availability, components
+from .wms import Availability, components, served
 
 SRC = "mtg_spot"
 DAY_SRC = "mtg_day_spot"
@@ -864,6 +864,31 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         uniq[(d["src"], d["t"], d["lat"], d["lon"])] = d
     day_status["spots"] = sum(d["src"] == day_src for d in uniq.values())
     return list(uniq.values())
+
+
+def new_picture_out(cfg, wms, state, now, settle_min=5):
+    """Asked between checks by scripts/loop.sh: is a night picture of the priority seas out at the
+    source and not read yet? Then the next check starts at once instead of up to 150 s later. On
+    22 Nov 2026 a ship fire off Oman showed in the 23:50 picture and was posted at 23:59: the
+    source publishes a picture some 6-9 minutes after its time, and the wait for the next check
+    was the part Rasad could shorten. One tiny picture answers; nothing is written. Returns the
+    picture's time, or None."""
+    C = cfg["seawatch"]
+    if not C.get("enabled"):
+        return None
+    cad, sun = int(C["cadence_min"]), float(C["sun_max_elev"])
+    done = state.get("seawatch") or {}
+    prio = set(C.get("priority_boxes") or [])
+    boxes = [b for b in C["boxes"] if b.get("enabled", True) and (not prio or b["id"] in prio)]
+    latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
+    for t in (latest, latest - dt.timedelta(minutes=cad)):
+        if now - t < dt.timedelta(minutes=settle_min):
+            continue    # never out this early: no need to ask
+        if not any(f"{b['id']}|{iso(t)}" not in done and any(_night(b["bbox"], t, sun)) for b in boxes):
+            continue
+        if served(wms, C["layer"], t, box_around(26.3, 56.6, 1), timeout=15):
+            return t
+    return None
 
 
 def look_back(cfg, wms, inc, mem=None, geo=None, hours_before=3.0, minutes_after=30, radius_km=6.0):

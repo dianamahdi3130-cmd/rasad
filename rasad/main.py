@@ -146,6 +146,7 @@ def main(argv=None):
     p.add_argument("--boxes", help="comma separated box ids (default: all)")
     p.add_argument("--day", action="store_true", help="replay the experimental day finder instead of the night one")
     p.add_argument("--km", type=float, help="with --day: km per pixel of the pictures (default: as it runs)")
+    sub.add_parser("sea-ready", help="between checks: exit 0 when a new night picture of the priority seas is out")
     p = sub.add_parser("restest", help="how a small fire shows at different picture detail")
     p.add_argument("--lat", type=float, required=True)
     p.add_argument("--lon", type=float, required=True)
@@ -206,6 +207,15 @@ def main(argv=None):
     if args.cmd == "media-worker":
         media_worker(cfg, args.interval, args.max_minutes, args.once)
         return
+    if args.cmd == "sea-ready":
+        from .seawatch import new_picture_out
+        from .util import load_json
+        state = load_json(Path(cfg["_state_dir"]) / "state.json", {})
+        with make_session() as session:
+            out = new_picture_out(cfg, WMS(cfg["eumetview"]["wms_url"], session), state, utcnow())
+        if out:
+            print(iso(out))
+        sys.exit(0 if out else 1)
     if args.cmd == "picture-worker":
         from .pictureworker import run_worker
         run_worker(cfg, args.interval, args.max_minutes, args.once)

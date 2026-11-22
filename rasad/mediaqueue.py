@@ -305,6 +305,20 @@ def consume_results(cfg, S, now):
     return imported
 
 
+def write_awaited(cfg, tokens):
+    """The media jobs whose video a channel post is waiting for. scripts/loop.sh starts the next
+    check as soon as one of them is finished, so the video follows its post within seconds: on
+    22 Nov 2026 a first sighting's video was made 19 s after its post and went out 2.5 minutes
+    later, with the next check."""
+    folder = queue_dir(cfg)
+    folder.mkdir(parents=True, exist_ok=True)
+    good = sorted({t for t in tokens if isinstance(t, str) and _TOKEN.fullmatch(t)})
+    tmp = folder / "awaited.tmp"
+    tmp.write_text("".join(t + "\n" for t in good))
+    tmp.replace(folder / "awaited")
+    return good
+
+
 def import_result(cfg, snapshot):
     """The finished media of a record kept outside the incident list (a flare marker), whose
     request snapshot is `snapshot` (what request_clip was given). Copies a finished video into the

@@ -82,6 +82,24 @@ start_satpic_worker() {
 }
 start_satpic_worker
 
+# a finished video (.rasad-media/<job>/result.json) that a post waits for (listed by the check in
+# .rasad-media/awaited): true once per job. `hurried` holds the jobs and sea pictures that already
+# started a check early, so a failed render or read never makes checks run back to back.
+declare -A hurried=()
+video_ready() {
+  [ -f .rasad-media/awaited ] || return 1
+  local job
+  while read -r job; do
+    [[ "$job" =~ ^[0-9a-f]{64}$ ]] || continue
+    [ -n "${hurried[$job]:-}" ] && continue
+    if [ -f ".rasad-media/$job/result.json" ]; then
+      hurried[$job]=1
+      return 0
+    fi
+  done < .rasad-media/awaited
+  return 1
+}
+
 while [ "$SECONDS" -lt "$end" ]; do
   t0=$SECONDS
   n=$((n + 1))
@@ -156,7 +174,27 @@ while [ "$SECONDS" -lt "$end" ]; do
       break
     fi
   fi
-  wait=$((EVERY - (SECONDS - t0)))
-  [ "$wait" -gt 0 ] && sleep "$wait"
+  # The wait for the next check ends early, once per reason: when a video a post is waiting for
+  # is made (it follows its post within seconds, not with the next check), or when a new night
+  # picture of the priority seas is out (read at once, not up to $EVERY s later).
+  next_look=$((SECONDS + 15))
+  while [ $((SECONDS - t0)) -lt "$EVERY" ]; do
+    if video_ready; then
+      echo "a video a post is waiting for is made: checking now"
+      sleep 1
+      break
+    fi
+    if [ "$SECONDS" -ge "$next_look" ]; then
+      slot=$(timeout --signal=TERM --kill-after=5s 25s python -m rasad --state _state --site _site sea-ready \
+        2>/dev/null | tail -n 1)
+      if [[ "$slot" =~ ^20[0-9-]+T[0-9:]+Z$ ]] && [ -z "${hurried[$slot]:-}" ]; then
+        hurried[$slot]=1
+        echo "a new sea picture is out: checking now"
+        break
+      fi
+      next_look=$((SECONDS + 30))
+    fi
+    sleep 2
+  done
 done
 echo "done after $n checks"
