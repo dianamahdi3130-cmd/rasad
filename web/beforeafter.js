@@ -343,26 +343,30 @@ function pathLength(pts, res, closed) {
   if (closed && pts.length > 2) d += Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y);
   return d * res;
 }
-// The film of a comparison, as a script: at second t, how much of the picture shows «بعد»
-// (0 = all before, 1 = all after) and how strongly the change layer is drawn. It starts and ends
-// on «قبل», so it loops without a jump. Without a change to show, that part is left out.
-function filmPlan(withChange) {
+// The film of a comparison, as a script, in the display the user chose on the screen. At second t,
+// `split` is how much shows «بعد»: the divider's place (divider), the fade from «قبل» to «بعد» (one
+// picture), which of the two is on (blink); side by side shows both all along. Every film starts and
+// ends on «قبل» (or holds still), so it loops without a jump.
+const FILM_STEPS = {
+  split: [["before", 1.4], ["sweep", 2.2], ["after", 2.2], ["back", 1.6], ["end", 0.4]],
+  single: [["before", 1.6], ["sweep", 1.2], ["after", 2.6], ["back", 1.2], ["end", 0.4]],
+  blink: [["before", 0.8], ["after", 0.8], ["before", 0.8], ["after", 0.8], ["before", 0.8], ["after", 0.8], ["before", 0.8], ["after", 0.8], ["end", 0.4]],
+  side: [["side", 6.0]],
+};
+function filmPlan(mode) {
   const ease = x => x < 0 ? 0 : x > 1 ? 1 : x * x * (3 - 2 * x);
-  const steps = [["before", 1.4], ["sweep", 2.0], ["after", 1.4]];
-  if (withChange) steps.push(["mark", 0.8], ["marked", 2.0], ["unmark", 0.6]);
-  steps.push(["back", 1.2], ["end", 0.4]);
-  const duration = steps.reduce((sum, s) => sum + s[1], 0);
+  const steps = FILM_STEPS[mode] || FILM_STEPS.split;
+  const duration = steps.reduce((sum, st) => sum + st[1], 0);
   function at(t) {
     let left = Math.min(Math.max(t, 0), duration), phase = "end", share = 1;
     for (const [name, length] of steps) {
       if (left <= length) { phase = name; share = length ? left / length : 1; break; }
       left -= length;
     }
-    const split = phase === "before" || phase === "end" ? 0 : phase === "sweep" ? ease(share) : phase === "back" ? 1 - ease(share) : 1;
-    const change = phase === "mark" ? ease(share) : phase === "marked" ? 1 : phase === "unmark" ? 1 - ease(share) : 0;
-    return {phase, split, change};
+    const split = phase === "after" || phase === "side" ? 1 : phase === "sweep" ? ease(share) : phase === "back" ? 1 - ease(share) : 0;
+    return {phase, split};
   }
-  return {duration, at};
+  return {duration, at, mode: FILM_STEPS[mode] ? mode : "split"};
 }
 // what the phone can record: MP4 where it can (it plays everywhere), else WebM
 function filmType() {
@@ -519,8 +523,9 @@ BA.hide = function () {
   if (V) { V.session.abort(); if (V.load) V.load.abort(); clearInterval(V.blinkTimer); V = null; }
   const s = sheet();
   if (s && !s.hidden) { s.hidden = true; s.innerHTML = ""; }
+  homeOpen(false);
 };
-BA.isOpen = () => !!(sheet() && !sheet().hidden);
+BA.isOpen = () => !!(sheet() && !sheet().hidden) || !!(home() && !home().hidden);
 BA.busy = () => picking || BA.isOpen();
 BA.leave = function () { stopPick(); BA.hide(); };          // the app moved to another screen
 BA.escape = function () { if (picking) BA.cancelPick(); else BA.back(); };
@@ -785,13 +790,38 @@ function placeRow(p, i, kind) {
     ${kind === "saved" ? `<button class="ba-btn" type="button" data-act="forget" data-i="${i}" aria-label="حذف الموقع">حذف</button>` : ""}
   </div>`;
 }
+// the satellite-picture workspace: in the panel beside the map (the map itself picks the place)
+const home = () => el("#baHome");
+function homeOpen(on) {
+  const h = home();
+  if (!h) return;
+  const was = !h.hidden;
+  if (!on) { if (!was) return; h.hidden = true; h.innerHTML = ""; }
+  else h.hidden = false;
+  const cl = document.body && document.body.classList;
+  if (cl) { if (on) cl.add("ba-home"); else cl.remove("ba-home"); }
+  if (!S.map || on === was) return;
+  if (on) { S.map.on("click", onHomeClick); if (S.layer) S.map.removeLayer(S.layer); }
+  else { S.map.off("click", onHomeClick); if (S.layer && !picking) S.layer.addTo(S.map); }
+}
+function onHomeClick(e) {
+  const {lat, lng} = e.latlng;
+  from = "ba";
+  setRoute(routeOf({lat, lon: lng, half: 2}));
+}
 function showChooser(results, note) {
   BA.hide();
-  const s = sheet(), saved = places(), recent = store.get(KEYS.recent, []).filter(r => !saved.some(p => samePlace(p, r)));
+  const s = home() || sheet(), saved = places(), recent = store.get(KEYS.recent, []).filter(r => !saved.some(p => samePlace(p, r)));
   const seen = viewBox();
-  s.innerHTML = `<div class="ba-app">
-    <div class="ba-top"><button class="ba-btn" type="button" data-act="back">${ICON.back}<span>رجوع</span></button>
-      <div class="ba-head"><b class="ba-title">صور الأقمار · قبل وبعد</b></div></div>
+  const docked = s === home();
+  s.innerHTML = `<div class="ba-app${docked ? " ba-docked" : ""}">
+    ${docked ? `<div class="ba-hero">
+      <span class="ba-kicker">${ICON.map}<span>مساحة العمل</span></span>
+      <b class="ba-title">صور الأقمار الصناعية</b>
+      <span class="ba-srcs"><bdi dir="ltr">Sentinel-2 · 10 m</bdi><bdi dir="ltr">Landsat 8/9 · 30 m</bdi></span>
+      <p class="ba-tap">${ICON.pin}<span>اضغط على أي نقطة في الخريطة لعرض صورها، أو اختر طريقة أخرى.</span></p>
+    </div>` : `<div class="ba-top"><button class="ba-btn" type="button" data-act="back">${ICON.back}<span>رجوع</span></button>
+      <div class="ba-head"><b class="ba-title">صور الأقمار · قبل وبعد</b></div></div>`}
     <div class="ba-main ba-plain"><div class="ba-pick">
       <p class="ba-note">تصفّح صور القمر الأوروبي <bdi dir="ltr">Sentinel-2</bdi> لأي موقع وأي تاريخ، وقارن صورة قبل الحدث بصورة بعده: تظهر آثار الحريق والاسوداد والتغيّر في المباني الكبيرة، والدخان واللهب لحظة الالتقاط.</p>
       <div class="ba-ways">
@@ -805,7 +835,8 @@ function showChooser(results, note) {
       ${recent.length ? `<h3>فتحتها مؤخراً</h3>${recent.map((p, i) => placeRow(p, i, "recent")).join("")}` : ""}
       <div class="ba-help"><b>ما الذي يظهر؟</b> كل نقطة في الصورة 10 أمتار على الأرض، ويمر القمر كل يومين إلى خمسة أيام. تظهر التغيّرات الكبيرة (خزانات، حظائر طائرات، مساحات محترقة)، ولا يظهر مبنى صغير أو مركبة واحدة. الصور تُظهر التغيّر المرصود ولا تحدد سببه.</div>
     </div></div></div>`;
-  s.hidden = false; s.scrollTop = 0;
+  if (s === home()) homeOpen(true); else s.hidden = false;
+  s.scrollTop = 0;
   el("#baSearch").addEventListener("submit", e => { e.preventDefault(); search(el("#baQuery").value); });
   watch(saved);
 }
@@ -1598,51 +1629,7 @@ function paint() {
   const n = v.grid.size, panes = panesOf(v.show, size.w, size.h, both);
   v.panes = panes;
   clampView();
-  const showMarks = marksOn(v);
-  for (const pane of panes) {
-    const px = pane.x * dpr, py = pane.y * dpr, pw = pane.w * dpr, ph = pane.h * dpr;
-    const s = Math.max(pw, ph) / n * v.zoom, ox = px + pw / 2 - v.cx * n * s, oy = py + ph / 2 - v.cy * n * s;
-    const X = pane.side ? (pane.side === "after" ? pw : 0) : Math.round(f * pw);       // «بعد» is drawn left of X, «قبل» right of it
-    g.save(); g.beginPath(); g.rect(px, py, pw, ph); g.clip();
-    g.imageSmoothingEnabled = s < 3.5 * dpr; g.imageSmoothingQuality = "high";
-    const flames = side => {
-      if (!showMarks) return;
-      g.lineWidth = 2 * dpr; g.strokeStyle = "#ffd60a";
-      for (const h of v.hot[side]) {
-        g.beginPath(); g.arc(ox + h.x * s, oy + h.y * s, Math.max(9 * dpr, Math.sqrt(h.pixels) * s * 0.9), 0, 6.2832); g.stroke();
-      }
-    };
-    if (b && X < pw) {
-      g.save(); g.beginPath(); g.rect(px + X, py, pw - X, ph); g.clip();
-      g.drawImage(b, ox, oy, n * s, n * s); flames("before"); g.restore();
-    }
-    if (a && X > 0) {
-      g.save(); g.beginPath(); g.rect(px, py, X, ph); g.clip();
-      g.drawImage(a, ox, oy, n * s, n * s);
-      const layer = v.layer && layerCanvas(v.layer);
-      if (layer) {
-        g.fillStyle = "rgba(5,8,13,.3)"; g.fillRect(px, py, X, ph);
-        g.imageSmoothingEnabled = false;
-        g.drawImage(layer, ox, oy, n * s, n * s);
-        g.imageSmoothingEnabled = s < 3.5 * dpr;
-      }
-      flames("after"); g.restore();
-    }
-    // four ticks around the place itself (the centre is left free to look at); not on a wide overview
-    const cx = ox + n / 2 * s, cy = oy + n / 2 * s;
-    g.lineCap = "round";
-    if (v.half <= 5) for (const [w, col] of [[4 * dpr, "rgba(0,0,0,.55)"], [2 * dpr, "#fff"]]) {
-      g.lineWidth = w; g.strokeStyle = col; g.beginPath();
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(cx + dx * 12 * dpr, cy + dy * 12 * dpr); g.lineTo(cx + dx * 22 * dpr, cy + dy * 22 * dpr); }
-      g.stroke();
-    }
-    drawTools(g, ox, oy, s, dpr);
-    g.restore();
-  }
-  if (panes.length === 2) {                                        // the line between the two panes
-    g.fillStyle = "#05080d";
-    if (panes[0].x) g.fillRect(panes[1].w * dpr, 0, (panes[0].x - panes[1].w) * dpr, H); else g.fillRect(0, panes[0].h * dpr, W, (panes[1].y - panes[0].h) * dpr);
-  }
+  drawPanes(g, panes, f, dpr, {a, b, W, H});
   // labels, divider, scale
   const label = side => (both || v.show !== "single" ? (side === "before" ? "قبل · " : "بعد · ") : "") + dateAr(v.shown[side].pass.time);
   // a label sits in the top right corner of its pane; with one pane the stylesheet places the two
@@ -1666,6 +1653,59 @@ function paint() {
   const first = panes[0], bar = scaleBar(v.grid.res * n / (Math.max(first.w, first.h) * v.zoom), 110);
   scale.hidden = false;
   scale.innerHTML = `${bar.label}<i style="width:${bar.px.toFixed(1)}px"></i>`;
+}
+// The pictures of the stage: its one or two panes, as the user framed them (zoom and pan), the
+// divider at f, the layer, the hot rings, the place's ticks and what the tools drew. `dpr` is the
+// canvas pixels per stage point; (ox0, oy0) where the stage begins on the canvas. The screen and
+// the film to save both draw with it, so the film is exactly what was on the screen.
+function drawPanes(g, panes, f, dpr, {a, b, W, H, ox0 = 0, oy0 = 0, layerAlpha = 1}) {
+  const v = V, n = v.grid.size, showMarks = marksOn(v);
+  for (const pane of panes) {
+    const px = ox0 + pane.x * dpr, py = oy0 + pane.y * dpr, pw = pane.w * dpr, ph = pane.h * dpr;
+    const s = Math.max(pw, ph) / n * v.zoom, ox = px + pw / 2 - v.cx * n * s, oy = py + ph / 2 - v.cy * n * s;
+    const X = pane.side ? (pane.side === "after" ? pw : 0) : Math.round(f * pw);       // «بعد» is drawn left of X, «قبل» right of it
+    g.save(); g.beginPath(); g.rect(px, py, pw, ph); g.clip();
+    g.imageSmoothingEnabled = s < 3.5 * dpr; g.imageSmoothingQuality = "high";
+    const flames = side => {
+      if (!showMarks) return;
+      g.lineWidth = 2 * dpr; g.strokeStyle = "#ffd60a";
+      for (const h of v.hot[side]) {
+        g.beginPath(); g.arc(ox + h.x * s, oy + h.y * s, Math.max(9 * dpr, Math.sqrt(h.pixels) * s * 0.9), 0, 6.2832); g.stroke();
+      }
+    };
+    if (b && X < pw) {
+      g.save(); g.beginPath(); g.rect(px + X, py, pw - X, ph); g.clip();
+      g.drawImage(b, ox, oy, n * s, n * s); flames("before"); g.restore();
+    }
+    if (a && X > 0) {
+      g.save(); g.beginPath(); g.rect(px, py, X, ph); g.clip();
+      g.drawImage(a, ox, oy, n * s, n * s);
+      const layer = v.layer && layerCanvas(v.layer);
+      if (layer && layerAlpha > 0) {
+        g.globalAlpha = layerAlpha;
+        g.fillStyle = "rgba(5,8,13,.3)"; g.fillRect(px, py, X, ph);
+        g.imageSmoothingEnabled = false;
+        g.drawImage(layer, ox, oy, n * s, n * s);
+        g.imageSmoothingEnabled = s < 3.5 * dpr;
+        g.globalAlpha = 1;
+      }
+      flames("after"); g.restore();
+    }
+    // four ticks around the place itself (the centre is left free to look at); not on a wide overview
+    const cx = ox + n / 2 * s, cy = oy + n / 2 * s;
+    g.lineCap = "round";
+    if (v.half <= 5) for (const [w, col] of [[4 * dpr, "rgba(0,0,0,.55)"], [2 * dpr, "#fff"]]) {
+      g.lineWidth = w; g.strokeStyle = col; g.beginPath();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(cx + dx * 12 * dpr, cy + dy * 12 * dpr); g.lineTo(cx + dx * 22 * dpr, cy + dy * 22 * dpr); }
+      g.stroke();
+    }
+    drawTools(g, ox, oy, s, dpr);
+    g.restore();
+  }
+  if (panes.length === 2) {                                        // the line between the two panes
+    g.fillStyle = "#05080d";
+    if (panes[0].x) g.fillRect(ox0 + panes[1].w * dpr, oy0, (panes[0].x - panes[1].w) * dpr, H); else g.fillRect(ox0, oy0 + panes[0].h * dpr, W, (panes[1].y - panes[0].h) * dpr);
+  }
 }
 // what the tool in hand has put on the picture: the measured line, the area, the inspected point
 function drawTools(g, ox, oy, s, dpr) {
@@ -2167,90 +2207,112 @@ async function printReport() {
   try { root.print(); } catch (e) { done(); toast("تعذّرت الطباعة. استخدم «تقرير» واطبع الصورة."); }
 }
 
-/* ---------- the film to save: before, the divider sweeping across, after, what changed ---------- */
-// one frame of the film on a 720 x 900 canvas (portrait, like the picture; no logo)
+/* ---------- the film to save: what the screen shows, in the display chosen there, in high detail ---------- */
+// The film keeps the stage's own shape and framing (zoom, pan, panes), drawn 1920 points wide from
+// a wide screen and 1080 from a phone, under a title band and over a band with the scale and source.
+function filmSize() {
+  const st = el("#baStage"), w = (st && st.clientWidth) || 720, h = (st && st.clientHeight) || w;
+  const FW = w >= h * 1.15 ? 1920 : 1080, u = Math.min(FW, 1280) / 720;
+  const M = Math.round(14 * u), AW = FW - 2 * M, AH = Math.round(AW * h / w / 2) * 2;
+  const HH = Math.round(118 * u / 2) * 2, FB = Math.round(64 * u / 2) * 2;
+  return {w, h, FW, FH: HH + AH + FB, u, M, AW, AH, HH, FB, k: AW / w};
+}
 function drawFilm(g, look, state) {
-  const v = V, W = 720, H = 900, M = 12, P = W - 2 * M, Y = 118;
+  const v = V, z = look.size, {FW, FH, u, M, AW, AH, HH, k} = z, Y = HH;
+  const R = FW - Math.round(22 * u), mode = look.mode;
   g.setTransform(1, 0, 0, 1, 0, 0);
-  g.fillStyle = "#06090e"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#06090e"; g.fillRect(0, 0, FW, FH);
+  // the title band
   g.direction = "rtl"; g.textAlign = "right"; g.textBaseline = "alphabetic";
-  g.fillStyle = "#40d6ec"; g.font = `600 19px ${look.ui}`;
-  g.fillText(look.head, W - 20, 34);
-  g.fillStyle = "#f0f4fa"; g.font = `800 ${look.titleSize}px ${look.display}`;
-  g.fillText(look.title, W - 20, 76);
-  g.fillStyle = "#93a0b8"; g.font = `500 17px ${look.ui}`;
-  g.fillText(`\u2066${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}\u2069 · مربع ${v.half * 2}×${v.half * 2} كم`, W - 20, 104);
-  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
-  const rings = side => {                                     // «النقاط الحارة», as on the screen
-    if (!look.rings || !look.rings.n) return;
-    const s = P / look.rings.n;
-    g.lineWidth = 2.5; g.strokeStyle = "#ffd60a";
-    for (const h of look.rings[side]) {
-      g.beginPath(); g.arc(M + h.x * s, Y + h.y * s, Math.max(9, Math.sqrt(h.pixels) * s * 0.9), 0, 6.2832); g.stroke();
-    }
-  };
-  const X = Math.round(state.split * P);
-  g.save(); g.beginPath(); g.rect(M + X, Y, P - X, P); g.clip();
-  g.drawImage(look.b, M, Y, P, P); rings("before"); g.restore();
-  if (X > 0) {
-    g.save(); g.beginPath(); g.rect(M, Y, X, P); g.clip();
-    g.drawImage(look.a, M, Y, P, P);
-    const alpha = look.layerOn ? 1 : state.change;
-    if (alpha > 0 && look.layer) {
-      g.globalAlpha = alpha;
-      g.fillStyle = "rgba(5,8,13,.3)"; g.fillRect(M, Y, P, P);
-      g.imageSmoothingEnabled = false; g.drawImage(look.layer, M, Y, P, P);
-      g.globalAlpha = 1;
-    }
-    rings("after");
-    g.restore();
-  }
-  if (X > 0 && X < P) {                                       // the divider and its knob
-    g.fillStyle = "#fff"; g.fillRect(M + X - 1.5, Y, 3, P);
-    g.beginPath(); g.arc(M + X, Y + P / 2, 17, 0, 6.2832); g.fill();
-    g.fillStyle = "#111"; g.font = "700 15px system-ui, sans-serif"; g.textAlign = "center"; g.direction = "ltr";
-    g.fillText("‹ ›", M + X, Y + P / 2 + 5);
+  g.fillStyle = "#ff7a1a"; g.fillRect(FW - Math.round(6 * u), Math.round(18 * u), Math.round(6 * u), Math.round(74 * u));
+  g.fillStyle = "#40d6ec"; g.font = `600 ${Math.round(18 * u)}px ${look.ui}`;
+  g.fillText(look.head, R, Math.round(36 * u));
+  g.fillStyle = "#f0f4fa"; g.font = `800 ${Math.round(look.titleSize * u)}px ${look.display}`;
+  g.fillText(look.title, R, Math.round(74 * u));
+  g.fillStyle = "#93a0b8"; g.font = `500 ${Math.round(16 * u)}px ${look.ui}`;
+  g.fillText(`\u2066${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}\u2069 · مربع ${v.half * 2}×${v.half * 2} كم`, R, Math.round(102 * u));
+  // the pictures, as on the screen
+  const both = !!(look.a && look.b), panes = panesOf(mode, z.w, z.h, both);
+  g.save(); g.beginPath(); g.rect(M, Y, AW, AH); g.clip();
+  g.fillStyle = "#05080d"; g.fillRect(M, Y, AW, AH);
+  const opts = {a: look.a, b: look.b, W: AW, H: AH, ox0: M, oy0: Y};
+  if (mode === "single") {                                    // one picture: «قبل» fades into «بعد»
+    drawPanes(g, panes, 0, k, opts);
+    if (state.split > 0) { g.globalAlpha = state.split; drawPanes(g, panes, 1, k, opts); g.globalAlpha = 1; }
+  } else drawPanes(g, panes, mode === "side" ? 1 : state.split, k, opts);
+  g.restore();
+  const f = mode === "side" ? 1 : state.split;
+  if (mode === "split" && f > 0 && f < 1) {                   // the divider and its knob
+    const X = M + Math.round(f * AW);
+    g.fillStyle = "#fff"; g.fillRect(X - Math.round(1.5 * u), Y, Math.max(2, Math.round(3 * u)), AH);
+    g.beginPath(); g.arc(X, Y + AH / 2, 17 * u, 0, 6.2832); g.fill();
+    g.fillStyle = "#111"; g.font = `700 ${Math.round(15 * u)}px system-ui, sans-serif`; g.textAlign = "center"; g.direction = "ltr";
+    g.fillText("‹ ›", X, Y + AH / 2 + 5 * u);
     g.direction = "rtl"; g.textAlign = "right";
   }
-  const tag = (text, right, accent) => {
-    g.font = `700 19px ${look.ui}`;
-    const w = g.measureText(text).width + 22, x = right ? M + P - w - 8 : M + 8;
-    g.fillStyle = "rgba(5,8,13,.82)"; g.fillRect(x, Y + 8, w, 34);
-    g.fillStyle = accent; g.fillRect(right ? x + w - 4 : x, Y + 8, 4, 34);
-    g.fillStyle = "#f0f4fa"; g.fillText(text, x + w - 11, Y + 32);
+  // the date labels, where the screen has them
+  const tag = (text, x0, y0, right, accent, alpha) => {
+    if (alpha <= 0) return;
+    g.globalAlpha = alpha;
+    g.font = `700 ${Math.round(18 * u)}px ${look.ui}`;
+    const w = g.measureText(text).width + 22 * u, hgt = Math.round(34 * u), x = right ? x0 - w : x0;
+    g.fillStyle = "rgba(5,8,13,.82)"; g.fillRect(x, y0, w, hgt);
+    g.fillStyle = accent; g.fillRect(right ? x + w - 4 * u : x, y0, Math.round(4 * u), hgt);
+    g.fillStyle = "#f0f4fa"; g.fillText(text, x + w - 11 * u, y0 + hgt - 10 * u);
+    g.globalAlpha = 1;
   };
-  if (state.split < 0.86) tag(look.before, true, "#f0f4fa");
-  if (state.split > 0.14) tag(look.after, false, "#ff7a1a");
-  g.fillStyle = "#f0f4fa"; g.font = `700 22px ${look.display}`;
-  g.fillText(state.change > 0.5 ? look.found : state.split > 0.5 ? "بعد" : "قبل", W - 20, Y + P + 36);
-  g.textAlign = "left"; g.direction = "ltr"; g.fillStyle = "#56627a"; g.font = `500 13px ${look.ui}`;
-  g.fillText(look.credit, 20, H - 14);
+  const pad = Math.round(8 * u);
+  if (panes.length === 2) for (const pane of panes) {
+    tag(pane.side === "before" ? look.before : look.after, M + (pane.x + pane.w) * k - pad, Y + pane.y * k + pad, true,
+      pane.side === "before" ? "#f0f4fa" : "#ff7a1a", 1);
+  } else if (mode === "split") {
+    tag(look.before, M + AW - pad, Y + pad, true, "#f0f4fa", f < 0.86 ? 1 : 0);
+    tag(look.after, M + pad, Y + pad, false, "#ff7a1a", f > 0.14 ? 1 : 0);
+  } else {
+    tag(look.before, M + AW - pad, Y + pad, true, "#f0f4fa", 1 - f);
+    tag(look.after, M + AW - pad, Y + pad, true, "#ff7a1a", f);
+  }
+  // the scale, as on the screen: 110 stage points at most
+  const first = panes[0], bar = scaleBar(v.grid.res * v.grid.size / (Math.max(first.w, first.h) * v.zoom), 110);
+  const bw = bar.px * k, bx = M + pad, by = Y + AH - pad - Math.round(10 * u);
+  g.fillStyle = "rgba(5,8,13,.72)"; g.fillRect(bx - 6 * u, by - 24 * u, bw + 12 * u, 36 * u);
+  g.fillStyle = "#fff"; g.fillRect(bx, by, bw, Math.max(2, Math.round(3 * u)));
+  g.fillRect(bx, by - 6 * u, Math.max(2, 2 * u), 9 * u); g.fillRect(bx + bw - Math.max(2, 2 * u), by - 6 * u, Math.max(2, 2 * u), 9 * u);
+  g.textAlign = "left"; g.direction = "ltr"; g.font = `600 ${Math.round(14 * u)}px ${look.ui}`;
+  g.fillText(String(bar.label).replace(/<[^>]+>/g, ""), bx, by - 8 * u);
+  // the bottom band: what the layer shows (when one is on), the picture's maker, the source
+  const fy = Y + AH + Math.round(40 * u);
+  g.direction = "rtl"; g.textAlign = "right"; g.fillStyle = "#f0f4fa"; g.font = `700 ${Math.round(20 * u)}px ${look.display}`;
+  g.fillText(look.found || (mode === "side" ? "قبل وبعد" : f > 0.5 ? "بعد" : "قبل"), R, fy);
+  g.textAlign = "left"; g.direction = "ltr"; g.fillStyle = "#56627a"; g.font = `500 ${Math.round(13 * u)}px ${look.ui}`;
+  g.fillText(look.credit, Math.round(20 * u), fy);
 }
 // record the film in real time into a video file; the canvas on screen shows what is being recorded
 async function recordFilm(canvas, type, onProgress, cancelled) {
-  const v = V, g = canvas.getContext("2d"), {ui, display} = looks();
+  const v = V, g = canvas.getContext("2d"), {ui, display} = looks(), size = filmSize();
   await fontsReady();
-  const p = v.pair, burn = v.layer === "burn" && p && !quietBurn(p.burn), c = p && p.change, quiet = burn ? false : !c || quietChange(c);
-  const landsat = [v.shown.before, v.shown.after].some(s => s && s.pass.sensor === "landsat");
+  const p = v.pair, burn = v.layer === "burn" && p && !quietBurn(p.burn), c = p && p.change;
+  const landsat = [v.shown.before, v.shown.after].some(st => st && st.pass.sensor === "landsat");
+  const room = (size.FW - 2 * size.M - 40 * size.u) / size.u;
   let title = titleOf(), titleSize = 32;
-  for (; titleSize > 20; titleSize -= 2) { g.font = `800 ${titleSize}px ${display}`; if (g.measureText(title).width <= 680) break; }
-  while (title.length > 8 && g.measureText(title + "…").width > 680) title = title.slice(0, -1);
+  for (; titleSize > 20; titleSize -= 2) { g.font = `800 ${titleSize}px ${display}`; if (g.measureText(title).width <= room) break; }
+  while (title.length > 8 && g.measureText(title + "…").width > room) title = title.slice(0, -1);
   if (title !== titleOf()) title += "…";
-  // the film follows the owner's own choices on the screen: the band view and «تحسين العرض» (in the
-  // pictures), the layer that is on (kept on the «بعد» side, as on the screen), and the hot rings
-  const chosen = v.layer ? layerCanvas(v.layer) : null;
-  const look = {ui, display, title, titleSize, b: picture("before", v.combo), a: picture("after", v.combo),
-    layer: chosen || (quiet ? null : layerCanvas(burn ? "burn" : "change")), layerOn: !!chosen,
-    rings: marksOn(v) ? {before: v.hot.before.slice(), after: v.hot.after.slice(), n: v.grid.size} : null,
+  const both = !!(picture("before", v.combo) && picture("after", v.combo));
+  const mode = both ? (FILM_STEPS[v.show] ? v.show : "split") : "single";
+  // everything follows the screen: the display, the band view and «تحسين العرض» (in the pictures),
+  // the layer that is on (on the «بعد» side, as on the screen), the hot rings, the zoom and pan
+  const look = {ui, display, title, titleSize, size, mode, b: picture("before", v.combo), a: picture("after", v.combo),
     head: (landsat ? "قبل وبعد · صور الأقمار" : "قبل وبعد · صور القمر الأوروبي Sentinel-2") + (v.combo === "color" ? "" : " · " + COMBO_AR[v.combo].name)
       + (v.enhance ? " · عرض محسَّن" : ""),
     before: "قبل · " + dateAr(v.shown.before.pass.time), after: "بعد · " + dateAr(v.shown.after.pass.time),
-    found: quiet ? "" : burn ? "أثر احتراق محتمل: نحو " + areaText(p.burn.areaHa) : "تغيّر مرصود: نحو " + areaText(c.areaHa),
+    found: !v.layer ? "" : burn ? "أثر احتراق محتمل: نحو " + areaText(p.burn.areaHa)
+      : v.layer === "change" && c && !quietChange(c) ? "تغيّر مرصود: نحو " + areaText(c.areaHa) : "",
     credit: (landsat ? "Sentinel-2 (Copernicus) · Landsat (USGS/NASA) " : "Contains modified Copernicus Sentinel data ") + new Date().getUTCFullYear()};
-  const plan = filmPlan(!quiet);
+  const plan = filmPlan(mode);
   drawFilm(g, look, plan.at(0));
   const stream = canvas.captureStream(25), chunks = [];
-  const recorder = new MediaRecorder(stream, {mimeType: type, videoBitsPerSecond: 3500000});
+  const recorder = new MediaRecorder(stream, {mimeType: type, videoBitsPerSecond: size.FW >= 1920 ? 12000000 : 8000000});
   recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   const stopped = new Promise((res, rej) => { recorder.onstop = res; recorder.onerror = () => rej(new Error("recorder")); });
   recorder.start(200);
@@ -2280,7 +2342,8 @@ async function takeFilm() {
     box.hidden = false; el("#shotClose").onclick = close;
     return;
   }
-  box.innerHTML = `<canvas id="filmCanvas" width="720" height="900" aria-label="الفيديو أثناء التسجيل"></canvas>
+  const fz = filmSize();
+  box.innerHTML = `<canvas id="filmCanvas" width="${fz.FW}" height="${fz.FH}" aria-label="الفيديو أثناء التسجيل"></canvas>
     <p id="filmStatus" role="status">جارٍ تسجيل الفيديو…</p><div class="actions">${btn("shotClose", "إلغاء")}</div>`;
   box.hidden = false;
   let cancel = false;
@@ -2447,6 +2510,10 @@ BA.init = function () {
   });
   el("#baBtn").hidden = false;
   el("#baBtn").addEventListener("click", () => BA.go("ba"));
+  const nav = el('#secNav a[data-sec="imagery"]');
+  if (nav) nav.hidden = false;
+  const home = el("#baHome");
+  if (home && home.addEventListener) home.addEventListener("click", onClick);
   el("#pickCancel").addEventListener("click", BA.cancelPick);
   addEventListener("resize", BA.resize);
 };
@@ -2457,6 +2524,26 @@ BA.init = function () {
 const STYLE = `
 .ba-app,.ba-picktools,.ba-pin{--b:var(--bg,#0a101c);--s:var(--surface,#111a2b);--s2:var(--surface-2,#18233a);--l:var(--line,#24314c);--f:var(--fg,#e8edf6);--m:var(--muted,#93a0b8);--a:var(--accent,#ff7a1a);--g0:var(--ok,#3ddc97);--g1:var(--check,#f2c94c);--g2:var(--sure,#ff4d4f);--w:var(--likely,#ff9f1c);--ui:var(--font-ui,system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif);--dp:var(--font-display,var(--font-ui,system-ui,sans-serif))}
 #baSheet{padding-bottom:0;overflow:hidden}
+#baHome{padding:0;background:var(--panel,#0b111c)}
+.ba-docked{height:auto;min-height:100%;background:transparent}
+.ba-docked .ba-main{padding:0 16px 28px}
+.ba-docked .ba-pick{max-width:none;padding-top:0}
+.ba-docked .ba-ways{grid-template-columns:1fr;gap:8px}
+.ba-docked .ba-way{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"i b" "i s";align-content:center;row-gap:0;padding:12px 14px;
+  transition:border-color .15s,background .15s}
+.ba-docked .ba-way:hover{border-color:color-mix(in srgb,var(--a) 55%,var(--l));background:color-mix(in srgb,var(--a) 6%,var(--s))}
+.ba-docked .ba-pick>.ba-note:first-child{display:none}
+.ba-hero{position:relative;padding:20px 16px 16px;margin-bottom:14px;border-bottom:1px solid var(--l);
+  background:radial-gradient(120% 140% at 100% 0%,color-mix(in srgb,var(--a) 16%,transparent),transparent 60%),linear-gradient(180deg,var(--s),transparent)}
+.ba-kicker{display:inline-flex;align-items:center;gap:6px;color:var(--a);font-size:12px;font-weight:700;letter-spacing:.4px}
+.ba-kicker svg{width:15px;height:15px}
+.ba-hero .ba-title{display:block;font:800 21px/1.4 var(--dp);margin:4px 0 6px}
+.ba-srcs{display:flex;flex-wrap:wrap;gap:6px}
+.ba-srcs bdi{font:600 11.5px/1 var(--ui);color:var(--m);border:1px solid var(--l);border-radius:999px;padding:5px 9px;background:var(--s)}
+.ba-tap{display:flex;gap:8px;align-items:flex-start;margin-top:12px;padding:10px 12px;border-radius:10px;font-size:13px;line-height:1.6;
+  color:var(--f);background:color-mix(in srgb,var(--a) 10%,var(--s));border:1px solid color-mix(in srgb,var(--a) 35%,var(--l))}
+.ba-tap svg{flex:none;width:18px;height:18px;color:var(--a);margin-top:1px}
+body.ba-home .leaflet-container{cursor:crosshair}
 .ba-app{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--b);color:var(--f);font:15px/1.6 var(--ui);direction:rtl;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 .ba-app *,.ba-picktools *{box-sizing:border-box}
 :where(.ba-app,.ba-picktools) button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}

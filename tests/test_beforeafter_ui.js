@@ -108,21 +108,26 @@ test("passes are listed around the event or the dates of a link, never the whole
   assert.equal(H.distanceText(240.4), "240 م"); assert.equal(H.distanceText(2345), "2.35 كم");
 });
 
-test("the film's script: before, the divider sweeps to after, the change is marked, and back to before", () => {
-  const film = H.filmPlan(true), short = H.filmPlan(false);
-  assert.ok(film.duration > 9 && film.duration < 11, "about ten seconds");
-  assert.ok(short.duration < film.duration - 3, "without a change to show, that part is left out");
-  assert.deepEqual(film.at(0), {phase: "before", split: 0, change: 0});
-  assert.deepEqual(film.at(1.0), {phase: "before", split: 0, change: 0}, "«قبل» is held first");
-  const sweep = [1.5, 2.0, 2.4, 2.8, 3.3].map(t => film.at(t).split);
+test("the film follows the display chosen on the screen: divider, one picture, blink or side by side", () => {
+  const film = H.filmPlan("split");
+  assert.equal(film.mode, "split");
+  assert.ok(film.duration > 6 && film.duration < 10);
+  assert.deepEqual(film.at(0), {phase: "before", split: 0});
+  assert.deepEqual(film.at(1.0), {phase: "before", split: 0}, "«قبل» is held first");
+  const sweep = [1.5, 2.0, 2.5, 3.0, 3.5].map(t => film.at(t).split);
   assert.ok(sweep.every((s, i) => i === 0 || s > sweep[i - 1]), "the divider only moves forward");
-  assert.equal(film.at(2.4).split, 0.5, "half way at the middle of the sweep");
-  assert.deepEqual(film.at(4.0), {phase: "after", split: 1, change: 0});
-  assert.equal(film.at(6.5).change, 1, "the change is drawn fully while it is held");
-  assert.ok(film.at(5.0).change > 0 && film.at(5.0).change < 1, "and fades in");
-  assert.deepEqual(film.at(film.duration), {phase: "end", split: 0, change: 0}, "it ends where it began: it loops without a jump");
+  assert.equal(film.at(2.5).split, 0.5, "half way at the middle of the sweep");
+  assert.deepEqual(film.at(4.5), {phase: "after", split: 1});
+  assert.deepEqual(film.at(film.duration), {phase: "end", split: 0}, "it ends where it began: it loops without a jump");
   assert.deepEqual(film.at(99), film.at(film.duration));
-  for (let t = 0; t <= short.duration; t += 0.1) assert.equal(short.at(t).change, 0);
+  const one = H.filmPlan("single");                     // one picture: «قبل» fades into «بعد» and back
+  assert.ok(one.at(2.2).split > 0 && one.at(2.2).split < 1); assert.equal(one.at(4).split, 1); assert.equal(one.at(one.duration).split, 0);
+  const blink = H.filmPlan("blink"), states = [];        // blink: the two pictures by turns, a fixed beat
+  for (let t = 0.4; t < blink.duration; t += 0.8) states.push(blink.at(t).split);
+  assert.deepEqual(states.slice(0, 8), [0, 1, 0, 1, 0, 1, 0, 1]);
+  const side = H.filmPlan("side");                       // side by side: both held still
+  assert.ok(side.duration >= 5); assert.equal(side.at(3).split, 1);
+  assert.equal(H.filmPlan("anything").mode, "split");
   assert.equal(H.filmType(), null, "no recorder here: the app then says so instead of failing");
 });
 
@@ -447,14 +452,14 @@ test("the search field at the top finds any place: coordinates open it, a name l
   assert.equal(p.routes.at(-1), "ba:26.50000,50.10000,2", "coordinates go straight to the comparison");
   submit("مطار البصرة");
   assert.equal(p.routes.at(-1), "ba");
-  await p.until("the place that was found", () => /مطار البصرة الدولي/.test(p.el("#baSheet").innerHTML));
-  const sheet = p.el("#baSheet").innerHTML;
+  await p.until("the place that was found", () => /مطار البصرة الدولي/.test(p.el("#baHome").innerHTML));
+  const sheet = p.el("#baHome").innerHTML;
   assert.match(sheet, /data-act="open" data-lat="30.549" data-lon="47.662"/);
   assert.match(sheet, /data-name="مطار البصرة الدولي، طريق المطار، ناحية الهارثة"/, "a long address is cut to its first three parts");
   assert.match(sheet, /data-act="show" data-lat="30.549" data-lon="47.662"[^>]*>على الخريطة</);
   p.act("show", {lat: "30.549", lon: "47.662", name: "مطار البصرة الدولي"});
   assert.equal(p.routes.at(-1), "", "back on the app's map (the pin needs the real map)");
-  assert.equal(p.el("#baSheet").hidden, true);
+  assert.equal(p.el("#baSheet").hidden, true); assert.equal(p.el("#baHome").hidden, true);
   submit("   ");
   assert.equal(p.routes.at(-1), "", "an empty search does nothing");
 });
@@ -482,20 +487,32 @@ test("choosing a place: from the map, by coordinates, or from the saved list", a
   const saved = JSON.stringify([{name: "مطار الاختبار", lat: 26, lon: 50, half: 1}]);
   const p = page(archive, {storage: {"firms-places": saved}});
   p.context.setRoute("ba");
-  assert.match(p.el("#baSheet").innerHTML, /اختر موقعاً من الخريطة/);
-  assert.match(p.el("#baSheet").innerHTML, /مطار الاختبار/);
+  // the workspace sits in the panel beside the map: the map stays, its fires step aside, a tap picks
+  assert.match(p.el("#baHome").innerHTML, /صور الأقمار الصناعية/);
+  assert.match(p.el("#baHome").innerHTML, /اختر موقعاً من الخريطة/);
+  assert.match(p.el("#baHome").innerHTML, /مطار الاختبار/);
+  assert.equal(p.el("#baHome").hidden, false); assert.ok(p.bodyClass.has("ba-home"));
+  p.mapHandlers.click({latlng: {lat: 27.3, lng: 52.4}});
+  assert.equal(p.routes.at(-1), "ba:27.30000,52.40000,2", "a tap on the map opens its pictures");
+  assert.equal(p.el("#baHome").hidden, true); assert.ok(!p.bodyClass.has("ba-home"));
+  p.context.setRoute("ba");
   // the saved places are a watch list: a pass newer than the last visit is announced
   await p.until("the newest pass of the watched place", () => /صورة جديدة/.test(p.el("#baNew0").textContent));
   assert.ok(p.el("#baNew0").textContent.includes(H.dateAr(Date.parse(ago(6) + "T07:22:32Z"))));
   // from the map
   p.act("pick");
   assert.ok(p.bodyClass.has("picking")); assert.equal(p.el("#pickBar").hidden, false); assert.equal(p.el("#baSheet").hidden, true);
+  assert.equal(p.el("#baHome").hidden, true);
   p.mapHandlers.click({latlng: {lat: 27.1, lng: 52.2}});
   assert.equal(p.routes.at(-1), "ba:27.10000,52.20000,2");
   assert.ok(!p.bodyClass.has("picking")); assert.equal(p.el("#pickBar").hidden, true);
   // cancelled: back to the chooser, the map is released
   p.context.setRoute("ba"); p.act("pick"); p.el("#pickCancel").fire("click", {});
-  assert.equal(p.routes.at(-1), "ba"); assert.ok(!p.bodyClass.has("picking")); assert.equal(p.mapHandlers.click, undefined);
+  assert.equal(p.routes.at(-1), "ba"); assert.ok(!p.bodyClass.has("picking"));
+  assert.equal(p.el("#baHome").hidden, false, "back in the workspace, whose map taps pick a place again");
+  p.context.BA.leave();
+  assert.equal(p.mapHandlers.click, undefined, "leaving the section releases the map"); assert.equal(p.el("#baHome").hidden, true);
+  p.context.setRoute("ba");
   // typed coordinates
   p.el("#baQuery").value = "26.5, 50.1";
   p.el("#baSearch").fire("submit", {preventDefault() {}});
@@ -687,7 +704,7 @@ test("the screen brings its own looks, once, and uses no class the page listens 
     "var(--bg", "var(--surface", "var(--line", "var(--fg", "var(--muted", "var(--accent", "var(--font-ui", "var(--font-display"]) assert.ok(css.includes(part), part);
   assert.ok(!/(^|[\s,}])\.(chip|card|btn|seg|sheet)\b/.test(css), "it styles only its own classes");
   p.context.setRoute("ba");
-  const chooser = p.el("#baSheet").innerHTML;
+  const chooser = p.el("#baHome").innerHTML;
   for (const text of ["اختر موقعاً من الخريطة", "ارسم منطقة", "صوّر ما أراه"]) assert.ok(chooser.includes(text), text);
   p.context.setRoute("ba:26.00000,50.00000,1");
   const markup = chooser + p.el("#baSheet").innerHTML + ["#baViews", "#baModes", "#baDates", "#baStrip", "#baActions", "#baTools"].map(s => p.el(s).innerHTML).join("");
@@ -701,7 +718,7 @@ test("«صوّر ما أراه»: the map as it is on screen becomes the nearest
   // about 14 km wide and 11 km high on screen
   const p = page(archive, {view: [25.95, 49.93, 26.05, 50.07]});
   p.context.setRoute("ba");
-  assert.match(p.el("#baSheet").innerHTML, /الظاهر الآن نحو 14 × 11 كم ← مربع 10 كم/);
+  assert.match(p.el("#baHome").innerHTML, /الظاهر الآن نحو 14 × 11 كم ← مربع 10 كم/);
   p.act("here");
   assert.equal(p.routes.at(-1), "ba:26.00000,50.00000,5", "the 10 km box around the middle of the map");
   await p.settled(40000);                       // a 10 km box is 800 x 800 points: slow without a browser
@@ -719,7 +736,7 @@ test("«صوّر ما أراه»: the map as it is on screen becomes the nearest
   wide.context.BA.leave(); p.context.BA.leave();                // nothing keeps loading behind the next test
   const far = page(archive, {view: [22, 44, 31, 58]});
   far.context.setRoute("ba");
-  assert.match(far.el("#baSheet").innerHTML, /قرّب الخريطة أولاً/);
+  assert.match(far.el("#baHome").innerHTML, /قرّب الخريطة أولاً/);
   far.act("here");
   assert.match(far.toasts.at(-1), /قرّب الخريطة/); assert.ok(far.bodyClass.has("picking"), "the map comes up to zoom in");
   assert.equal(far.routes.filter(r => r.startsWith("ba:")).length, 0);

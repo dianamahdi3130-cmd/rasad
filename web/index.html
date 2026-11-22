@@ -260,6 +260,21 @@ body.has-sel .fire:not(.picked){opacity:.72}
 .brand .wm{display:flex;align-items:center;gap:8px;direction:ltr;font:700 15px/1 var(--font-lat);letter-spacing:2.2px}
 .brand .wm i{font-style:normal;font-weight:500;color:var(--data);border-left:1.5px solid color-mix(in srgb,var(--data) 60%,transparent);padding-left:8px}
 .brand .pn{font:800 19px/1 var(--font-display);padding-inline-start:9px;border-inline-start:1px solid var(--line-2)}
+/* the map's instruments: distance scale and the pointer's position */
+.leaflet-control-scale-line{background:var(--glass);color:var(--fg);border-color:var(--muted);font:600 11px/1.4 var(--font-lat);padding:1px 6px}
+.coordbar{background:var(--glass);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;font:600 11.5px/1.6 var(--font-lat);
+  letter-spacing:.3px;box-shadow:var(--shadow-s);backdrop-filter:blur(8px)}
+.leaflet-left .leaflet-control-scale,.leaflet-left .coordbar{margin-left:68px!important;direction:ltr}
+@media (hover:none){ .coordbar{display:none} }
+@media (max-width:759px){ .leaflet-control-scale{display:none} }
+/* the platform's sections: the fires and the satellite pictures */
+.secnav{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:12px;background:var(--surface);flex:none}
+.secnav a{display:inline-flex;align-items:center;gap:7px;padding:5px 14px;border-radius:9px;color:var(--muted);text-decoration:none;
+  font:600 13.5px/1.6 var(--font-ui);white-space:nowrap;transition:background .15s,color .15s}
+.secnav a:hover{color:var(--fg);background:var(--surface-2)}
+.secnav a[aria-current="page"]{background:var(--fg);color:var(--bg)}
+.secnav a[aria-current="page"] .ic{color:var(--accent)}
+.secnav .ic{width:17px;height:17px}
 .pill{display:flex;align-items:center;gap:7px;min-width:0;flex:0 1 auto;font-size:12.5px;line-height:1.35;color:var(--muted);background:var(--surface);border:1px solid var(--line);
   border-radius:999px;padding:4px 11px;text-align:start}
 .pill:hover{border-color:var(--line-2)}
@@ -339,6 +354,8 @@ body.panel-off #panelToggle .ic{transform:rotate(90deg)}
   body.sheet-full{--vis:var(--full-h)}
   #topbar{gap:8px}
   .brand .pn{font-size:18px}
+  .secnav a{padding:5px 9px;gap:5px;font-size:12.5px}
+  .secnav .ic{width:15px;height:15px}
   .pill{flex:1 1 0;font-size:11.5px;padding:3px 9px;border-radius:12px}
   .tbtn{padding:0;width:36px}
   .tbtn .lbl{display:none}
@@ -374,6 +391,7 @@ body.panel-off #panelToggle .ic{transform:rotate(90deg)}
   body.sheet-full .timebar{display:none}
   .toast{bottom:calc(var(--vis) + 14px)}
 }
+@media (max-width:559px){ .brand .pn{display:none} #topbar .pill{display:none} }
 @supports (height:100dvh){ @media (max-width:759px){ body{--full-h:calc(100dvh - var(--top) - 8px);--vis:min(46dvh,430px)} } }
 
 /* choosing a point on the map (before/after pictures, or a place to watch): only the map */
@@ -868,6 +886,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
 <symbol id="i-back" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
 <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+<symbol id="i-sat" viewBox="0 0 24 24"><path d="m13.5 6.5 4 4-7 7-4-4z"/><path d="m15.5 4.5 2-2 4 4-2 2M6.5 13.5l-2 2 4 4 2-2M3 21l2.5-2.5M14 14c1.5 1.5 1.5 4 0 5.5M18 12c3 3 3 7 0 10"/></symbol>
 <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12.5 3c.7 3.6 4.5 5.4 4.5 10a5 5 0 0 1-10 0c0-1.9.9-3.5 2-4.6.3 1.6 1 2.6 2 3.1 0-3 .6-5.5 1.5-8.5Z"/></symbol>
 <symbol id="i-plant" viewBox="0 0 24 24"><path d="M3 21V11l6 3.5V11l6 3.5V5h4v16Z"/><path d="M7 17.5h2M12 17.5h2"/></symbol>
 <symbol id="i-spot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" stroke-dasharray="3 3.3"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></symbol>
@@ -919,6 +938,10 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
       <span class="wm" aria-hidden="true"><b>ALFAQAAR</b><i>FIRMS</i></span>
       <span class="pn">رصد</span>
     </a>
+    <nav class="secnav" id="secNav" aria-label="أقسام المنصة">
+      <a href="./" data-sec="fires" aria-current="page"><svg class="ic"><use href="#i-fire"/></svg><span>الحرائق</span></a>
+      <a href="#ba" data-sec="imagery" hidden><svg class="ic"><use href="#i-sat"/></svg><span>صور الأقمار</span></a>
+    </nav>
     <button class="pill" id="status" type="button" aria-label="حالة الفحص والمصادر"><span class="dot"></span><span>جارٍ التحميل…</span></button>
     <form class="finder" id="finder" role="search" hidden>
       <input id="finderQ" type="search" enterkeyhint="search" autocomplete="off" aria-label="ابحث عن حدث أو أي موقع" aria-controls="suggest" placeholder="ابحث: حدث، مكان، أو إحداثيات">
@@ -945,6 +968,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
       </div>
       <div class="dbody" id="detail"></div>
     </section>
+    <section class="dview iview" id="baHome" hidden aria-label="صور الأقمار"></section>
     <button id="panelToggle" type="button" aria-label="إخفاء اللوحة أو إظهارها" aria-expanded="true" aria-controls="panel"><svg class="ic"><use href="#i-chev"/></svg></button>
     <button class="grab" id="grab" type="button" aria-label="اسحب لتغيير حجم اللوحة، أو اضغط"><i></i></button>
     <nav class="tabs" id="tabs" role="tablist" aria-label="الأقسام"></nav>
@@ -1018,7 +1042,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <div id="report" aria-hidden="true"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="access.js?v=21"></script>
+<script src="access.js?v=22"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24,
@@ -1149,6 +1173,17 @@ function initMap(){
   S.focus = L.layerGroup().addTo(S.layer);
   S.map.on("zoomend", zoomLabels);
   S.map.on("contextmenu", mapMenu);
+  // the instruments of a mapping platform: a distance scale, and where the pointer is (desktop)
+  L.control.scale({position:"bottomleft", metric:true, imperial:false, maxWidth:120}).addTo(S.map);
+  const coord = L.control({position:"bottomleft"});
+  coord.onAdd = () => { const d = L.DomUtil.create("div", "coordbar"); d.dir = "ltr"; d.hidden = true; return d; };
+  coord.addTo(S.map);
+  S.map.on("mousemove", e => {
+    const d = coord.getContainer(), ll = e.latlng;
+    d.hidden = false;
+    d.textContent = `${ll.lat.toFixed(4)}°N  ${L.Util.wrapNum(ll.lng, [-180, 180], true).toFixed(4)}°E  ·  z${S.map.getZoom()}`;
+  });
+  S.map.on("mouseout", () => { coord.getContainer().hidden = true; });
   S.map.on("popupopen", () => { if (!wide() && !S.sel) sheetTo("peek"); });     // a pin's card needs the map: the sheet steps aside
   zoomLabels();
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", setBase);
@@ -1631,6 +1666,16 @@ function incidentById(id){
   return S.items.find(x => x.id === id || (Array.isArray(x.early_ids) && x.early_ids.includes(id)));
 }
 const hasBA = () => !!(globalThis.BA && BA.available);
+// the platform's two sections: the fires (the map and its events) and the satellite pictures
+function setSection(sec){
+  const b = document.body, ds = b.dataset || (b.dataset = {});
+  if (ds.sec === sec) return;
+  ds.sec = sec;
+  for (const a of (document.querySelectorAll ? document.querySelectorAll("#secNav a") : [])) {
+    if (a.dataset.sec === sec) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
+  if (sec === "imagery") { $("#sheet").hidden = true; exitFocus(); sheetTo("half"); }
+}
 function setRoute(hash, push=true){
   const url = location.pathname + (hash ? "#" + encodeURIComponent(hash) : "");
   if (push) { NAV.i++; NAV.trail.length = NAV.i; NAV.trail[NAV.i] = hash; history.pushState({i:NAV.i}, "", url); }
@@ -1687,6 +1732,7 @@ function route(){
   let h = decodeURIComponent(location.hash.slice(1));
   const q = new URLSearchParams(location.search).get("e");   // links from Telegram
   if (!h && q) { h = q; history.replaceState(history.state || null, "", location.pathname + "#" + encodeURIComponent(q)); }
+  setSection(hasBA() && (h === "ba" || h.startsWith("ba:")) ? "imagery" : "fires");
   if (hasBA()){
     if (BA.route(h)) return;                // before/after pictures, over whatever was open
     BA.leave();
@@ -3088,7 +3134,7 @@ async function signOut(){
 // The «قبل وبعد» screen (imagery.js, beforeafter.js) is behind the door on the private app, so its
 // scripts are added only once the app may run: at once on the open site, after a sign-in on the
 // private one. The app does not wait for them, and everything else works without them (hasBA()).
-const TOOLS = ["imagery.js?v=21", "beforeafter.js?v=21"];
+const TOOLS = ["imagery.js?v=22", "beforeafter.js?v=22"];
 function loadTools(){
   if (hasBA() || S.toolsBusy) return;
   S.toolsBusy = true;
@@ -3303,6 +3349,13 @@ $("#tabs").onkeydown = e => {              // arrows move between the sections (
   const tab = document.getElementById("tab-" + S.tab);
   if (tab) tab.focus();
 };
+$("#secNav").onclick = e => {
+  const a = e.target.closest("a[data-sec]");
+  if (!a) return;
+  e.preventDefault(); closeMenus();
+  if (a.dataset.sec === "imagery") { if (hasBA() && (document.body.dataset || {}).sec !== "imagery") BA.go("ba"); }
+  else if ((NAV.trail[NAV.i] || "") !== "") setRoute("");
+};
 $("#homeBtn").onclick = e => { e.preventDefault(); closeMenus(); if ((NAV.trail[NAV.i] || "") !== "") leave(""); else if (S.sheet === "full") sheetTo("half"); };
 $("#status").onclick = () => { if (S.sheet === "peek") sheetTo("half"); if (S.sel || S.arcSel) setRoute("tab:sources"); else setTab("sources"); };
 $("#layersBtn").onclick = () => toggleBox("#layersMenu");
@@ -3357,6 +3410,11 @@ addEventListener("keydown", e => {
   if (e.key === "Escape") escapeKey();
   else if (e.key === "/" && !e.target.closest("input,textarea,select,[contenteditable]") && !document.body.classList.contains("locked")){
     e.preventDefault(); flag("search-on", true); $("#finderQ").focus();
+  }
+  else if ((e.key === "1" || e.key === "2") && !e.altKey && !e.ctrlKey && !e.metaKey && !e.target.closest("input,textarea,select,[contenteditable]")
+           && !document.body.classList.contains("locked")){
+    const a = $(`#secNav a[data-sec="${e.key === "1" ? "fires" : "imagery"}"]`);      // 1 الحرائق · 2 صور الأقمار
+    if (a && !a.hidden) a.click();
   }
 });
 addEventListener("online", () => { setStrip(); load(); });
@@ -3431,7 +3489,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 21;                    // the same number as CACHE in sw.js and ?v= of the scripts
+const APP_V = 22;                    // the same number as CACHE in sw.js and ?v= of the scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {
