@@ -328,9 +328,24 @@ class Silent(unittest.TestCase):
                     self.assertEqual(brain.alert_worthy(on, config()), brain.alert_worthy(off, config(False)))
                     self.assertEqual(brain.new_heat(on, config()), brain.new_heat(off, config(False)))
                     self.assertEqual(assess.main_reason(on), assess.main_reason(off))
-                    self.assertEqual(alert_message(on, config()), alert_message(off, config(False)))
+                    plain = lambda m: "\n".join(x for x in m.split("\n") if not x.startswith(("📈", "⚠️")))
+                    self.assertEqual(plain(alert_message(on, config())), plain(alert_message(off, config(False))))
                     self.assertNotIn("pattern", off)
                     self.assertEqual(on["evidence"][:-1], off["evidence"][:len(on["evidence"]) - 1])
+
+    def test_the_post_says_the_pattern_and_the_first_sign_but_never_a_cause(self):
+        inc = {"headline": "حريق قرب منشأة نفطية", "pattern": {"key": "surge", "label": "اشتداد في موقع حرارة معتاد", "also": []},
+               "signals": {"warn": [{"key": "sudden", "text": "بدأت فجأة وبقوة"}, {"key": "several", "text": "عدة مواقع"}]}}
+        lines = brain.pattern_lines(inc)
+        self.assertEqual(lines[0], "📈 <b>النمط:</b> اشتداد في موقع حرارة معتاد")
+        self.assertIn("بدأت فجأة وبقوة", lines[1]); self.assertIn("و1 أخرى في التطبيق", lines[1])
+        self.assertEqual(brain.pattern_lines({"pattern": {"key": "short", "label": "حرارة قصيرة أو متقطعة"}}), [],
+                         "the everyday labels stay in the app")
+        same = {"headline": "حرارة جديدة مستمرة في السعودية", "pattern": {"key": "new_sustained", "label": "حرارة جديدة مستمرة"}}
+        self.assertEqual(brain.pattern_lines(same), [], "not said twice")
+        for text in lines:
+            for bad in ("هجوم", "استهداف", "ضربة"):
+                self.assertNotIn(bad, text)
 
     def test_the_line_is_neutral_and_in_the_last_of_eight_places(self):
         inc = week(ABQAIQ)
@@ -837,15 +852,19 @@ class Signals(unittest.TestCase):
             for cause in ("هجوم", "استهداف", "ضربة", "قصف", "مسيّرة", "تخريب"):
                 self.assertNotIn(cause, text)
             message = alert_message(inc, config())
-            self.assertNotIn("مؤشر", message)
-            self.assertNotIn("نادراً", message)
+            # since 22 Nov 2026 the post carries the first sign worth attention, as one neutral line
+            sign = [x for x in message.split("\n") if x.startswith("⚠️")]
+            self.assertEqual(len(sign), 1)
+            self.assertIn("علامة تستحق الانتباه", sign[0])
+            for cause in ("هجوم", "استهداف", "ضربة", "قصف", "مسيّرة", "تخريب"):
+                self.assertNotIn(cause, message)
             off = config()
             off["signals"]["enabled"] = False
             again = finalize(copy.deepcopy(inc), off)
             self.assertNotIn("signals", again)
             self.assertEqual((again["priority"], again["headline"], again["confidence"]),
-                             (inc["priority"], inc["headline"], inc["confidence"]))
-            self.assertEqual(alert_message(again, off), message)
+                             (inc["priority"], inc["headline"], inc["confidence"]), "a sign never decides a post")
+            self.assertEqual(alert_message(again, off), "\n".join(x for x in message.split("\n") if not x.startswith("⚠️")))
 
 
 class InACheck(unittest.TestCase):

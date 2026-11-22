@@ -770,7 +770,7 @@ def run_cycle(cfg, send=True, alert_now=False):
             # At night (no daylit picture left to read) the finder rests and is not late.
             resting = day_status.get("daylight") is False
             status["seawatch_day"] = {
-                **day_status, "name": "كاشف رصد النهاري التجريبي (Meteosat-12)",
+                **day_status, "name": "كاشف رصد النهاري (Meteosat-12)",
                 "ok": bool(ok and (fresh_day or resting) and not day_status.get("missing")),
                 "latest": checked_at, "experimental": True,
             }
@@ -1416,8 +1416,10 @@ def run_cycle(cfg, send=True, alert_now=False):
                                       "patch_ha": result.get("patch_ha")}
                 log.info("WATCHED PLACE %s: change posted (%s)", place["name"], result["pass"])
 
-    # Smoke, silent for now: a daytime fire is given to the worker, and what it finds is written
-    # on the incident for the app. Nothing here is posted and the verdict is not touched.
+    # Smoke, a second witness by day: a daytime fire is given to the worker, and what it finds is
+    # written on the incident. Seen from a fire that was posted, it goes out once as a reply under
+    # that post (the owner made it official on 22 Nov 2026: on its first 117 fires it showed on 3,
+    # all real heat, two of them confirmed fires). It never changes the verdict.
     if cfg["smoke"].get("enabled", True):
         for inc in S.incidents:
             asked = smoke.wanted(inc, cfg, now)
@@ -1425,6 +1427,11 @@ def run_cycle(cfg, send=True, alert_now=False):
                 smoke.request(cfg, inc, now)
             if asked or (inc.get("smoke") and not inc["smoke"].get("closed") and not inc["smoke"].get("seen")):
                 smoke.collect(cfg, inc, now)
+            if smoke.due_post(inc, cfg, now):
+                if post(smoke.message(inc, cfg), reply_to=inc.get("tg_msg")):
+                    S.sent = True
+                    inc["smoke_posted"] = iso(now)
+                    _remember_post(inc, now)
 
     # sea incidents found before the look-back existed, or not touched in this run
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):

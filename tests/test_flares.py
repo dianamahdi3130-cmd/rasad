@@ -92,7 +92,7 @@ class RealNightsTests(unittest.TestCase):
         ep = {"pictures": 14, "strong": 4, "peak": 17.5, "typical": 3.55, "window_h": 3}
         self.assertEqual(flares.text(ep, "مصفاة ينبع"),
                          "اشتعلت الشعلة في مصفاة ينبع أكثر من المعتاد: رمز حريق في 14 صورة خلال 3 ساعات، "
-                         "منها 4 بقوة ضعف المعتاد أو أكثر. علامة تجريبية لا تُرسل إلى القناة؛ "
+                         "منها 4 بقوة ضعف المعتاد أو أكثر. علامة في التطبيق لا تُرسل إلى القناة؛ "
                          "قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.")
         self.assertIn("\u2068Shedgum\u2069", flares.text(ep, "معمل غاز (Shedgum)"))
 
@@ -248,7 +248,7 @@ class VideoTests(unittest.TestCase):
         self.assertEqual(flares.ask_videos(self.state, self.cfg, self.NOW, mediaqueue.request_clip), 0)
         job = next(j for j in self.jobs() if j["where"] == "ينبع الصناعية")
         self.assertEqual((job["country"], job["verdict"], job["max_frp"]),
-                         ("نشاط حراري أعلى من المعتاد (تجريبي)", None, 17.5))
+                         ("نشاط حراري أعلى من المعتاد", None, 17.5))
         self.assertIn(["2026-11-11T23:10:00Z", 17.48], job["frp_series"])
         self.finish(job)
         self.assertEqual(flares.take_videos(self.state, self.cfg, self.NOW, mediaqueue.import_result), 1)

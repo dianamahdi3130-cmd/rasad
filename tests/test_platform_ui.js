@@ -263,7 +263,7 @@ test("NASA backgrounds: the daily picture, false colour and the night picture; n
   assert.deepEqual({...app.nightDefault(Date.parse("2026-11-15T02:00:00Z"))}, {date: "2026-11-13", pass: "night"}, "early in the day it is not published yet");
   assert.deepEqual(Object.keys(app.NASA_VIEWS), ["daily", "false", "night"]);
   assert.doesNotMatch(html, /Thermal_Anomalies/, "NASA serves its fire points as vector tiles only: not offered");
-  for (const key of ["false", "night"]) assert.match(app.NASA_VIEWS[key].name, /تجريبي/);
+  for (const key of ["false", "night"]) assert.doesNotMatch(app.NASA_VIEWS[key].name, /تجريبي/, "official backgrounds since 22 Nov 2026");
 });
 
 /* ---------- one incident ---------- */

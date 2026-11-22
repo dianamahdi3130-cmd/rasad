@@ -197,14 +197,32 @@ def check(cfg, pics, lat, lon, first, now):
 
 
 def text(found):
-    """One line for the app, in the caution the silent period needs."""
+    """One line for the app and the channel: what the pictures show, never a cause."""
     if not found or not found.get("seen"):
         return ""
-    return (f"دخان محتمل من موضع الحرارة (تجريبي): خط بطول نحو {found['length_km']:.0f} كم "
+    return (f"دخان من موضع الحرارة: خط بطول نحو {found['length_km']:.0f} كم "
             f"يمتد باتجاه {found.get('direction') or 'واحد'}، ظهر في {found['frames']} صور متتالية")
 
 
-# ---------------------------------------------------------------- silent recording
+def due_post(inc, cfg, now):
+    """Smoke seen from a fire that was posted, not yet told, while it is still news."""
+    from .util import parse_time
+    if not (cfg.get("smoke") or {}).get("post", True):
+        return False
+    s = inc.get("smoke") or {}
+    return bool(s.get("seen") and inc.get("status") == "alerted" and inc.get("tg_msg") and not inc.get("smoke_posted")
+                and not inc.get("recovered_historical")
+                and now - parse_time(inc["last"]) <= dt.timedelta(hours=float(cfg["alerts"].get("max_age_hours", 8))))
+
+
+def message(inc, cfg):
+    """The reply under the fire's post: what the daylight pictures show, never a cause."""
+    from html import escape
+    return "\n".join([f"💨 <b>دخان مرئي من موضع الحرارة</b>", escape(text(inc.get("smoke"))) + ".",
+                      "🛰 صور القمر الأوروبي النهارية (Meteosat-12)"])
+
+
+# ---------------------------------------------------------------- recording
 # The scanner writes a small job for a daytime fire and later copies the worker's finding onto
 # the incident (``inc["smoke"]``): shown in the app, never posted, never part of the verdict.
 def queue_dir(cfg):

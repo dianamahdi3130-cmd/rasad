@@ -6,7 +6,7 @@ Meteosat-12's fire symbol in 25-33 of ~45 night pictures instead of 3-12, readin
 times the usual) while staying below the 'unusual heat' line that alerts. That can be ordinary
 extra flaring or the aftermath of damage; the pictures cannot tell which.
 
-This module only notices it, for the app: «نشاط حراري أعلى من المعتاد (تجريبي)». It is never an
+This module only notices it, for the app: «نشاط حراري أعلى من المعتاد». It is never an
 incident, never posted, never part of a verdict, and never trains the usual-heat memory. Its
 record over real cases is to be reviewed with the owner (docs/reviews/yanbu_shedgum_20261112.md).
 
@@ -159,7 +159,7 @@ def clip_incident(site, ep):
     return {"id": ep["id"], "lat": site["lat"], "lon": site["lon"], "first": iso(start),
             "last": ep["last"], "frp_series": series, "polar": [], "max_frp": ep["peak"],
             "place": "land", "where": site.get("label") or "منشأة",
-            "country": TITLE + " (تجريبي)", "verdict": None}
+            "country": TITLE, "verdict": None}
 
 
 def ask_videos(state, cfg, now, request):
@@ -214,7 +214,7 @@ def text(ep, label=""):
     hours = f"{ep.get('window_h', DEFAULTS['window_h']):g}"
     return (f"اشتعلت الشعلة{where} أكثر من المعتاد: رمز حريق في {ep['pictures']} صورة خلال "
             f"{hours} ساعات، منها {ep['strong']} بقوة ضعف المعتاد أو أكثر. "
-            "علامة تجريبية لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، "
+            "علامة في التطبيق لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، "
             "والصور وحدها لا تفرّق بينهما.")
 
 

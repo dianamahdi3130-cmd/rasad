@@ -96,7 +96,7 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   alone is at most «مرجّح». The day finder never alerts on its own. One faint NASA pixel at night
   at sea (under 2 MW) waits for a second look (unmapped platforms flare like that).
 - The confidence number (`assess.py`) lives inside its verdict's band («مؤكد» 75-99, «مرجّح» 50-74,
-  «يحتاج تأكيداً» under 50) and never says a cause. Smoke and the flare markers are not counted in it.
+  «يحتاج تأكيداً» under 50) and never says a cause. Smoke seen adds 5 inside the band; flare markers are not counted.
   At a plant («حرارة غير معتادة») the heat itself is certain, so the number says how far outside the
   plant's habits it is (40-90) under its own label «الثقة بأنه خارج المعتاد» (`confidence_label`).
 - Picture layers are asked for at 0.25 km per pixel (never coarser than 0.3): the server answers a
@@ -143,26 +143,31 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
 - A watched place is posted only for a new clear pass with a connected patch of change of at
   least `watch.min_patch_ha`, once, as its own post; its first clear pass is the starting point
   and is never posted. What was handled is in the memory (`state["watch"]`).
-- Smoke findings are silent: `inc["smoke"]` is shown in the app as «دخان محتمل (تجريبي)» and
-  counted by the live check; nothing may post it or let it change a verdict until its record over
-  real fires has been reviewed with the owner (`docs/reviews/smoke_and_satellites_20261110.md`).
-- Heat patterns' labels are silent: `inc["pattern"]` and its «النمط: …» line (the last of the eight
-  reasons, neutral '·', never read by `main_reason`) are shown in the app only; the label itself
-  never posts or changes a decision (`tests/test_patterns.py` → `Silent`). What posts is decided by
-  the two roads above (`new_heat_path`, `solar_glint`), shared with the labels. «حرارة واسعة
-  الانتشار» and «عدة مواقع في وقت متقارب» stay app-only until their record over real events is
-  reviewed (`docs/plans/heat_patterns.md`). No label or post names a cause: never «هجوم»,
-  «استهداف» or «ضربة».
-- Signals worth attention are app-only: `inc["signals"]` (`patterns.signals_of`) lists facts with
-  their numbers. Warnings, counted on the card: heat at a spot of the site that rarely burns (VIIRS
-  pixel within 500 m of no spot hot on over 2% of the long-term map's dates, confirmed or likely and
-  5 MW or more), a sudden strong start, several places at once, heat spread wide. Calm and wait lines:
-  everything else. Each list ends with «هذه علامات تستحق النظر وليست حكماً …». Never posted, never part
-  of a decision, never a cause. Checked on 21 real attacks since 2024: 14 lit
-  (`docs/plans/heat_patterns.md`).
-- Flare markers are silent: `meta.flare_activity` is shown in the app only; it is never an incident,
-  never posted, never part of a verdict, and never trains the usual heat, until its record has been
-  reviewed with the owner (`docs/reviews/yanbu_shedgum_20261112.md`).
+- The owner made every trial feature official on 22 Nov 2026 ("جميع الميزات التجريبية يجب اكمالها وجعله
+  معتمدة"); none is marked «تجريبي» any more. What each now does, and what it still may not do:
+- Smoke (`smoke.py`): seen from a fire that was posted, it goes out once as a reply under that post
+  («💨 دخان مرئي من موضع الحرارة», `smoke.due_post`/`smoke.message`, `inc["smoke_posted"]`) and adds 5
+  inside the verdict's band of the confidence number. It never changes a verdict. Its record when
+  made official: 117 fires checked, smoke on 3, all real heat (Abqaiq and Ras Kanatib confirmed fires).
+- Heat patterns: `inc["pattern"]` and its «النمط: …» line (the last of the eight reasons, neutral
+  '·', never read by `main_reason`) are shown in the app; a first alert also says the label in one
+  line («📈 النمط: …», `brain.pattern_lines`) for «حرارة جديدة مستمرة», «حرارة واسعة الانتشار» and
+  «اشتداد في موقع حرارة معتاد» (not on a «حرارة غير معتادة» post, which says it already), with «عدة
+  مواقع في وقت متقارب» when tagged. The label never decides whether or what posts
+  (`tests/test_patterns.py` → `Silent`): that is decided by the two roads above (`new_heat_path`,
+  `solar_glint`), shared with the labels. No label or post names a cause: never «هجوم», «استهداف» or
+  «ضربة».
+- Signals worth attention: `inc["signals"]` (`patterns.signals_of`) lists facts with their numbers.
+  Warnings, counted on the card: heat at a spot of the site that rarely burns (VIIRS pixel within
+  500 m of no spot hot on over 2% of the long-term map's dates, confirmed or likely and 5 MW or more),
+  a sudden strong start, several places at once, heat spread wide. Calm and wait lines: everything
+  else. Each list ends with «هذه علامات تستحق النظر وليست حكماً …». A first alert carries the first
+  warning as one line («⚠️ علامة تستحق الانتباه: …»); never part of a decision, never a cause.
+  Checked on 21 real attacks since 2024: 14 lit (`docs/plans/heat_patterns.md`). On the 29 posts
+  made before 22 Nov, 9 would have carried a pattern or sign line.
+- Flare markers: `meta.flare_activity` is shown in the app («نشاط حراري أعلى من المعتاد»); it is
+  never an incident, never posted (a plant's strong surge is posted by the «حرارة غير معتادة» rule),
+  never part of a verdict, and never trains the usual heat (`docs/reviews/yanbu_shedgum_20261112.md`).
 - No «سبب التأخر» line in any post (the owner removed it on 12 Nov 2026).
 - Recovered past events appear in the app but are never posted as news. An alert is never sent
   twice (the memory is saved at once after anything is sent).

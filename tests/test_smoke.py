@@ -58,7 +58,7 @@ class PlumeTests(unittest.TestCase):
         self.assertAlmostEqual(found["bearing"], 45, delta=8)
         self.assertTrue(found["brighter"])
         self.assertLess(found["ir_z"], 1.0)
-        self.assertIn("دخان محتمل من موضع الحرارة (تجريبي)", smoke.text(dict(found, direction="شمال شرق")))
+        self.assertIn("دخان من موضع الحرارة: خط بطول نحو 18 كم", smoke.text(dict(found, direction="شمال شرق")))
         self.assertEqual(smoke.text({"seen": False}), "")
 
     def test_black_smoke_over_bright_ground_is_seen_as_a_darker_streak(self):
@@ -238,7 +238,7 @@ class SilentRecordingTests(unittest.TestCase):
         found = smoke.check(self.cfg, pics, 26.0, 50.0, T("2026-11-10T19:00:00Z"), T("2026-11-10T19:40:00Z"))
         self.assertEqual((found["seen"], found["why"], pics.asked), (False, "not in fair daylight", []))
 
-    def test_a_whole_check_records_the_smoke_without_posting_or_changing_the_verdict(self):
+    def test_a_whole_check_records_the_smoke_and_never_changes_the_verdict(self):
         save_json(self.cfg["_state_dir"] / "state.json", {"schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE,
                                                           "sea_check": engine.SEA_CHECK})
         memory = Memory({})
@@ -262,10 +262,24 @@ class SilentRecordingTests(unittest.TestCase):
             state = engine.run_cycle(self.cfg, send=True)                      # copies the finding
         inc = state.incidents[0]
         self.assertTrue(inc["smoke"]["seen"])
-        self.assertEqual((inc["verdict"], inc["status"]), ("يحتاج تأكيداً", "new"), "silent: the verdict is untouched")
+        self.assertEqual((inc["verdict"], inc["status"]), ("يحتاج تأكيداً", "new"), "the verdict is untouched; not posted, not told")
         shown = load_json(self.cfg["_site_dir"] / "data" / "incidents.json", {})["items"][0]
-        self.assertIn("دخان محتمل من موضع الحرارة (تجريبي)", shown["smoke_text"])
+        self.assertIn("دخان من موضع الحرارة", shown["smoke_text"])
         self.assertIn("شمال شرق", shown["smoke_text"])
+
+    def test_smoke_from_a_posted_fire_is_told_once_under_its_post(self):
+        found = {"seen": True, "length_km": 12.4, "direction": "شرق", "frames": 4}
+        inc = dict(self.incident, smoke=found, status="alerted", tg_msg=77, last=engine.iso(self.now))
+        self.assertTrue(smoke.due_post(inc, self.cfg, self.now))
+        text = smoke.message(inc, self.cfg)
+        self.assertIn("دخان مرئي من موضع الحرارة", text)
+        self.assertIn("نحو 12 كم", text)
+        for bad in ("هجوم", "استهداف", "ضربة", "تجريبي"):
+            self.assertNotIn(bad, text)
+        self.assertFalse(smoke.due_post(dict(inc, smoke_posted="x"), self.cfg, self.now), "once")
+        self.assertFalse(smoke.due_post(dict(inc, status="new"), self.cfg, self.now), "only under a post")
+        self.assertFalse(smoke.due_post(dict(inc, last="2026-11-01T00:00:00Z"), self.cfg, self.now), "only while it is news")
+        self.assertFalse(smoke.due_post(dict(inc, smoke=dict(found, seen=False)), self.cfg, self.now))
 
 
 if __name__ == "__main__":

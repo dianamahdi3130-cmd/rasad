@@ -29,7 +29,7 @@ SOURCE_AR = {
     "mtg_frp": "Meteosat-12 · منتج الحرائق الرسمي",
     "iodc_fire": "Meteosat-9 فوق المحيط الهندي · منتج الحرائق الرسمي",
     "mtg_spot": "باحث رصد الليلي · صور Meteosat-12",
-    "mtg_day_spot": "باحث رصد النهاري (تجريبي) · صور Meteosat-12",
+    "mtg_day_spot": "باحث رصد النهاري · صور Meteosat-12",
     "VIIRS_NOAA20_NRT": "NOAA-20 · VIIRS (ناسا)",
     "VIIRS_NOAA21_NRT": "NOAA-21 · VIIRS (ناسا)",
     "VIIRS_SNPP_NRT": "Suomi-NPP · VIIRS (ناسا)",
@@ -194,7 +194,9 @@ def _fire_evidence(inc, cfg):
             add(15, "+", "ظهر وهج لهب في القناتين القصيرتين (1.6 و2.2 ميكرومتر)، وهذا لا تصنعه الغيوم ليلاً")
     day = len(_slots(inc, "mtg_day_spot"))
     if day:
-        add(10, "·", "الباحث النهاري التجريبي وجد بقعة؛ ضوء الشمس قد يخدعه فلا يكفي وحده")
+        add(10, "·", "باحث رصد النهاري وجد بقعة؛ ضوء الشمس قد يشبه الحرارة فلا يكفي وحده")
+    if (inc.get("smoke") or {}).get("seen"):
+        add(5, "+", "ظهر دخان من موضع الحرارة في صور النهار")
     if len(fams) >= 2:
         add(15, "+", "أكثر من قمر مستقل رأى الحرارة في المكان نفسه")
     mw = float(inc.get("max_frp") or 0)

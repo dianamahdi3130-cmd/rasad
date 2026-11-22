@@ -1219,10 +1219,10 @@ function dailyLabel(d){
 // named by the UTC day of its pass (about 1 am in Baghdad) and is published some hours later.
 const NASA_VIEWS = {
   daily: {name:"صورة اليوم من ناسا", note:"كل نقطة 250 م: المشهد العام والدخان الكبير", passes: DAILY},
-  false: {name:"ألوان كاذبة (آثار الحرائق) · تجريبي", note:"الأرض المحترقة بنية داكنة، واللهب لامع", passes: {
+  false: {name:"ألوان كاذبة (آثار الحرائق)", note:"الأرض المحترقة بنية داكنة، واللهب لامع", passes: {
     am: ["MODIS_Terra_CorrectedReflectance_Bands721", "صباحاً", 10],
     pm: ["VIIRS_NOAA20_CorrectedReflectance_BandsM11-I2-I1", "بعد الظهر", 14]}},
-  night: {name:"صورة الليل (أضواء ولهب) · تجريبي", note:"أضواء المدن وشعلات الغاز والحرائق الكبيرة", ext:"png", level:8, passes: {
+  night: {name:"صورة الليل (أضواء ولهب)", note:"أضواء المدن وشعلات الغاز والحرائق الكبيرة", ext:"png", level:8, passes: {
     night: ["VIIRS_NOAA20_DayNightBand_At_Sensor_Radiance", "ليلاً", 4]}},
 };
 function nasaUrl(view, d){
@@ -1280,7 +1280,7 @@ function renderLayers(){
     ${choices.map(([k, t, s]) =>
       `<button class="opt" type="button" role="radio" data-base="${k}" ${on(base === k)}><span class="mk"></span><span>${t}${s ? `<small>${s}</small>` : ""}</span></button>`).join("")}
     <h4>علامات رصد</h4>
-    <button class="opt box" type="button" role="checkbox" data-ui="flares" ${on(UI.flares !== false)}><span class="mk"></span><span>شعلات أنشط من المعتاد<small>تجريبي · لا تُرسل إلى القناة</small></span></button>
+    <button class="opt box" type="button" role="checkbox" data-ui="flares" ${on(UI.flares !== false)}><span class="mk"></span><span>شعلات أنشط من المعتاد<small>في التطبيق · لا تُرسل إلى القناة</small></span></button>
     <button class="opt box" type="button" role="checkbox" data-ui="rings" ${on(UI.rings !== false)}><span class="mk"></span><span>حلقات مواقعي<small>المواقع التي تراقبها</small></span></button>
     <button class="opt box" type="button" role="checkbox" data-ui="sea" ${on(UI.sea === true)}><span class="mk"></span><span>تغطية كاشف البحر<small>البحار التي يفحصها كاشف رصد ليلاً</small></span></button>`;
 }
@@ -1302,7 +1302,7 @@ function legendHTML(){
     <h4>علامات أخرى</h4>
     ${row(mark("v-sure fresh", 12), "رُصد خلال الساعة الأخيرة", "")}
     ${row(mark("v-likely old"), "آخر رصد قبل أكثر من يوم", "")}
-    ${row('<div class="flare"></div>', "شعلة أنشط من المعتاد", "تجريبي")}
+    ${row('<div class="flare"></div>', "شعلة أنشط من المعتاد", "أعلى من عادة المنشأة")}
     ${row(`<div class="plant">${icon("plant")}</div>`, "أقرب منشأة للحدث المفتوح", "")}
     <p class="help" style="margin-top:10px">الأقمار ترى الحرارة ولا تحدد سببها. أسماء المنشآت من خرائط OpenStreetMap.</p>`;
 }
@@ -1351,7 +1351,7 @@ function flareCards(){
   const list = flareItems();
   if (!list.length) return "";
   return `<details class="flares"${S.flaresOpen ? " open" : ""}>
-      <summary>${icon("fire")}<span><b>${FLARE_AR}</b> · ${plural(list.length, "منشأة واحدة", "منشأتان", "منشآت", "منشأة")}</span><span class="badge exp">تجريبي</span>${icon("chev", "chev")}</summary>
+      <summary>${icon("fire")}<span><b>${FLARE_AR}</b> · ${plural(list.length, "منشأة واحدة", "منشأتان", "منشآت", "منشأة")}</span>${icon("chev", "chev")}</summary>
       <div class="in">${list.map(f => `
       <div class="card flare-card">
         <span class="stripe flare-stripe"></span>
@@ -1364,14 +1364,14 @@ function flareCards(){
           ${f.clip ? `<video src="${esc(f.clip)}" ${f.snap ? `poster="${esc(f.snap)}"` : ""} controls playsinline muted loop preload="none"></video>`
             : `<span class="where flare-note">${esc(f.clip_note || "الفيديو قيد التجهيز")}</span>`}
           <span class="where flare-text">${esc(f.text || "")}</span>
-          <span class="meta"><span class="badge exp">تجريبي · لا يُرسل إلى القناة</span></span>
+          <span class="meta"><span class="badge exp">لا يُرسل إلى القناة</span></span>
         </span>
       </div>`).join("")}</div></details>`;
 }
 const flareSpan = f => `من ${esc(clock(f.first))} إلى ${esc(clock(f.last))}`;
 function flarePopup(f){
   return `<div class="flare-pop"><b>${FLARE_AR}</b>${bidi(f.label || "")}<br>${flareSpan(f)}<br>`
-    + `أعلى قوة ${esc(mwText(f.peak))} · المعتاد نحو ${esc(mwText(f.typical))}<br><small>تجريبي · لا يُرسل إلى القناة</small></div>`;
+    + `أعلى قوة ${esc(mwText(f.peak))} · المعتاد نحو ${esc(mwText(f.typical))}<br><small>لا يُرسل إلى القناة</small></div>`;
 }
 function showFlare(id){
   const f = flareItems().find(x => x.id === id); if (!f || !S.map) return;
@@ -2008,7 +2008,7 @@ function detailHTML(it){
     ${sources ? `<section class="sec"><h3>من رآه ومتى</h3>${sources}</section>` : ""}
     ${chart ? `<section class="sec"><h3>الشدة عبر الوقت</h3>${chart}</section>` : ""}
     ${usualHTML(it)}
-    ${it.smoke_text ? `<section class="sec"><h3>دخان محتمل <span class="badge exp">تجريبي</span></h3><p class="agree" style="margin:0">${esc(it.smoke_text)}</p></section>` : ""}
+    ${it.smoke_text ? `<section class="sec"><h3>دخان مرئي</h3><p class="agree" style="margin:0">${esc(it.smoke_text)}</p></section>` : ""}
     <div class="acts">
       <button class="btn primary" type="button" id="shareBtn">${icon("share")}مشاركة</button>
       <button class="btn" type="button" id="shotBtn">📸 صورة</button>
@@ -2374,7 +2374,7 @@ const SOURCE_INFO = {
   mtg_frp: "منتج الحرائق الرسمي للقمر الأوروبي Meteosat-12: صورة كل 10 دقائق. هو المصدر الأساسي والأسرع.",
   iodc_fire: "القمر الأوروبي Meteosat-9 فوق المحيط الهندي: صورة كل 15 دقيقة من زاوية أخرى. قمر مستقل يؤكد ما يراه الأول.",
   seawatch: "كاشف رصد الخاص بالبحر: يبحث ليلاً في صور Meteosat-12 عن بقعة حرارية ثابتة فوق الماء قد لا يلتقطها المنتج الرسمي. يعمل في الليل فقط.",
-  seawatch_day: "الكاشف النهاري التجريبي: من أول الضوء إلى آخره. انعكاس الشمس قد يخدعه، لذلك لا ينبّه وحده أبداً.",
+  seawatch_day: "كاشف رصد النهاري: من أول الضوء إلى آخره. يرى الحرارة الجديدة والبقع الحارة الثابتة في البحر، ويحتاج تأكيداً من مصدر آخر قبل أي تنبيه.",
   noaa: "قمرا ناسا NOAA-20 وNOAA-21 من ملفاتهما المباشرة: الرصدات نفسها التي تصل لاحقاً عبر ناسا، لكن بعد نحو 25 دقيقة من مرور القمر نهاراً و45 ليلاً.",
   firms: "أقمار ناسا القطبية (VIIRS و MODIS): أدق في تحديد الموقع، لكنها تمر مرات قليلة في اليوم وتصل بياناتها من ناسا متأخرة نحو 3 ساعات (ما سبق وصوله من ملفات NOAA لا يُحسب مرتين).",
   recovery: "استرجاع ما فات: يعيد فحص صور سابقة قرب المنشآت بعد انقطاع مصدر. ما يُسترجع يظهر في التطبيق ولا يُرسل كخبر.",
@@ -2407,7 +2407,7 @@ function renderSources(){
     </div>
     ${entries.length ? entries.map(([key, s]) => {
       const st = sourceState(key, s), nums = SOURCE_NUM.filter(([k]) => Number(s[k]) > 0);
-      return `<div class="src"><div class="hd"><span class="dot ${st.cls}"></span><b>${bidi(s.name || key)}</b>${s.experimental ? `<span class="badge exp">تجريبي</span>` : ""}<span class="st">${st.text}</span></div>
+      return `<div class="src"><div class="hd"><span class="dot ${st.cls}"></span><b>${bidi(s.name || key)}</b><span class="st">${st.text}</span></div>
         <p>${SOURCE_INFO[key] || ""}</p>
         ${nums.length ? `<div class="nums">${nums.map(([k, t]) => `<span class="tag">${t} ${esc(s[k])}</span>`).join("")}</div>` : ""}</div>`;
     }).join("") : `<div class="empty">لا معلومات عن المصادر في هذه البيانات.</div>`}
