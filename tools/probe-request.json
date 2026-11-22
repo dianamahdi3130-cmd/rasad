@@ -1,8 +1,5 @@
 {"mode": "steps", "try": 8,
  "steps": [
-  ["seascan", "--day", "--start", "2026-11-20T02:30Z", "--end", "2026-11-20T14:00Z", "--boxes", "hormuz_oman"],
-  ["seascan", "--day", "--start", "2026-11-18T02:30Z", "--end", "2026-11-18T14:00Z", "--boxes", "hormuz_oman"],
-  ["seascan", "--day", "--start", "2026-11-21T02:30Z", "--end", "2026-11-21T14:00Z", "--boxes", "hormuz_oman"],
-  ["seascan", "--day", "--start", "2026-11-19T02:30Z", "--end", "2026-11-19T14:00Z", "--boxes", "gulf_south"],
-  ["seascan", "--day", "--start", "2026-11-21T02:30Z", "--end", "2026-11-21T14:00Z", "--boxes", "gulf_south"]
+  ["seascan", "--day", "--start", "2026-11-20T08:30Z", "--end", "2026-11-20T12:00Z", "--boxes", "hormuz_oman"],
+  ["seascan", "--day", "--start", "2026-11-19T09:30Z", "--end", "2026-11-19T12:30Z", "--boxes", "gulf_south"]
  ]}

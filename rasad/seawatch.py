@@ -631,10 +631,12 @@ def _steady(cfg, pics, box, t, size, state, geo, cached=True):
     try:
         with pics.cached_only() if cached else _nothing():
             red = pics.get(cfg["seawatch"]["layer"], box["bbox"], *size, t, 0)
+            ir = pics.get(cfg["seawatch"]["check_layer"], box["bbox"], *size, t)
         if red is None:
             return []
         km = float(cfg["seawatch"].get("daytime", {}).get("km_per_px", cfg["seawatch"]["km_per_px"]))
-        spots = daysteady.hot_spots(cfg, np.asarray(red, dtype=np.float32), box["bbox"], km)
+        spots = daysteady.hot_spots(cfg, np.asarray(red, dtype=np.float32), box["bbox"], km,
+                                    None if ir is None else np.asarray(ir, dtype=np.float32))
         rows = [] if spots is None else daysteady.observe(cfg, state, box["id"], t, spots, geo)
     except Exception as e:  # noqa: BLE001 - an app-only look must never stop the sea watch
         log.warning("steady day spots %s %s: %s", box["id"], iso(t), e)
@@ -1035,7 +1037,7 @@ def scan_day(cfg, wms, start, end, mem=None, geo=None, boxes=None, km=None):
     slot and box prints what it found and why the rest was turned down."""
     import copy
     from .daywatch import find_spots as find_day_spots
-    cfg = dict(cfg, seawatch=copy.deepcopy(cfg["seawatch"]))
+    cfg = dict(cfg, seawatch=copy.deepcopy(cfg["seawatch"]), _replay=True)
     C = cfg["seawatch"]
     D = C.setdefault("daytime", {})
     if km:
