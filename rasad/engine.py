@@ -28,7 +28,7 @@ from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
 RULES = 20  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 18  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 19  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
 PATTERNS = 3     # bump when the heat patterns' rules change, so every stored event is labelled again
@@ -123,7 +123,7 @@ DEFAULTS = {
                 "overpass_urls": ["https://overpass-api.de/api/interpreter",
                                   "https://overpass.kumi.systems/api/interpreter"],
                 "nominatim_url": "https://nominatim.openstreetmap.org/reverse"},
-    "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 20, "px_km": 0.25,
+    "clip": {"enabled": True, "frames": 8, "frames_after": 2, "half_size_km": 20, "view_zoom": 2, "px_km": 0.25,
              "smooth_km": 0.6, "out_px": 1080, "fps": 2, "hold_last": 4, "format": "mp4", "per_run": 1,
              "layout": "two", "context_layer": "mtg_fd:rgb_geocolour", "out_fps": 24,
              "reveal_s": 1.6, "hud_title": "ALFAQAAR FIRMS",

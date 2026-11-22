@@ -20,7 +20,7 @@ from .seawatch import Pictures, box_size
 from .twopanel import BG, CYAN, DIM, FIRE, WHITE, _font, _lut, _text, _width
 from .util import in_bbox, iso, latlon_to_px, parse_time
 
-STYLE = 2
+STYLE = 3
 NEAREST = getattr(Image, "Resampling", Image).NEAREST
 
 
@@ -174,7 +174,8 @@ def render(cfg, wms, inc, now):
                 < float(cfg["seawatch"].get("min_above_sea", 3)))):
         raise NotVisible("the first accepted spot does not show on its original raster")
     shots.append((when, current))
-    radius = max(8, int(round(float(cfg["clip"].get("half_size_km", 20)) / km)))
+    zoom = max(1.0, float(cfg["clip"].get("view_zoom", 1)))   # as near as the usual video
+    radius = max(8, int(round(float(cfg["clip"].get("half_size_km", 20)) / zoom / km)))
     cx, cy = round(x), round(y)
     crop = (max(0, cx - radius), max(0, cy - radius), min(width, cx + radius + 1), min(height, cy + radius + 1))
     revision = {"style": STYLE, "id": inc["id"], "grid": [layer, bbox, width, height, km],
