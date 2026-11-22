@@ -501,3 +501,76 @@ def preview(cfg, lat, lon, first, last, out, headline="", where="", half_km=2.0,
     res = _make(cfg, job, utcnow(), session, Path(out))
     return res, (caption({"id": "preview"}, res, cfg) if res.get("ok") else None)
 
+
+
+def timelapse(cfg, lat, lon, start, end, out_dir, half_km=1.2, title="", marks=(), monthly_until=None,
+              budget_s=900, session=None):
+    """Every clear Sentinel-2 pass of a place, one a month up to `monthly_until` and each one after:
+    a film (MP4) and a first-and-last picture, for looking at how a site was built (by hand)."""
+    from .clip import _write
+    from .twopanel import BG, CYAN, DIM, WHITE, _font, _text
+    archive = s2.Archive(session or make_session(), deadline=time.monotonic() + budget_s)
+    grid = s2.Grid(lat, lon, half_km)
+    passes = sorted(archive.list_passes(grid, start, end), key=lambda p: p["time"])
+    chosen, months = [], set()
+    for p in passes:
+        month = p["time"].strftime("%Y-%m")
+        dense = monthly_until is None or p["time"] >= monthly_until
+        if not dense and month in months:
+            continue
+        try:
+            archive.assess(p, grid)
+        except s2.ArchiveError:
+            continue
+        if s2.is_clear(p):
+            chosen.append(p)
+            months.add(month)
+    scenes = []
+    for p in chosen:
+        try:
+            scenes.append(archive.load_scene(p, grid))
+        except s2.ArchiveError as e:
+            log.info("timelapse: %s left out (%s)", iso(p["time"]), e)
+    if len(scenes) < 2:
+        return {"ok": False, "why": f"{len(scenes)} clear pass(es)"}
+    stretch = s2.stretch_of(scenes, s2.COLOR_BANDS)
+    W, H, M, Y, S = 1080, 1280, 20, 150, 1040
+    km_px = S / (2 * half_km)
+
+    def frame(scene, label, sub=""):
+        im = Image.new("RGB", (W, H), BG)
+        d = ImageDraw.Draw(im)
+        _text(d, (W - 28, 24), "تطوّر الموقع · صور القمر الأوروبي Sentinel-2", _font(26), CYAN, anchor="ra", rtl=True)
+        _text(d, (W - 28, 64), title or "الموقع", _font(40), WHITE, anchor="ra", rtl=True)
+        _text(d, (28, 104), f"{lat:.4f}, {lon:.4f}", _font(24, "mono"), DIM, anchor="la")
+        _panel(im, s2.composite(scene, s2.COLOR_BANDS, stretch), M, Y, S)
+        for mlat, mlon, color, name in marks:          # what is marked: a point and its name
+            x = M + S / 2 + (mlon - lon) * 111.32 * __import__("math").cos(__import__("math").radians(lat)) * km_px
+            y = Y + S / 2 - (mlat - lat) * 111.32 * km_px
+            d.ellipse((x - 26, y - 26, x + 26, y + 26), outline=color, width=4)
+            _text(d, (x - 32, y), name, _font(24), color, anchor="rm", rtl=True)
+        d.rectangle((M, Y, M + 360, Y + 58), fill=(5, 8, 13))
+        _text(d, (M + 346, Y + 29), label, _font(30), WHITE, anchor="rm", rtl=True)
+        bar = 500                                         # metres
+        x0, y0 = M + 24, Y + S - 40
+        d.rectangle((x0 - 10, y0 - 36, x0 + bar / 1000 * km_px + 10, y0 + 14), fill=(5, 8, 13))
+        d.rectangle((x0, y0, x0 + bar / 1000 * km_px, y0 + 5), fill=WHITE)
+        _text(d, (x0, y0 - 8), "500 م", _font(22), WHITE, anchor="lb", rtl=True)
+        if sub:
+            _text(d, (W - 28, Y + S + 44), sub, _font(26), DIM, anchor="ra", rtl=True)
+        _text(d, (28, H - 30), "Contains modified Copernicus Sentinel data " + str(end.year), _font(18, "monol"), DIM, anchor="la")
+        return im
+
+    frames = [frame(s, day_ar(s["pass"]["time"], cfg, with_year=True)) for s in scenes]
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    film = _write(frames + [frames[-1]] * 3, str(out_dir / "timelapse"), 2, "mp4")
+    first, last = scenes[0], scenes[-1]
+    pair = Image.new("RGB", (2 * W + 16, H), BG)
+    pair.paste(frame(first, "قبل · " + day_ar(first["pass"]["time"], cfg, with_year=True)), (W + 16, 0))
+    pair.paste(frame(last, "بعد · " + day_ar(last["pass"]["time"], cfg, with_year=True)), (0, 0))
+    pair.save(out_dir / "first_last.jpg", quality=90)
+    for i, f in enumerate(frames):
+        f.save(out_dir / f"frame_{i:02d}.jpg", quality=85)
+    log.info("timelapse: %d clear passes of %d, %.1f MB read", len(scenes), len(passes), archive.bytes / 1e6)
+    return {"ok": True, "film": str(film), "dates": [iso(s["pass"]["time"]) for s in scenes]}

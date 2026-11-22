@@ -1,5 +1,6 @@
 {"mode": "steps", "try": 8,
  "steps": [
-  ["satpic", "--lat", "24.2999", "--lon", "41.7860", "--start", "2026-11-12T00:00Z", "--half-km", "3", "--title", "الموقع قبل الحريق", "--out", "probe-out/site_6km.jpg"],
-  ["satpic", "--lat", "24.2800", "--lon", "41.7860", "--start", "2026-11-12T00:00Z", "--half-km", "6", "--title", "الموقع والخط", "--out", "probe-out/site_12km.jpg"]
+  ["timelapse", "--lat", "24.2985", "--lon", "41.7925", "--start", "2024-11-01T00:00Z", "--end", "2026-11-23T00:00Z",
+   "--monthly-until", "2026-09-01T00:00Z", "--half-km", "1.2", "--title", "موقع الأعمال قرب حريق 23 تشرين الثاني",
+   "--mark", "24.2955,41.7944,الحريق", "--out", "probe-out/site"]
  ]}
