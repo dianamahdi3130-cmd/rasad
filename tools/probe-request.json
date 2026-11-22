@@ -1,4 +1,5 @@
 {"mode": "steps", "try": 8,
  "steps": [
-  ["osm-near", "--lat", "24.2999", "--lon", "41.7860", "--km", "15"]
+  ["satpic", "--lat", "24.2999", "--lon", "41.7860", "--start", "2026-11-12T00:00Z", "--half-km", "3", "--title", "الموقع قبل الحريق", "--out", "probe-out/site_6km.jpg"],
+  ["satpic", "--lat", "24.2800", "--lon", "41.7860", "--start", "2026-11-12T00:00Z", "--half-km", "6", "--title", "الموقع والخط", "--out", "probe-out/site_12km.jpg"]
  ]}
