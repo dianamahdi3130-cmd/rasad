@@ -26,6 +26,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/noaafire.py` | NASA's NOAA-20/21 fire pixels from NOAA's own public files (AWS, no account), about 25 min after a day pass and 45 after a night pass instead of ~3 h through FIRMS; same pixels (99% match, `docs/reviews/noaa_files_20261116.md`), entered as FIRMS rows of the same source; a later FIRMS copy is its twin (`Twins`), never a second sighting. On in `config.yaml` (`noaa.enabled`), off in `DEFAULTS` (tests) |
 | `rasad/geocollect.py` | which European pictures each check reads (never-read first, then settled second reads) |
 | `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert): reads the Fire Temperature picture at **0.25 km per pixel in tiles** over ten sea boxes, red = 3.8 micron, green/blue = flame glow; and the experimental day finder (first light to last light, sun above −6°, its two boxes at 0.5 km; never alerts alone) |
+| `rasad/daysteady.py` | by day, a place at sea that stays clearly hotter than the sea around it in 4 pictures in a row (40 min), not warmer at 10.5 micron (sun-warmed land is), not a platform, not usual heat (atlas), not steady on 2 earlier days (`state["sea_day_steady_days"]`). Its rows join the day finder's (`mtg_day_spot`): shown in the app, never posted alone. Replayed 18-21 Nov 2026: what it finds at sea are flares (Zakum, Das Island, a new site off the UAE); the 20 Nov Muscat spot did not show at 3.8 micron |
 | `rasad/earlyalerts.py`, `preliminary.py`, `earlyclip.py` | the first sea sighting from one picture («رصد حراري أولي»): posted at once only when unmistakable (`strong`), shown in the app otherwise; its own short video |
 | `rasad/pictureworker.py`, `thermal_history.py` | background fetching of the finders' pictures (tiles) into `.rasad-pictures/`; "heat seen here before" for the sea finder |
 | `rasad/clip.py`, `twopanel.py`, `mediaqueue.py` | the thermal clips, rendered by a separate media worker; pictures read and judged over 40 km, shown twice as near, centred on the fire (`clip.view_zoom`, the owner's wish of 22 Nov 2026) |
@@ -38,8 +39,8 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/geodb.py` | facilities and places from OpenStreetMap (Overpass, Nominatim). `FACILITY_QUERY` is what the map is asked for (also industrial land named or operated as an oil or gas site: `OIL_NAMES`); bump `GEO_VERSION` when it changes, the map is then built again in the background, part by part (`build_geodata`: each part of a tile saved at once, a part that fails twice asked as its four quarters, a server's 'runtime error' is a failure; the public servers took 40-80 s per request on 16 Nov 2026). `python -m rasad osm-near --lat .. --lon ..` shows what the open map holds at a place and what the facility map takes of it. Facilities kept by hand in `config.yaml` → `geodata.extra_facilities` count at once (`extra_facilities`) |
 | `rasad/backfill.py`, `repairs.py`, `acquisitions.py` | recovery of missed past slots; reviewed one-off corrections; grouping pixels of one pass |
 | `rasad/main.py` | CLI: `cycle`, `media-worker`, `picture-worker`, `satpic-worker`, `satpic` (the picture for any place by hand), `maintain-geo`, `cloud-publish`; diagnosis: `probe`, `pictures`, `seascan`, `hotspots`, `reclip`, `grab` (keep a night's pictures), `layers`, `gibs-layers`, `imagery-check` (the app's imagery engine on the real archives: `tools/imagery_check.js`) |
-| `web/index.html` | the app: one page, styles and main script (Arabic RTL, Leaflet 1.9.4), rebuilt on 15 Nov 2026 as a map-first platform. The map fills the window; one panel (docked beside it from 760 px, a bottom sheet with peek/half/full on phones) holds the tabs الأحداث / المؤشرات / الأرشيف / مواقعي / المصادر and an incident's details (confidence dial, reasons, who saw it, strength chart, printable «تقرير الحدث»); a time slider; backgrounds: map, satellite, NASA's daily picture and its false-colour and night pictures (`NASA_VIEWS`, GIBS tiles); dark and light themes; the sign-in screen and the manager's panel (`RasadAccess`). `web/sw.js` holds the cache name |
-| `web/imagery.js`, `web/beforeafter.js` | the satellite-imagery browser («صور الأقمار · قبل وبعد»): Sentinel-2 pictures (10 m) of any place read in the phone itself (engine, no page code) and its screen, with Landsat 8/9 (30 m, from Microsoft's Planetary Computer, signed by a free token) as extra dates. The place is chosen on the map (a point, a drawn rectangle up to 80 km, or «صوّر ما أراه»); a date strip with clear/partly/cloudy marks; one picture, split, blink or side by side; band views (natural, short-wave, false colour, fire) and the NBR/NDVI indices; the change layer, the «أثر احتراق محتمل» layer (dNBR classes), hot points, a point inspector, area measuring; a report as an image or a printed page. Nothing on the server. Design and limits: `docs/plans/before-after.md` |
+| `web/index.html` | the app: one page, styles and main script (Arabic RTL, Leaflet 1.9.4), rebuilt on 15 Nov 2026 as a map-first platform; since 22 Nov two sections in the top bar (`#secNav`: «الحرائق» and «صور الأقمار», keys 1 and 2, `setSection`), a distance scale and the pointer's coordinates on the map. The map fills the window; one panel (docked beside it from 760 px, a bottom sheet with peek/half/full on phones) holds the tabs الأحداث / المؤشرات / الأرشيف / مواقعي / المصادر and an incident's details (confidence dial, reasons, who saw it, strength chart, printable «تقرير الحدث»); a time slider; backgrounds: map, satellite, NASA's daily picture and its false-colour and night pictures (`NASA_VIEWS`, GIBS tiles); dark and light themes; the sign-in screen and the manager's panel (`RasadAccess`). `web/sw.js` holds the cache name |
+| `web/imagery.js`, `web/beforeafter.js` | the satellite-imagery browser («صور الأقمار · قبل وبعد»): Sentinel-2 pictures (10 m) of any place read in the phone itself (engine, no page code) and its screen, with Landsat 8/9 (30 m, from Microsoft's Planetary Computer, signed by a free token) as extra dates. The place is chosen on the map (a point, a drawn rectangle up to 80 km, or «صوّر ما أراه»); a date strip with clear/partly/cloudy marks; one picture, split, blink or side by side; band views (natural, short-wave, false colour, fire) and the NBR/NDVI indices; the change layer, the «أثر احتراق محتمل» layer (dNBR classes), hot points, a point inspector, area measuring; a report as an image or a printed page; a film that is the screen itself (`drawPanes`, shared with `paint`: the display mode, zoom and pan, layer, rings), 1920 points wide from a wide screen, 1080 from a phone (`filmSize`, `filmPlan(mode)`). The place is chosen in the section's workspace in the panel beside the map (`#baHome`: a tap on the map opens its pictures). Nothing on the server. Design and limits: `docs/plans/before-after.md` |
 | `worker/src/index.js`, `web/access.js` | private app on Cloudflare (Worker `rasad` + Durable Object `Hub`): one **access key per subscriber** tied to one device (a key pair the browser cannot export; the device proves itself every 15 minutes), validity period, forced sign-out, device-change requests, the manager's panel API, data/clips/archive/tool files only for an active subscription, ingest. `access.js` (`RasadAccess`) is the page's only way to the door. Design, API table and limits: `docs/plans/access-keys.md`; the owner's steps: `docs/private-app-setup.md` |
 | `scripts/loop.sh`, `scripts/branches.sh` | the ~5.5-hour watching loop; saving to the data branches |
 | `.github/workflows/` | `rasad.yml` monitor, `probe.yml` diagnosis on real data (can be started by hand on any branch: it then follows that branch's `tools/probe-request.json`), `deploy-worker.yml` private app, `tests.yml` every test on pull requests and work branches |
@@ -96,7 +97,7 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   alone is at most «مرجّح». The day finder never alerts on its own. One faint NASA pixel at night
   at sea (under 2 MW) waits for a second look (unmapped platforms flare like that).
 - The confidence number (`assess.py`) lives inside its verdict's band («مؤكد» 75-99, «مرجّح» 50-74,
-  «يحتاج تأكيداً» under 50) and never says a cause. Smoke and the flare markers are not counted in it.
+  «يحتاج تأكيداً» under 50) and never says a cause. Smoke seen adds 5 inside the band; flare markers are not counted.
   At a plant («حرارة غير معتادة») the heat itself is certain, so the number says how far outside the
   plant's habits it is (40-90) under its own label «الثقة بأنه خارج المعتاد» (`confidence_label`).
 - Picture layers are asked for at 0.25 km per pixel (never coarser than 0.3): the server answers a
@@ -143,26 +144,31 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
 - A watched place is posted only for a new clear pass with a connected patch of change of at
   least `watch.min_patch_ha`, once, as its own post; its first clear pass is the starting point
   and is never posted. What was handled is in the memory (`state["watch"]`).
-- Smoke findings are silent: `inc["smoke"]` is shown in the app as «دخان محتمل (تجريبي)» and
-  counted by the live check; nothing may post it or let it change a verdict until its record over
-  real fires has been reviewed with the owner (`docs/reviews/smoke_and_satellites_20261110.md`).
-- Heat patterns' labels are silent: `inc["pattern"]` and its «النمط: …» line (the last of the eight
-  reasons, neutral '·', never read by `main_reason`) are shown in the app only; the label itself
-  never posts or changes a decision (`tests/test_patterns.py` → `Silent`). What posts is decided by
-  the two roads above (`new_heat_path`, `solar_glint`), shared with the labels. «حرارة واسعة
-  الانتشار» and «عدة مواقع في وقت متقارب» stay app-only until their record over real events is
-  reviewed (`docs/plans/heat_patterns.md`). No label or post names a cause: never «هجوم»,
-  «استهداف» or «ضربة».
-- Signals worth attention are app-only: `inc["signals"]` (`patterns.signals_of`) lists facts with
-  their numbers. Warnings, counted on the card: heat at a spot of the site that rarely burns (VIIRS
-  pixel within 500 m of no spot hot on over 2% of the long-term map's dates, confirmed or likely and
-  5 MW or more), a sudden strong start, several places at once, heat spread wide. Calm and wait lines:
-  everything else. Each list ends with «هذه علامات تستحق النظر وليست حكماً …». Never posted, never part
-  of a decision, never a cause. Checked on 21 real attacks since 2024: 14 lit
-  (`docs/plans/heat_patterns.md`).
-- Flare markers are silent: `meta.flare_activity` is shown in the app only; it is never an incident,
-  never posted, never part of a verdict, and never trains the usual heat, until its record has been
-  reviewed with the owner (`docs/reviews/yanbu_shedgum_20261112.md`).
+- The owner made every trial feature official on 22 Nov 2026 ("جميع الميزات التجريبية يجب اكمالها وجعله
+  معتمدة"); none is marked «تجريبي» any more. What each now does, and what it still may not do:
+- Smoke (`smoke.py`): seen from a fire that was posted, it goes out once as a reply under that post
+  («💨 دخان مرئي من موضع الحرارة», `smoke.due_post`/`smoke.message`, `inc["smoke_posted"]`) and adds 5
+  inside the verdict's band of the confidence number. It never changes a verdict. Its record when
+  made official: 117 fires checked, smoke on 3, all real heat (Abqaiq and Ras Kanatib confirmed fires).
+- Heat patterns: `inc["pattern"]` and its «النمط: …» line (the last of the eight reasons, neutral
+  '·', never read by `main_reason`) are shown in the app; a first alert also says the label in one
+  line («📈 النمط: …», `brain.pattern_lines`) for «حرارة جديدة مستمرة», «حرارة واسعة الانتشار» and
+  «اشتداد في موقع حرارة معتاد» (not on a «حرارة غير معتادة» post, which says it already), with «عدة
+  مواقع في وقت متقارب» when tagged. The label never decides whether or what posts
+  (`tests/test_patterns.py` → `Silent`): that is decided by the two roads above (`new_heat_path`,
+  `solar_glint`), shared with the labels. No label or post names a cause: never «هجوم», «استهداف» or
+  «ضربة».
+- Signals worth attention: `inc["signals"]` (`patterns.signals_of`) lists facts with their numbers.
+  Warnings, counted on the card: heat at a spot of the site that rarely burns (VIIRS pixel within
+  500 m of no spot hot on over 2% of the long-term map's dates, confirmed or likely and 5 MW or more),
+  a sudden strong start, several places at once, heat spread wide. Calm and wait lines: everything
+  else. Each list ends with «هذه علامات تستحق النظر وليست حكماً …». A first alert carries the first
+  warning as one line («⚠️ علامة تستحق الانتباه: …»); never part of a decision, never a cause.
+  Checked on 21 real attacks since 2024: 14 lit (`docs/plans/heat_patterns.md`). On the 29 posts
+  made before 22 Nov, 9 would have carried a pattern or sign line.
+- Flare markers: `meta.flare_activity` is shown in the app («نشاط حراري أعلى من المعتاد»); it is
+  never an incident, never posted (a plant's strong surge is posted by the «حرارة غير معتادة» rule),
+  never part of a verdict, and never trains the usual heat (`docs/reviews/yanbu_shedgum_20261112.md`).
 - No «سبب التأخر» line in any post (the owner removed it on 12 Nov 2026).
 - Recovered past events appear in the app but are never posted as news. An alert is never sent
   twice (the memory is saved at once after anything is sent).

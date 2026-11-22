@@ -352,7 +352,7 @@ def verdict_of(inc):
     if day_requires_confirmation(inc):
         # Daylight can brighten the short-wave channel through reflected sunlight.
         # Repeated pictures or a weak/unknown NASA detection cannot establish fire.
-        return "يحتاج تأكيداً", "بقعة حرارية نهارية تجريبية، تحتاج تأكيداً من مصدر مستقل"
+        return "يحتاج تأكيداً", "بقعة حرارية نهارية، تحتاج تأكيداً من مصدر مستقل"
     if "mtg_day_spot" in srcs and not _day_corroborated(inc):
         # Experimental day pictures cannot weaken established night evidence or
         # promote it through their own slot count or low-confidence polar families.
@@ -727,6 +727,27 @@ def _strength_lines(inc, cfg, intensity=False, with_size=False, with_date=False)
     return lines
 
 
+# The heat's pattern and the first sign worth attention, in the post (official since 22 Nov 2026,
+# the owner's choice). They say what the pictures show, never a cause, and never decide a post.
+POSTED_PATTERNS = ("new_sustained", "surge", "wide")
+
+
+def pattern_lines(inc):
+    out = []
+    pat = inc.get("pattern") or {}
+    label = pat.get("label") if pat.get("key") in POSTED_PATTERNS else None
+    if pat.get("key") == "surge" and inc.get("kind") == "unusual":
+        label = None                     # «حرارة غير معتادة» in the headline already says it
+    if label and label not in (inc.get("headline") or ""):
+        out.append(f"📈 <b>النمط:</b> {esc(label)}" + (" · عدة مواقع في وقت متقارب" if pat.get("also") else ""))
+    warn = [w.get("text") for w in ((inc.get("signals") or {}).get("warn") or []) if w.get("text")]
+    if warn:
+        more = len(warn) - 1
+        out.append(f"⚠️ <b>علامة تستحق الانتباه:</b> {esc(bidi_safe(warn[0]))}"
+                   + (f" (و{more} {'أخرى' if more == 1 else 'غيرها'} في التطبيق)" if more else ""))
+    return out
+
+
 def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video_update=False, delayed=False):
     """The channel post: a bold headline, one fact per line with a label, the coordinates to copy
     and the links on their own lines. Only a confirmed fire is called "مؤكد"; other grades are not
@@ -775,6 +796,7 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
         reason = assess.main_reason(inc)
         if reason and not sure and inc.get("kind") != "unusual":   # a confirmed fire already says why
             lines.append(f"🔎 {esc(bidi_safe(reason))}")
+    lines.extend(pattern_lines(inc))
     lines.append("")
     lines.append(f"📍 <b>المكان:</b> {esc(bidi_safe(inc['where']))}")
     lines.append(f"🕒 <b>البداية:</b> {when}")

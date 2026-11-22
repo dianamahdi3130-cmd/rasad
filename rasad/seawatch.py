@@ -623,6 +623,35 @@ def confirm(cands, spot, km=3.0, minutes=40):
             and haversine_km(c["lat"], c["lon"], spot["lat"], spot["lon"]) <= km]
 
 
+def _steady(cfg, pics, box, t, size, state, geo, cached=True):
+    """daysteady.py: by day, places at sea that stay clearly hotter than the sea around them."""
+    from . import daysteady
+    if not daysteady.settings(cfg).get("enabled"):
+        return []
+    try:
+        with pics.cached_only() if cached else _nothing():
+            red = pics.get(cfg["seawatch"]["layer"], box["bbox"], *size, t, 0)
+            ir = pics.get(cfg["seawatch"]["check_layer"], box["bbox"], *size, t)
+        if red is None:
+            return []
+        km = float(cfg["seawatch"].get("daytime", {}).get("km_per_px", cfg["seawatch"]["km_per_px"]))
+        spots = daysteady.hot_spots(cfg, np.asarray(red, dtype=np.float32), box["bbox"], km,
+                                    None if ir is None else np.asarray(ir, dtype=np.float32))
+        rows = [] if spots is None else daysteady.observe(cfg, state, box["id"], t, spots, geo)
+    except Exception as e:  # noqa: BLE001 - an app-only look must never stop the sea watch
+        log.warning("steady day spots %s %s: %s", box["id"], iso(t), e)
+        return []
+    for r in rows:
+        log.info("   steady day spot %.4f,%.4f at %s, %.0f above the sea around, %d pictures in a row",
+                 r["lat"], r["lon"], r["t"], r["rise"], r["steady_pictures"])
+    return rows
+
+
+@contextmanager
+def _nothing():
+    yield
+
+
 def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     """Check recent slots, pairing candidates only within the same day/night detector.
 
@@ -798,6 +827,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                     spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
             else:
                 spots, notes = finder(cfg, pics, box, t, mem, geo, refs=refs)
+            steady = _steady(cfg, pics, box, t, size, state, geo) if is_day and spots is not None else []
             pics.cache = {}  # this box's pictures are done with
             if spots is None:
                 log.info("sea watch %s %s: %s", box["id"], iso(t), notes)
@@ -809,6 +839,8 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
             if is_day:
                 day_status["checked"] += 1
                 day_status["candidates"] += len(spots)
+                found += [dict(row, src=day_src, family="mtg", kind="geo", frp=None, daytime=True,
+                               experimental=True) for row in steady]
                 day_status["last_checked"] = max(day_status["last_checked"] or iso(t), iso(t))
             # One night spans midnight: adjacent pictures of a new fire must not
             # become prior-night evidence against each other.
@@ -1005,7 +1037,7 @@ def scan_day(cfg, wms, start, end, mem=None, geo=None, boxes=None, km=None):
     slot and box prints what it found and why the rest was turned down."""
     import copy
     from .daywatch import find_spots as find_day_spots
-    cfg = dict(cfg, seawatch=copy.deepcopy(cfg["seawatch"]))
+    cfg = dict(cfg, seawatch=copy.deepcopy(cfg["seawatch"]), _replay=True)
     C = cfg["seawatch"]
     D = C.setdefault("daytime", {})
     if km:
@@ -1013,7 +1045,7 @@ def scan_day(cfg, wms, start, end, mem=None, geo=None, boxes=None, km=None):
     day_km = float(D.get("km_per_px", C.get("km_per_px", 0.5)))
     refs = [int(m) for m in D.get("ref_minutes", [30, 60])]
     cad = int(C["cadence_min"])
-    rows = []
+    rows, replay_state = [], {}
     for box in C["boxes"]:                     # one box at a time: full-detail pictures are big
         if boxes and box["id"] not in boxes:
             continue
@@ -1024,6 +1056,8 @@ def scan_day(cfg, wms, start, end, mem=None, geo=None, boxes=None, km=None):
                 requests += [(C["layer"], box["bbox"], *size, tt, 0), (C["check_layer"], box["bbox"], *size, tt)]
             pics.prefetch(requests)
             spots, notes = find_day_spots(cfg, pics, box, t, mem, geo, refs=refs)
+            steady = _steady(cfg, pics, box, t, size, replay_state, geo, cached=False)
+            rows += [dict(r, box=box["id"]) for r in steady]
             if spots:
                 rows += [dict(sp, box=box["id"]) for sp in spots]
                 for sp in spots:

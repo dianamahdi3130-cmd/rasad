@@ -30,7 +30,7 @@ class DayConfidenceTests(unittest.TestCase):
         verdict, reason = verdict_of(inc)
 
         self.assertEqual(verdict, "يحتاج تأكيداً")
-        self.assertIn("نهارية تجريبية", reason)
+        self.assertIn("بقعة حرارية نهارية", reason)
         self.assertIn("مصدر مستقل", reason)
         self.assertTrue(day_source_only(inc))
         self.assertTrue(day_requires_confirmation(inc))
