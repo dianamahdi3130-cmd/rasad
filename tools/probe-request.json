@@ -1,6 +1,7 @@
 {"mode": "steps", "try": 8,
  "steps": [
-  ["hotspots", "--start", "2026-11-17T09:30Z", "--end", "2026-11-17T18:30Z", "--bbox", "55.9,25.9,56.9,26.8"],
-  ["seascan", "--start", "2026-11-17T13:30Z", "--end", "2026-11-17T18:30Z", "--boxes", "hormuz_oman"],
-  ["pictures", "--lat", "26.3056", "--lon", "56.2957", "--start", "2026-11-17T09:30Z", "--end", "2026-11-17T11:00Z"]
+  ["seascan", "--start", "2026-11-21T23:30Z", "--end", "2026-11-22T00:40Z", "--boxes", "hormuz_oman"],
+  ["seascan", "--start", "2026-11-19T18:20Z", "--end", "2026-11-19T19:20Z", "--boxes", "hormuz_oman"],
+  ["seascan", "--day", "--start", "2026-11-20T07:30Z", "--end", "2026-11-20T11:30Z", "--boxes", "hormuz_oman"],
+  ["hotspots", "--start", "2026-11-20T07:30Z", "--end", "2026-11-20T11:30Z", "--bbox", "57.8,23.3,60.0,25.2"]
  ]}
