@@ -48,6 +48,17 @@ class Steady(unittest.TestCase):
         platform = [[[24.48, 58.16, 60.0]] for _ in range(6)]
         self.assertEqual(replay(platform, _Geo(platform=True))[0], [])
 
+    def test_warm_land_and_a_place_steady_on_earlier_days_are_left_out(self):
+        warm = [[[24.48, 58.16, 60.0, 8.0]] for _ in range(6)]           # warm at 10.5 micron too: sand in the sun
+        self.assertEqual(replay(warm, _Geo())[0], [])
+        cfg, state = copy.deepcopy(engine.DEFAULTS), {}
+        for day in range(3):                                                # a flare the maps do not know
+            t0 = T0 + dt.timedelta(days=day)
+            rows = []
+            for k in range(5):
+                rows += daysteady.observe(cfg, state, "gulf_south", t0 + dt.timedelta(minutes=10 * k), [[24.41, 52.10, 55.0, -2.0]], _Geo())
+            self.assertEqual(bool(rows), day < 2, f"day {day + 1}")
+
     def test_memory_stays_small(self):
         pictures = [[[24.48, 58.16, 60.0]] for _ in range(40)]
         _, state = replay(pictures, _Geo())

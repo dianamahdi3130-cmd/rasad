@@ -22,7 +22,7 @@ STEADY = {"enabled": True, "top": 60, "min_above": 35.0, "min_median": 50.0, "mi
           "reach_km": 2.0, "usual_km": 3.0, "usual_share": 0.05, "keep_hours": 3,
           # sand or rock warmed by the sun (an island, a new artificial one the land map does not know)
           # is warmer at 10.5 micron too; a fire smaller than a pixel hardly is
-          "max_warm105": None}
+          "max_warm105": 5.0, "usual_days": 2, "days_kept": 30}
 
 
 def settings(cfg):
@@ -63,6 +63,24 @@ def _usual(lat, lon, P, geo):
     return bool(A) and patterns.usual_flare_km(A, lat, lon, float(P["usual_km"]), float(P["usual_share"])) is not None
 
 
+def _seen_before(state, lat, lon, t, P):
+    """Rasad's own record of steady day spots: a place steady on `usual_days` earlier days is a flare
+    the maps do not know yet (on the 19 Nov 2026 replay: the Zakum fields, Das Island and a new
+    site off the UAE coast were the steady spots; none was a fire)."""
+    import math
+    days = state.setdefault("sea_day_steady_days", {})
+    today = (t + dt.timedelta(hours=4)).date().isoformat()          # the Gulf's own calendar day
+    ci, cj = math.floor(lat / 0.05), math.floor(lon / 0.05)
+    before = {d for di in (-1, 0, 1) for dj in (-1, 0, 1) for d in days.get(f"{ci + di},{cj + dj}", []) if d < today}
+    here = days.setdefault(f"{ci},{cj}", [])
+    if today not in here:
+        here.append(today)
+    oldest = (t - dt.timedelta(days=float(P["days_kept"]))).date().isoformat()
+    for key in [k for k, v in days.items() if not any(d >= oldest for d in v)]:
+        del days[key]
+    return len(before) >= int(P["usual_days"])
+
+
 def observe(cfg, state, box_id, t, spots, geo=None):
     """Note this picture's hot places; return one row per picture of every place that stayed hot in
     `min_pictures` pictures in a row (each row once)."""
@@ -97,7 +115,7 @@ def observe(cfg, state, box_id, t, spots, geo=None):
             continue
         if P.get("max_warm105") is not None and w105 is not None and w105 > float(P["max_warm105"]):
             continue                      # warm land in the sun, not a fire
-        if _usual(lat, lon, P, geo):
+        if _usual(lat, lon, P, geo) or _seen_before(state, lat, lon, t, P):
             continue
         for when, la, lo, ab, _w in sorted(run):
             key = f"{when}|{round(la, 2)}|{round(lo, 2)}"
