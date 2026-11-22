@@ -658,6 +658,22 @@ def _delayed_update(inc, cfg, now):
         hours=float(cfg["alerts"].get("max_age_hours", 8)))
 
 
+def awaited_videos(S):
+    """Media jobs a post in the channel is waiting for: an alert sent before its video, the sea
+    finder's closer look (its alert waits for it), and a first sighting posted before its video."""
+    out = []
+    for inc in S.incidents:
+        token = inc.get("media_job")
+        if token and ((inc.get("status") == "alerted" and inc.get("clip_video_pending"))
+                      or (inc.get("closer_look_asked") and inc.get("status") == "pending" and not inc.get("clip"))):
+            out.append(token)
+    for record in (S.state.get("early_night") or {}).values():
+        token = (record.get("media_snapshot") or {}).get("media_job")
+        if token and record.get("sent_at") and record.get("video_pending"):
+            out.append(token)
+    return out
+
+
 def run_cycle(cfg, send=True, alert_now=False):
     now = utcnow()
     started_clock = time.monotonic()
@@ -1468,6 +1484,11 @@ def run_cycle(cfg, send=True, alert_now=False):
     S.state["last_run"] = iso(finished)
     S.state["scan_started"] = iso(now)
     S.save()
+    if cfg.get("_background_media"):
+        try:   # the watching loop checks again as soon as one of these videos is made
+            mediaqueue.write_awaited(cfg, awaited_videos(S))
+        except Exception as e:  # noqa: BLE001
+            log.warning("videos awaited by posts not written: %s", e)
     publish(cfg, S, status, now, learning, len(dets), finished=finished, duration=elapsed)
     try:   # the long-term record the app searches; it must never stop a check
         archive.update(cfg, S.incidents, finished)

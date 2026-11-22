@@ -71,7 +71,10 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
 ## How it runs (do not break it)
 - `rasad.yml` runs `scripts/loop.sh` for ~5.5 hours: a check every 150 s plus a media worker, a
   satellite-picture worker (it also runs the silent smoke checks) and a facility-map worker. Workers only write staging files
-  (`.rasad-media/`, `.rasad-satpic/`, `.rasad-smoke/`); the check alone posts and owns the incidents. The check and the picture worker read the same European server: while a check reads the official fire products it says so (`util.official_reads`) and the worker waits, and the sea finder takes at most 45 s of a check (measured live on 15 Nov 2026: without both, the official reads fell 40 minutes behind and checks took two minutes). cron-job.org starts the workflow every 10 minutes so the next run is
+  (`.rasad-media/`, `.rasad-satpic/`, `.rasad-smoke/`); the check alone posts and owns the incidents. The check and the picture worker read the same European server: while a check reads the official fire products it says so (`util.official_reads`) and the worker waits, and the sea finder takes at most 45 s of a check (measured live on 15 Nov 2026: without both, the official reads fell 40 minutes behind and checks took two minutes). Between checks the loop starts the next one at once, once per reason, when a video a post waits
+  for is made (`.rasad-media/awaited`, written by the check) or a night picture of the priority seas
+  is out and unread (`sea-ready`, one tiny request every 30 s): on 22 Nov 2026 a first sighting's
+  video was ready 19 s after its post and went out 2.5 minutes later. cron-job.org starts the workflow every 10 minutes so the next run is
   always queued. `cancel-in-progress: false`: a check is never cut in half (an alert could go twice).
 - A push to `main` touching `web/`, `rasad/`, `scripts/`, `config.yaml`, `requirements.txt` or
   `rasad.yml` makes the loop stop after its current check and the queued run start with the new
