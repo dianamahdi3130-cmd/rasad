@@ -77,12 +77,16 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     and then goes out as a normal alert.
 12. A post that was sent is never sent again: after sending, the memory is saved at once
     (`.state_urgent` → `branches.sh save-state-if-due`).
-18. The heat patterns' labels (`rasad/patterns.py`) are app-only: no post may use `inc["pattern"]` or
-    its «النمط: …» line. Since 16 Nov 2026 two of their rules decide posts (`patterns.new_heat_path`,
+18. The heat patterns' labels (`rasad/patterns.py`) never decide a post. Since 22 Nov 2026 a first
+    alert says the label in one line, «📈 النمط: …» (`brain.pattern_lines`: new sustained heat, wide
+    heat, a surge at a usual spot except on a «حرارة غير معتادة» post), and the first sign worth
+    attention, «⚠️ علامة تستحق الانتباه: …». Since 16 Nov 2026 two of their rules decide posts (`patterns.new_heat_path`,
     `patterns.solar_glint`): heat that comes back to a quiet place and burns on is posted as
     «حرارة جديدة مستمرة [في موقع نفط وغاز] في <الدولة>», with a note that says how long the place
     was quiet and how long it burns, and «صور الأقمار ترى الحرارة ولا ترى سببها»; NASA's day
     pixels on a solar plant's panels, Meteosat cold, are not posted. Never «هجوم» or «استهداف».
+20. Smoke seen from a posted fire goes out once as a reply under it: «💨 دخان مرئي من موضع الحرارة»,
+    its length and direction, «🛰 صور القمر الأوروبي النهارية (Meteosat-12)» (`smoke.message`).
 19. A video is promised only as far as it can be kept: «🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في
     الصور.» (`brain.video_note`). A fire NASA alone saw keeps its own line (no video expected).
 
