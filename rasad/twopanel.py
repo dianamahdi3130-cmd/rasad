@@ -414,7 +414,13 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     excess = np.maximum(stack - ref, 0)
     wts = np.where(speck, excess.max(axis=0) + 1e-3, 0.0)
     hr, hc = (yy * wts).sum() / wts.sum(), (xx * wts).sum() / wts.sum()
-    tx_, ty_ = (hc + 0.5) / nx * PW, (hr + 0.5) / ny * PH
+    # The pictures are read and judged over the whole view; the video shows a closer window centred
+    # on the fire, `view_zoom` times nearer (the owner, 22 Nov 2026: the fire must show big)
+    zoom = max(1.0, float(C.get("view_zoom", 1)))
+    cw, chh = max(16, min(nx, int(round(nx / zoom)))), max(16, min(ny, int(round(ny / zoom))))
+    c_0 = int(round(min(max(hc + 0.5 - cw / 2, 0), nx - cw)))
+    r_0 = int(round(min(max(hr + 0.5 - chh / 2, 0), ny - chh)))
+    tx_, ty_ = (hc + 0.5 - c_0) / cw * PW, (hr + 0.5 - r_0) / chh * PH
     strength = [float(e[speck].max()) for e in excess]
     peak = max(strength)
     fire_idx = None
@@ -533,7 +539,7 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     rep = max(1, out_fps // sat_fps)
     reveal_n = int(out_fps * float(C.get("reveal_s", 1.6)))
     seq = list(range(len(shots))) + [len(shots) - 1] * int(C.get("hold_last", 4))
-    r = int(C.get("ring_px", 50))
+    r = int(round(float(C.get("ring_px", 50)) * zoom ** 0.7))   # the rings grow with the fire, not over it
     tl_x0, tl_x1, tl_y = 720, W - 720, fy + 84
     span = (shots[-1][0] - shots[0][0]).total_seconds() or 1
     callout = {"since": None}
@@ -543,6 +549,8 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
 
     def panels(si):
         t, v, ctx = shots[si]
+        v = v[r_0:r_0 + chh, c_0:c_0 + cw]
+        ctx = None if ctx is None else ctx[r_0:r_0 + chh, c_0:c_0 + cw]
         x = np.where(v <= hi, 0.5 * (v - lo) / (hi - lo), 0.5 + 0.5 * (v - hi) / (top - hi))
         left = Image.fromarray(lut[np.clip(np.round(x * 255), 0, 255).astype(np.uint8)]).resize((PW, PH), NEAREST)
         right = (Image.fromarray(ctx).resize((PW, PH), NEAREST) if ctx is not None
@@ -671,6 +679,6 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
     out[min(best, len(out) - 1)].save(snap, quality=90)
     video = _write(out, base, out_fps, str(C.get("format", "mp4")))
     log.info("clip: %d pictures, %d frames, speck %.1f km from the reported point, strength %s", len(shots),
-             len(out), math.hypot(tx_ - PW / 2, ty_ - PH / 2) * 2 * half_h / PH,
+             len(out), math.hypot(hc + 0.5 - nx / 2, hr + 0.5 - ny / 2) * px_km,
              [None if v is None else round(v, 1) for v in shown_mw])
     return video, snap

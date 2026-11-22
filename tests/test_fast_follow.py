@@ -109,3 +109,48 @@ true
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VideoCloseUp(unittest.TestCase):
+    """The owner, 22 Nov 2026: the video must be close on the fire so that it shows big. The
+    pictures are still read and judged over 40 km; the video shows the middle, twice as near."""
+
+    def hot_width(self, zoom):
+        import numpy as np
+        from PIL import Image
+        from rasad import twopanel
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        cfg["clip"]["view_zoom"] = zoom
+        t_end = dt.datetime(2026, 11, 21, 23, 50, tzinfo=dt.timezone.utc)
+
+        class W:
+            def getmap(self, name, bbox, w, h, t=None, style="", quiet=True, timeout=None):
+                a = np.full((h, w, 4), 60, np.uint8)
+                a[..., 3] = 255
+                if t >= t_end - dt.timedelta(minutes=10):
+                    yy, xx = np.mgrid[0:h, 0:w]
+                    d = np.hypot(yy - h / 2 - 3, xx - w / 2 + 4)
+                    a[..., 0] = np.maximum(a[..., 0], (200 * np.exp(-(d / 5) ** 2)).astype(np.uint8))
+                return Image.fromarray(a), t
+
+        with tempfile.TemporaryDirectory() as folder:
+            cfg["_site_dir"] = folder
+            layer = {"name": "x", "cadence_min": 10, "channel": 0, "hot_is_bright": True}
+            info = {"first": "2026-11-21T23:40:00Z", "place": "sea", "where": "في البحر", "verdict": "يحتاج تأكيداً"}
+            _, snap = twopanel.render(cfg, W(), 23.778, 57.96, t_end, os.path.join(folder, "clips", "t"),
+                                      layer, None, 8, info)
+            img = np.asarray(Image.open(snap).convert("RGB")).astype(int)
+        left = img[140:930, 12:954]                       # the heat picture
+        hot = (left[..., 0] > 235) & (left[..., 1] > 150) & (left[..., 2] < 200)  # the fire's bright core
+        cols = np.nonzero(hot.any(axis=0))[0]
+        rows = np.nonzero(hot.any(axis=1))[0]
+        centre = ((cols.min() + cols.max()) / 2, (rows.min() + rows.max()) / 2)
+        return cols.max() - cols.min() + 1, centre
+
+    def test_the_fire_shows_twice_as_big_in_the_middle(self):
+        near, (cx, cy) = self.hot_width(2)
+        far, _ = self.hot_width(1)
+        self.assertGreaterEqual(near, 1.7 * far)
+        self.assertLess(abs(cx - 471), 40)               # in the middle of the heat picture
+        self.assertLess(abs(cy - 394), 40)
+        self.assertEqual(engine.DEFAULTS["clip"]["view_zoom"], 2)
