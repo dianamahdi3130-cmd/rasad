@@ -27,7 +27,7 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 20  # bump when the importance rules change, so stored incidents are judged again
+RULES = 21  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 19  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -658,6 +658,14 @@ def _delayed_update(inc, cfg, now):
         hours=float(cfg["alerts"].get("max_age_hours", 8)))
 
 
+def usual_heat(known, steady, at_sea):
+    """Heat Rasad has seen at a place before is its usual heat, not news. At sea the only usual heat
+    is a platform's flare, which burns on most days; a strait where ships burned on a few days of
+    the month is not a flare. On 23 Nov 2026 six earlier days of ship fires off Khasab made the
+    night's ship fire there «usual»: seen in 13 pictures in a row, it never got past a first sighting."""
+    return known and (steady or not at_sea)
+
+
 def awaited_videos(S):
     """Media jobs a post in the channel is waiting for: an alert sent before its video, the sea
     finder's closer look (its alert waits for it), and a first sighting posted before its video."""
@@ -1013,7 +1021,7 @@ def run_cycle(cfg, send=True, alert_now=False):
                         and frp < again * float(other.get("max_frp") or 0.0):
                     beats_record = False
                     break
-        routine = known and not unusual
+        routine = usual_heat(known, steady, known and not steady and geo.place_kind(d["lat"], d["lon"]) == "sea") and not unusual
         # a steady flare burning far busier than usual: noted for the app only (flares.py)
         if FL.get("enabled", True) and d["src"] == flares.SRC and steady and typical is not None \
                 and (steady_facility if steady_facility is not None else
