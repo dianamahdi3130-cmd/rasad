@@ -154,3 +154,11 @@ class VideoCloseUp(unittest.TestCase):
         self.assertLess(abs(cx - 471), 40)               # in the middle of the heat picture
         self.assertLess(abs(cy - 394), 40)
         self.assertEqual(engine.DEFAULTS["clip"]["view_zoom"], 2)
+
+
+class SeaIsNotAFlare(unittest.TestCase):
+    def test_a_strait_where_ships_burned_on_a_few_days_is_not_usual_heat(self):
+        self.assertFalse(engine.usual_heat(True, False, True), "Hormuz, 23 Nov 2026: 6 days of 30, at sea")
+        self.assertTrue(engine.usual_heat(True, True, True), "a platform's flare burns on most days")
+        self.assertTrue(engine.usual_heat(True, False, False), "on land the rule is as before")
+        self.assertFalse(engine.usual_heat(False, False, True))

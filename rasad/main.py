@@ -114,6 +114,16 @@ def main(argv=None):
     p.add_argument("--interval", type=float, default=60, help="seconds between looks at the queue")
     p.add_argument("--max-minutes", type=float, default=340, help="worker lifetime in minutes")
     p.add_argument("--once", action="store_true", help="do at most one picture")
+    p = sub.add_parser("timelapse", help="every clear Sentinel-2 pass of a place as a film (by hand)")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--monthly-until", help="one pass a month before this date, every clear pass after it")
+    p.add_argument("--half-km", type=float, default=1.2)
+    p.add_argument("--title", default="")
+    p.add_argument("--mark", action="append", default=[], help="lat,lon,name")
+    p.add_argument("--out", default="probe-out")
     p = sub.add_parser("satpic", help="the before/after satellite picture for any place and period (by hand)")
     p.add_argument("--lat", type=float, required=True)
     p.add_argument("--lon", type=float, required=True)
@@ -223,6 +233,15 @@ def main(argv=None):
     if args.cmd == "satpic-worker":
         from .satpic import run_worker
         run_worker(cfg, args.interval, args.max_minutes, args.once)
+        return
+    if args.cmd == "timelapse":
+        from .satpic import timelapse
+        marks = []
+        for m in args.mark:
+            la, lo, name = m.split(",", 2)
+            marks.append((float(la), float(lo), (64, 214, 236), name))
+        print(timelapse(cfg, args.lat, args.lon, parse_time(args.start), parse_time(args.end), args.out, args.half_km,
+                        args.title, marks, parse_time(args.monthly_until) if args.monthly_until else None))
         return
     if args.cmd == "satpic":
         from .satpic import preview
