@@ -867,6 +867,57 @@ class Signals(unittest.TestCase):
             self.assertEqual(alert_message(again, off), "\n".join(x for x in message.split("\n") if not x.startswith("⚠️")))
 
 
+class SignPosts(unittest.TestCase):
+    """A confirmed fire on land in the Gulf states carrying a sign worth attention is posted wherever
+    it is (the owner's decision of 24 Nov 2026), with no floor of its own: a 7 MW fire like the one
+    near a Jizan power plant is not left out for being small."""
+
+    def fire(self, mw=7.0, pictures=2, **fields):
+        # 1.4 km from a flare that burns on 60% of the dates, 6 km from the mapped facility, in an area
+        # with heat on earlier days: none of the plain rules posts it
+        dets = [pixel("2026-11-15T22:59:00Z", 26.1575, 49.7600, mw)]
+        dets += [{"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": f"2026-11-15T23:{10 * k:02d}:00Z",
+                  "lat": 26.1575, "lon": 49.7600, "frp": mw} for k in range(pictures)]
+        inc = new_incident(dets[0], "new")
+        for d in dets:
+            add_to_incident(inc, d)
+        inc.update(place="land", where="في السعودية", country="السعودية", regions=["gulf"],
+                   region_name="الخليج الفارسي", known_days=0, area_days=3, typical_frp=None,
+                   facility={"label": "معمل بقيق", "code": "oil", "km": 6.0})
+        inc.update(fields)
+        cfg = fields.pop("_cfg", None) or config()
+        with patch.object(patterns, "_atlas", Signals.atlas()):
+            return finalize(inc, cfg), cfg
+
+    def test_a_confirmed_fire_at_a_spot_that_rarely_burns_is_posted_from_its_sign(self):
+        inc, cfg = self.fire()
+        self.assertEqual(inc["verdict"], "مؤكد")
+        self.assertFalse(brain.alert_worthy(inc, cfg), "the plain rules leave it out (busy area, 6 km away)")
+        self.assertIn("odd_spot", [w["key"] for w in inc["signals"]["warn"]])
+        self.assertEqual(inc["priority"], "high")
+        message = alert_message(inc, cfg)
+        self.assertIn("⚠️ <b>علامة تستحق الانتباه:</b>", message)
+        for cause in ("هجوم", "استهداف", "ضربة"):
+            self.assertNotIn(cause, message)
+
+    def test_not_without_the_confirmation_the_sign_the_gulf_or_the_switch(self):
+        inc, _ = self.fire(pictures=0)
+        self.assertNotEqual(inc["verdict"], "مؤكد")
+        self.assertEqual(inc["priority"], "low", "one sighting waits")
+        inc, _ = self.fire(mw=4.0)
+        self.assertEqual(inc["priority"], "low", "under the sign's own 5 MW there is no sign")
+        inc, _ = self.fire(country="العراق", where="في العراق")
+        self.assertEqual(inc["priority"], "low", "farm countries stay out")
+        cfg = config()
+        cfg["alerts"]["sign_alerts"] = False
+        inc, _ = self.fire(_cfg=cfg)
+        self.assertEqual(inc["priority"], "low")
+
+    def test_recovered_past_events_are_never_news(self):
+        inc, _ = self.fire(recovered_historical=True)
+        self.assertEqual(inc["priority"], "low")
+
+
 class InACheck(unittest.TestCase):
     """A whole check keeps what the patterns need when it makes an incident, and the app gets the label."""
     NOW = dt.datetime(2026, 11, 15, 22, 50, tzinfo=UTC)

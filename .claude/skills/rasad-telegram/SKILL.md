@@ -85,6 +85,9 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     «حرارة جديدة مستمرة [في موقع نفط وغاز] في <الدولة>», with a note that says how long the place
     was quiet and how long it burns, and «صور الأقمار ترى الحرارة ولا ترى سببها»; NASA's day
     pixels on a solar plant's panels, Meteosat cold, are not posted. Never «هجوم» or «استهداف».
+    Since 24 Nov 2026 the signs decide one more post: a confirmed fire on land in the Gulf states
+    with the sign «نقطة نادراً ما تشتعل» or «بدأت فجأة وبقوة» is posted wherever it is, from 5 MW
+    (`brain.sign_worthy`); its post carries that sign as its «⚠️» line, as every first alert does.
 20. Smoke seen from a posted fire goes out once as a reply under it: «💨 دخان مرئي من موضع الحرارة»,
     its length and direction, «🛰 صور القمر الأوروبي النهارية (Meteosat-12)» (`smoke.message`).
 19. A video is promised only as far as it can be kept: «🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في
