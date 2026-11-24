@@ -249,6 +249,26 @@ def _association_corroborated(inc, det):
     return False
 
 
+def _track_km(inc, lat, lon, t, rules):
+    """A fire at sea can move: a burning ship drifts, or is towed. A European picture that shows it
+    close to where the fire was in the last hour continues it, however far it has gone from where
+    it began (Hormuz, 23-24 Nov 2026: a ship burned 5.5 hours and drifted 10 km north-west at about
+    2 km an hour; past 6 km it was posted again as a new fire). Returns the distance to that nearest
+    recent sighting, or infinity."""
+    reach = float(rules.get("sea_track_km", 3.0))
+    hour = dt.timedelta(minutes=float(rules.get("sea_track_minutes", 60)))
+    best = float("inf")
+    for row in inc.get("observations") or []:
+        if row.get("lat") is None:
+            continue
+        gap = t - parse_time(row["t"])
+        if dt.timedelta(0) <= gap <= hour:
+            km = haversine_km(lat, lon, float(row["lat"]), float(row["lon"]))
+            if km <= reach:
+                best = min(best, 0.0)          # it continues this fire's track
+    return best
+
+
 def find_incident(incidents, det, merge_km, merge_hours, rules=None, acquisition=None):
     t = parse_time(det["t"])
     best, best_d = None, merge_km
@@ -272,6 +292,8 @@ def find_incident(incidents, det, merge_km, merge_hours, rules=None, acquisition
         if t < parse_time(inc["first"]) - window or t > parse_time(inc["last"]) + window:
             continue
         d = haversine_km(current_lat, current_lon, inc["lat"], inc["lon"])
+        if d > merge_km and det.get("kind") != "polar" and inc.get("place") == "sea":
+            d = min(d, _track_km(inc, current_lat, current_lon, t, rules))
         if d > merge_km:
             continue
         observations = _polar_observations(inc) if det.get("kind") == "polar" else []

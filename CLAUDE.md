@@ -91,7 +91,10 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   Once the private app is live, `state` holds only the sealed `state.enc` and `live`/`gh-pages` close.
 
 ## Rules that must keep holding
-- One fire = one incident record; ids unique (`tests/test_no_duplicates.py`).
+- One fire = one incident record; ids unique (`tests/test_no_duplicates.py`). A fire at sea can move:
+  a sighting within 3 km of the fire's own sighting of the last hour continues it, however far from
+  where it began (`brain._track_km`; Hormuz, 23-24 Nov 2026: a burning ship drifted 10 km in 5.5 hours
+  and was posted a second time once past 6 km).
 - Verdicts: «مؤكد» = two satellite families, or three consecutive pictures; «مرجّح» = two
   consecutive pictures or a clear NASA detection; «يحتاج تأكيداً» = one sighting. The sea finder
   alone is at most «مرجّح». The day finder never alerts on its own. One faint NASA pixel at night
