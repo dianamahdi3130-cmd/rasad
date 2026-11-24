@@ -27,7 +27,7 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 21  # bump when the importance rules change, so stored incidents are judged again
+RULES = 22  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 19  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -658,12 +658,14 @@ def _delayed_update(inc, cfg, now):
         hours=float(cfg["alerts"].get("max_age_hours", 8)))
 
 
-def usual_heat(known, steady, at_sea):
-    """Heat Rasad has seen at a place before is its usual heat, not news. At sea the only usual heat
-    is a platform's flare, which burns on most days; a strait where ships burned on a few days of
-    the month is not a flare. On 23 Nov 2026 six earlier days of ship fires off Khasab made the
-    night's ship fire there «usual»: seen in 13 pictures in a row, it never got past a first sighting."""
-    return known and (steady or not at_sea)
+def usual_heat(known, steady, open_water):
+    """Heat Rasad has seen at a place before is its usual heat, not news. In open water, away from
+    every platform, it must burn on most days to be usual: a strait where ships burned on a few days
+    of the month is not a flare. On 23 Nov 2026 six earlier days of ship fires off Khasab made the
+    night's ship fire there «usual»: seen in 13 pictures in a row, it never got past a first sighting.
+    At a platform or in a field of them the rule stays as on land: their flares are not seen every
+    day either (Zakum and Zirku, the same night, were posted as fires when it was asked of them)."""
+    return known and (steady or not open_water)
 
 
 def awaited_videos(S):
@@ -938,6 +940,19 @@ def run_cycle(cfg, send=True, alert_now=False):
         except Exception as e:  # noqa: BLE001 - a silent label must never stop a check
             log.warning("heat pattern facts for %s: %s", inc.get("id"), e)
 
+    def open_sea(lat, lon):
+        """Open water: at sea, with no facility or platform within 5 km and outside every field of
+        platforms NASA's long-term map knows. Only there must usual heat burn on most days."""
+        try:
+            if geo.place_kind(lat, lon) != "sea":
+                return False
+            from .geodb import relevant_item          # a port is not a flare: ships burn beside ports too
+            if geo.fac.nearest(lat, lon, 5.0, accept=lambda it: relevant_item(it) and it[4] != "port")[0] is not None:
+                return False
+            return patterns.platform_area(lat, lon) is None
+        except Exception:  # noqa: BLE001 - unknown: keep the plain rule (a flare is not news)
+            return False
+
     def candidates(det):
         return open_incs if parse_time(det["t"]) >= fresh_from else S.incidents
 
@@ -1021,7 +1036,7 @@ def run_cycle(cfg, send=True, alert_now=False):
                         and frp < again * float(other.get("max_frp") or 0.0):
                     beats_record = False
                     break
-        routine = usual_heat(known, steady, known and not steady and geo.place_kind(d["lat"], d["lon"]) == "sea") and not unusual
+        routine = usual_heat(known, steady, known and not steady and open_sea(d["lat"], d["lon"])) and not unusual
         # a steady flare burning far busier than usual: noted for the app only (flares.py)
         if FL.get("enabled", True) and d["src"] == flares.SRC and steady and typical is not None \
                 and (steady_facility if steady_facility is not None else
