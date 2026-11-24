@@ -626,11 +626,21 @@ def in_focus(inc, cfg):
 def finalize(inc, cfg):
     """Fill the display fields the app and the alerts use."""
     inc["verdict"], inc["reason"] = verdict_of(inc)
-    if inc["kind"] == "unusual" and inc.get("typical_frp") and inc.get("max_frp"):
-        ratio = round(inc["max_frp"] / max(inc["typical_frp"], 1.0))
+    if inc["kind"] == "unusual" and (inc.get("site_habit") or inc.get("typical_frp")) and inc.get("max_frp"):
+        # against the place's own habit (the second-highest day of the month), not its quiet daily
+        # level: As-Safaniyah, 24 Nov 2026, 111 MW read «72 times» a 1.5 MW day though it burns 16 MW
+        # on its busy days and reached 118 MW earlier in the month
+        habit = inc.get("site_habit")
+        base = float(habit or inc["typical_frp"])
+        ratio = round(inc["max_frp"] / max(base, 1.0))
         times = count_ar(ratio, "ضعف", "ضعفين", "أضعاف") if ratio <= 10 else f"{ratio} ضعفاً"
         when = "وقت الرصد" if inc.get("recovered_historical") else "الآن"
-        inc["reason"] = f"في هذا المكان حرارة يومية معتادة، لكنها {when} أعلى بنحو {times}. " + inc["reason"]
+        text = (f"في هذا المكان حرارة معتادة، لكنها {when} أعلى بنحو {times} مما تبلغه في أيامها النشطة" if habit
+                else f"في هذا المكان حرارة يومية معتادة، لكنها {when} أعلى بنحو {times}")
+        record = inc.get("site_record")
+        if record and float(record) >= 0.8 * float(inc["max_frp"]):
+            text += f"، وسبق أن بلغت {mw_ar(float(record))} في يوم آخر من الشهر"
+        inc["reason"] = text + ". " + inc["reason"]
     inc["size"] = size_word(inc.get("max_frp"))
     inc["headline"] = headline(inc, cfg)
     if inc.get("recovered_historical"):

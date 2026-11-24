@@ -93,6 +93,28 @@ function routeOf(v) {
   return v.name && v.id == null ? s + ";" + v.name : s;
 }
 const dateAr = t => new Date(t).toLocaleDateString("ar-IQ-u-nu-latn", {timeZone: "Asia/Baghdad", day: "numeric", month: "long", year: "numeric"});
+// the film's own labels are in English (the owner's choice, 24 Nov 2026): «BEFORE · 20 NOV 2026»
+const dateEn = t => new Date(t).toLocaleDateString("en-GB", {timeZone: "Asia/Baghdad", day: "numeric", month: "short", year: "numeric"}).toUpperCase();
+// A light unsharp mask on a picture before it is enlarged for the film and the photo: the edges of
+// buildings, roads and burn scars come out crisper. It adds no detail the 10 m pixels do not hold.
+function sharpened(src, amount = 0.6) {
+  try {
+    const w = src.width, h = src.height, c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    g.drawImage(src, 0, 0);
+    const img = g.getImageData(0, 0, w, h), d = img.data, o = new Uint8ClampedArray(d);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      for (let k = 0; k < 3; k++) {
+        const blur = (o[i + k - 4] + o[i + k + 4] + o[i + k - 4 * w] + o[i + k + 4 * w] + 4 * o[i + k]) / 8;
+        d[i + k] = o[i + k] + amount * (o[i + k] - blur);
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  } catch (e) { return src; }         // no pixel access (an old browser): the picture as it is
+}
 const timeAr = t => new Date(t).toLocaleTimeString("en-GB", {timeZone: "Asia/Baghdad", hour: "2-digit", minute: "2-digit"});
 const timeUTC = t => new Date(t).toISOString().slice(11, 16);
 // the day, the month and the year of a pass in Baghdad, apart (for the date strip)
@@ -1683,14 +1705,14 @@ function paint() {
 // divider at f, the layer, the hot rings, the place's ticks and what the tools drew. `dpr` is the
 // canvas pixels per stage point; (ox0, oy0) where the stage begins on the canvas. The screen and
 // the film to save both draw with it, so the film is exactly what was on the screen.
-function drawPanes(g, panes, f, dpr, {a, b, W, H, ox0 = 0, oy0 = 0, layerAlpha = 1}) {
+function drawPanes(g, panes, f, dpr, {a, b, W, H, ox0 = 0, oy0 = 0, layerAlpha = 1, smooth = false}) {
   const v = V, n = v.grid.size, showMarks = marksOn(v);
   for (const pane of panes) {
     const px = ox0 + pane.x * dpr, py = oy0 + pane.y * dpr, pw = pane.w * dpr, ph = pane.h * dpr;
     const s = Math.max(pw, ph) / n * v.zoom, ox = px + pw / 2 - v.cx * n * s, oy = py + ph / 2 - v.cy * n * s;
     const X = pane.side ? (pane.side === "after" ? pw : 0) : Math.round(f * pw);       // «بعد» is drawn left of X, «قبل» right of it
     g.save(); g.beginPath(); g.rect(px, py, pw, ph); g.clip();
-    g.imageSmoothingEnabled = s < 3.5 * dpr; g.imageSmoothingQuality = "high";
+    g.imageSmoothingEnabled = smooth || s < 3.5 * dpr; g.imageSmoothingQuality = "high";
     const flames = side => {
       if (!showMarks) return;
       g.lineWidth = 2 * dpr; g.strokeStyle = "#ffd60a";
@@ -1711,7 +1733,7 @@ function drawPanes(g, panes, f, dpr, {a, b, W, H, ox0 = 0, oy0 = 0, layerAlpha =
         g.fillStyle = "rgba(5,8,13,.3)"; g.fillRect(px, py, X, ph);
         g.imageSmoothingEnabled = false;
         g.drawImage(layer, ox, oy, n * s, n * s);
-        g.imageSmoothingEnabled = s < 3.5 * dpr;
+        g.imageSmoothingEnabled = smooth || s < 3.5 * dpr;
         g.globalAlpha = 1;
       }
       flames("after"); g.restore();
@@ -2020,7 +2042,7 @@ function layered(kind, size) {
 
 /* ---------- the picture to save: portrait, no logo ---------- */
 async function renderShot() {
-  const v = V, b = picture("before", v.combo), a = picture("after", v.combo);
+  const v = V, b = sharpened(picture("before", v.combo)), a = sharpened(picture("after", v.combo));
   if (!a && !b) return null;
   const W = 1080, H = 1350, M = 12, cv = document.createElement("canvas");
   cv.width = W; cv.height = H;
@@ -2308,18 +2330,16 @@ function drawFilm(g, look, state) {
   g.fillStyle = "#06090e"; g.fillRect(0, 0, FW, FH);
   // the title band
   g.direction = "rtl"; g.textAlign = "right"; g.textBaseline = "alphabetic";
-  g.fillStyle = "#ff7a1a"; g.fillRect(FW - Math.round(6 * u), Math.round(18 * u), Math.round(6 * u), Math.round(74 * u));
-  g.fillStyle = "#40d6ec"; g.font = `600 ${Math.round(18 * u)}px ${look.ui}`;
-  g.fillText(look.head, R, Math.round(36 * u));
+  g.fillStyle = "#ff7a1a"; g.fillRect(FW - Math.round(6 * u), Math.round(22 * u), Math.round(6 * u), Math.round(72 * u));
   g.fillStyle = "#f0f4fa"; g.font = `800 ${Math.round(look.titleSize * u)}px ${look.display}`;
-  g.fillText(look.title, R, Math.round(74 * u));
+  g.fillText(look.title, R, Math.round(62 * u));
   g.fillStyle = "#93a0b8"; g.font = `500 ${Math.round(16 * u)}px ${look.ui}`;
-  g.fillText(`\u2066${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}\u2069 · مربع ${v.half * 2}×${v.half * 2} كم`, R, Math.round(102 * u));
+  g.fillText(`\u2066${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}\u2069 · مربع ${v.half * 2}×${v.half * 2} كم`, R, Math.round(96 * u));
   // the pictures, as on the screen
   const both = !!(look.a && look.b), panes = panesOf(mode, z.w, z.h, both);
   g.save(); g.beginPath(); g.rect(M, Y, AW, AH); g.clip();
   g.fillStyle = "#05080d"; g.fillRect(M, Y, AW, AH);
-  const opts = {a: look.a, b: look.b, W: AW, H: AH, ox0: M, oy0: Y};
+  const opts = {a: look.a, b: look.b, W: AW, H: AH, ox0: M, oy0: Y, smooth: true};
   if (mode === "single") {                                    // one picture: «قبل» fades into «بعد»
     drawPanes(g, panes, 0, k, opts);
     if (state.split > 0) { g.globalAlpha = state.split; drawPanes(g, panes, 1, k, opts); g.globalAlpha = 1; }
@@ -2337,13 +2357,13 @@ function drawFilm(g, look, state) {
   // the date labels, where the screen has them
   const tag = (text, x0, y0, right, accent, alpha) => {
     if (alpha <= 0) return;
-    g.globalAlpha = alpha;
+    g.globalAlpha = alpha; g.direction = "ltr"; g.textAlign = "right";
     g.font = `700 ${Math.round(18 * u)}px ${look.ui}`;
     const w = g.measureText(text).width + 22 * u, hgt = Math.round(34 * u), x = right ? x0 - w : x0;
     g.fillStyle = "rgba(5,8,13,.82)"; g.fillRect(x, y0, w, hgt);
     g.fillStyle = accent; g.fillRect(right ? x + w - 4 * u : x, y0, Math.round(4 * u), hgt);
     g.fillStyle = "#f0f4fa"; g.fillText(text, x + w - 11 * u, y0 + hgt - 10 * u);
-    g.globalAlpha = 1;
+    g.globalAlpha = 1; g.direction = "rtl";
   };
   const pad = Math.round(8 * u);
   if (panes.length === 2) for (const pane of panes) {
@@ -2367,7 +2387,7 @@ function drawFilm(g, look, state) {
   // the bottom band: what the layer shows (when one is on), the picture's maker, the source
   const fy = Y + AH + Math.round(40 * u);
   g.direction = "rtl"; g.textAlign = "right"; g.fillStyle = "#f0f4fa"; g.font = `700 ${Math.round(20 * u)}px ${look.display}`;
-  g.fillText(look.found || (mode === "side" ? "قبل وبعد" : f > 0.5 ? "بعد" : "قبل"), R, fy);
+  g.fillText(look.found || (mode === "side" ? "BEFORE / AFTER" : f > 0.5 ? "AFTER" : "BEFORE"), R, fy);
   g.textAlign = "left"; g.direction = "ltr"; g.fillStyle = "#56627a"; g.font = `500 ${Math.round(13 * u)}px ${look.ui}`;
   g.fillText(look.credit, Math.round(20 * u), fy);
 }
@@ -2378,18 +2398,18 @@ async function recordFilm(canvas, type, onProgress, cancelled) {
   const p = v.pair, burn = v.layer === "burn" && p && !quietBurn(p.burn), c = p && p.change;
   const landsat = [v.shown.before, v.shown.after].some(st => st && st.pass.sensor === "landsat");
   const room = (size.FW - 2 * size.M - 40 * size.u) / size.u;
-  let title = titleOf(), titleSize = 32;
+  const asked = v.filmTitle || titleOf();
+  let title = asked, titleSize = 34;
   for (; titleSize > 20; titleSize -= 2) { g.font = `800 ${titleSize}px ${display}`; if (g.measureText(title).width <= room) break; }
   while (title.length > 8 && g.measureText(title + "…").width > room) title = title.slice(0, -1);
-  if (title !== titleOf()) title += "…";
+  if (title !== asked) title += "…";
   const both = !!(picture("before", v.combo) && picture("after", v.combo));
   const mode = both ? (FILM_STEPS[v.show] ? v.show : "split") : "single";
   // everything follows the screen: the display, the band view and «تحسين العرض» (in the pictures),
   // the layer that is on (on the «بعد» side, as on the screen), the hot rings, the zoom and pan
-  const look = {ui, display, title, titleSize, size, mode, b: picture("before", v.combo), a: picture("after", v.combo),
-    head: (landsat ? "قبل وبعد · صور الأقمار" : "قبل وبعد · صور القمر الأوروبي Sentinel-2") + (v.combo === "color" ? "" : " · " + COMBO_AR[v.combo].name)
-      + (v.enhance ? " · عرض محسَّن" : ""),
-    before: "قبل · " + dateAr(v.shown.before.pass.time), after: "بعد · " + dateAr(v.shown.after.pass.time),
+  const look = {ui, display, title, titleSize, size, mode,
+    b: sharpened(picture("before", v.combo)), a: sharpened(picture("after", v.combo)),
+    before: "BEFORE · " + dateEn(v.shown.before.pass.time), after: "AFTER · " + dateEn(v.shown.after.pass.time),
     found: !v.layer ? "" : burn ? "أثر احتراق محتمل: نحو " + areaText(p.burn.areaHa)
       : v.layer === "change" && c && !quietChange(c) ? "تغيّر مرصود: نحو " + areaText(c.areaHa) : "",
     credit: (landsat ? "Sentinel-2 (Copernicus) · Landsat (USGS/NASA) " : "Contains modified Copernicus Sentinel data ") + new Date().getUTCFullYear()};
@@ -2426,6 +2446,20 @@ async function takeFilm() {
     box.hidden = false; el("#shotClose").onclick = close;
     return;
   }
+  const named = await new Promise(res => {             // the name at the top of the film, as the owner writes it
+    box.innerHTML = `<form class="ba-filmname" id="filmName"><label for="filmTitle">اسم الموقع أعلى الفيديو</label>
+      <input id="filmTitle" type="text" maxlength="80" autocomplete="off" value="${esc(v.filmTitle || titleOf())}">
+      <div class="actions">${btn("filmGo", "سجّل الفيديو", true)}${btn("shotClose", "إلغاء")}</div></form>`;
+    box.hidden = false;
+    const input = el("#filmTitle");
+    if (input && input.focus) { input.focus(); if (input.select) input.select(); }
+    el("#filmGo").onclick = () => res(true);
+    el("#filmName").addEventListener("submit", e => { e.preventDefault(); res(true); });
+    el("#shotClose").onclick = () => res(false);
+  });
+  if (!named || V !== v) { close(); return; }
+  const typed = String((el("#filmTitle") || {}).value || "").trim();
+  v.filmTitle = typed || titleOf();
   const fz = filmSize();
   box.innerHTML = `<canvas id="filmCanvas" width="${fz.FW}" height="${fz.FH}" aria-label="الفيديو أثناء التسجيل"></canvas>
     <p id="filmStatus" role="status">جارٍ تسجيل الفيديو…</p><div class="actions">${btn("shotClose", "إلغاء")}</div>`;
@@ -2629,6 +2663,9 @@ BA.init = function () {
 const STYLE = `
 .ba-app,.ba-picktools,.ba-pin{--b:var(--bg,#0a101c);--s:var(--surface,#111a2b);--s2:var(--surface-2,#18233a);--l:var(--line,#24314c);--f:var(--fg,#e8edf6);--m:var(--muted,#93a0b8);--a:var(--accent,#ff7a1a);--g0:var(--ok,#3ddc97);--g1:var(--check,#f2c94c);--g2:var(--sure,#ff4d4f);--w:var(--likely,#ff9f1c);--ui:var(--font-ui,system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif);--dp:var(--font-display,var(--font-ui,system-ui,sans-serif))}
 #baSheet{padding-bottom:0;overflow:hidden}
+.ba-filmname{display:flex;flex-direction:column;gap:10px;width:min(520px,92vw);margin:0 auto;text-align:start;direction:rtl;font:15px/1.6 var(--font-ui,system-ui)}
+.ba-filmname label{font-weight:700}
+.ba-filmname input{font:16px var(--font-ui,system-ui);padding:10px 12px;border-radius:10px;border:1px solid var(--line,#24314c);background:var(--surface,#111a2b);color:var(--fg,#e8edf6)}
 .ba-colors{display:inline-flex;gap:6px;align-items:center}
 .ba-color{width:24px;height:24px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:var(--c);padding:0;cursor:pointer}
 .ba-color[aria-pressed="true"]{border-color:#fff;box-shadow:0 0 0 2px var(--c)}
