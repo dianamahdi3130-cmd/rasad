@@ -1,5 +1,6 @@
-{"mode": "steps", "try": 10,
+{"mode": "steps", "try": 11,
  "steps": [
-  ["probe", "--lat", "25.94", "--lon", "49.68", "--start", "2026-11-24T14:00Z", "--end", "2026-11-24T16:00Z", "--radius", "15"],
+  ["grab", "--start", "2026-11-24T15:40Z", "--end", "2026-11-24T16:20Z", "--bbox", "56.0,26.0,56.6,26.6",
+   "--layers", "mtg_fd:frp,msg_iodc:fire@15,mtg_fd:rgb_firetemperature", "--km", "0.5", "--tag", "slow"],
   ["status"]
  ]}
