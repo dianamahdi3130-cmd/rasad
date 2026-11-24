@@ -160,7 +160,7 @@ DEFAULTS = {
                          # a first picture alone goes to the channel only when it is unmistakable
                          # (a strong rise with a flame's glow); a fainter speck waits for the
                          # second picture and then goes out as a normal alert
-                         "strong_only": True},
+                         "strong_only": True, "platform_min_rise": 30},
         "layer": "mtg_fd:rgb_firetemperature", "check_layer": "mtg_fd:ir105_hrfi",
         "label": "Meteosat-12 Fire Temperature",
         # 0.25 km per pixel: the server answers anything coarser than ~0.3 km from a blurred copy

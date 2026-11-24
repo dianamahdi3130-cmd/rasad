@@ -673,6 +673,35 @@ def spot_count(A, lat, lon, km):
     return max((n for n, _ in _cells_near(A, lat, lon, km)), default=0)
 
 
+def platform_area(lat, lon, near_km=6.0, share=0.10, spot_km=1.5, spot_min=3):
+    """At sea: is this a field of oil and gas platforms that NASA's long-term map knows? A usual flare
+    (a cell hot on `share` of the sampled dates) within `near_km`, or this very spot hot on
+    `spot_min` dates. Platforms out at sea are often missing from the open map (Qatar's North Field:
+    24 Nov 2026, a first sighting there was posted as a spot in open water). Returns
+    {"flare_km", "spot_days"} or None."""
+    A = atlas()
+    if not A:
+        return None
+    flare = usual_flare_km(A, lat, lon, near_km, share)
+    spot = spot_count(A, lat, lon, spot_km)
+    if flare is None and spot < spot_min:
+        return None
+    return {"flare_km": None if flare is None else round(flare, 1), "spot_days": spot}
+
+
+def platform_words(area):
+    """One line for a post: where the platforms' flares are, from NASA's record since 2024."""
+    if not area:
+        return ""
+    parts = []
+    if area.get("flare_km") is not None:
+        parts.append(f"شعلة معتادة على بعد {max(1, round(area['flare_km']))} كم")
+    if area.get("spot_days", 0) >= 2:
+        days = _n(area["spot_days"], "يوم واحد", "يومين", "أيام", "يوماً")
+        parts.append(("وحرارة" if parts else "حرارة") + f" في هذه النقطة في {days}")
+    return "🛢 في منطقة منصات نفط وغاز: يرى سجل ناسا منذ 2024 " + " ".join(parts)
+
+
 def usual_flare_km(A, lat, lon, km, share):
     """The distance to the nearest spot hot on at least `share` of the sampled dates, within km."""
     need = share * float(A.get("dates") or 0)
