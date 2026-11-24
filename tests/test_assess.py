@@ -433,7 +433,7 @@ class Archive(unittest.TestCase):
 class FirstPictureAlerts(unittest.TestCase):
     """A faint first speck waits for its second picture; an unmistakable one is told at once."""
 
-    def sync(self, strong):
+    def sync(self, strong, rise=4.6, area=None):
         cfg = config()
         cfg["regions"] = [{"id": "hormuz", "name": "مضيق هرمز", "bbox": [55.0, 25.0, 57.6, 27.3], "enabled": True}]
         cfg["seawatch"].update(enabled=True, alerts=True)
@@ -441,9 +441,10 @@ class FirstPictureAlerts(unittest.TestCase):
         now = dt.datetime(2026, 11, 14, 15, 55, tzinfo=UTC)
         state = Mock()
         state.state = {"sea_candidates": [{"src": "mtg_spot", "t": "2026-11-14T15:40:00Z", "lat": 26.02,
-                                           "lon": 55.90, "rise": 4.6, "strong": strong, "flame": True}]}
+                                           "lon": 55.90, "rise": rise, "strong": strong, "flame": True}]}
         state.incidents = []
-        with patch.object(earlyalerts.preliminary, "sun_elevation", return_value=-30.0):
+        with patch.object(earlyalerts.preliminary, "sun_elevation", return_value=-30.0), \
+                patch.object(earlyalerts.patterns, "platform_area", return_value=area):
             return earlyalerts.sync(cfg, state, now), state.state.get("early_night", {})
 
     def test_faint_first_picture_is_not_posted_alone(self):
@@ -454,6 +455,18 @@ class FirstPictureAlerts(unittest.TestCase):
         added, records = self.sync(strong=True)
         self.assertEqual(added, 1)
         self.assertEqual(len(records), 1)
+
+    def test_among_known_platform_flares_one_picture_must_be_far_stronger(self):
+        """Qatar's North Field, 24 Nov 2026: rise 21 then 50, NASA's flares 5 km away."""
+        area = {"flare_km": 5.4, "spot_days": 8}
+        self.assertEqual(self.sync(strong=True, rise=21.1, area=area)[0], 0, "waits for its second picture")
+        added, records = self.sync(strong=True, rise=50.0, area=area)
+        self.assertEqual(added, 1)
+        record = next(iter(records.values()))
+        text = earlyalerts._message(config(), record)
+        self.assertIn("في منطقة منصات نفط وغاز: يرى سجل ناسا منذ 2024 شعلة معتادة على بعد 5 كم وحرارة في هذه النقطة في 8 أيام", text)
+        for bad in ("هجوم", "استهداف", "ضربة"):
+            self.assertNotIn(bad, text)
 
 
 if __name__ == "__main__":

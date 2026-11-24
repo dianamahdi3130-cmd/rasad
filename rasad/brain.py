@@ -734,6 +734,14 @@ POSTED_PATTERNS = ("new_sustained", "surge", "wide")
 
 def pattern_lines(inc):
     out = []
+    if inc.get("place") == "sea":                    # platforms out at sea the open map does not hold
+        from . import patterns
+        try:
+            words = patterns.platform_words(patterns.platform_area(inc["lat"], inc["lon"]))
+        except Exception:  # noqa: BLE001 - a line of context must never stop a post
+            words = ""
+        if words:
+            out.append(esc(words))
     pat = inc.get("pattern") or {}
     label = pat.get("label") if pat.get("key") in POSTED_PATTERNS else None
     if pat.get("key") == "surge" and inc.get("kind") == "unusual":

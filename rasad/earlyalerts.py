@@ -12,7 +12,7 @@ from html import escape
 import math
 from pathlib import Path
 
-from . import mediaqueue, preliminary
+from . import mediaqueue, patterns, preliminary
 from .brain import app_link, at_sea
 from .util import haversine_km, iso, local_text, parse_time
 
@@ -195,6 +195,11 @@ def sync(cfg, S, now):
         # unmistakable one, a strong rise with a flame's glow, is told from a single picture.
         if settings.get("strong_only") and not (original.get(_identity(origin)) or {}).get("strong"):
             continue
+        # Among platforms whose flares NASA knows, one picture is told only when far stronger than a
+        # flare (a rise of `platform_min_rise`); otherwise it waits for its second picture.
+        area = patterns.platform_area(origin["lat"], origin["lon"])
+        if area and float((original.get(_identity(origin)) or {}).get("rise") or 0) < _number(settings.get("platform_min_rise"), 30):
+            continue
         # Already established before any early message: use the normal alert path.
         if _incident_for({"origin": origin}, S.incidents, settings) is not None:
             continue
@@ -209,6 +214,8 @@ def sync(cfg, S, now):
         record = copy.deepcopy(item)
         record.update(origin=origin, observations=[origin], srcs=[preliminary.SOURCE], families=["mtg"],
                       geo_slots=[origin["t"]], polar=[], created_at=iso(now))
+        if area:
+            record["platform_area"] = area
         row = original.get(_identity(origin)) or {}
         for field in ("source_grid", "reference_minutes"):
             if row.get(field) is not None:
@@ -311,6 +318,8 @@ def _message(cfg, record, video=False):
              ("هذا المقطع يعرض الرصد الحراري الأولي في الوقت المذكور." if video else
               "إشارة حرارية أولية؛ لم يؤكدها رصد إضافي بعد."),
              f"<code>{record['lat']:.4f}, {record['lon']:.4f}</code>"]
+    if record.get("platform_area"):
+        lines.insert(-1, escape(patterns.platform_words(record["platform_area"])))
     if not video and cfg.get("clip", {}).get("enabled", True):
         lines.append("🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في الصور.")
     if cfg.get("app_url"):

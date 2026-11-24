@@ -117,7 +117,10 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   the month stays news (`engine.usual_heat`; Hormuz, 23 Nov 2026: 6 earlier days made a ship fire
   seen in 13 pictures «usual», and it never got past its first sighting).
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
-  glow of 4); a fainter one waits for its second picture.
+  glow of 4); a fainter one waits for its second picture. In a field of platforms NASA's long-term map
+  knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture
+  needs a rise of `early_alerts.platform_min_rise` (30), and sea posts there say so in one line
+  (`patterns.platform_words`, «🛢 في منطقة منصات نفط وغاز…»). The case: Qatar's North Field, 24 Nov 2026.
 - What the sea finder finds alone is posted only once its closer look at the pictures shows it
   (the alert then carries its video): `engine` → `waits_for_closer_look`, `seawatch.closer_look_first`.
   Not shown, it is doubted and stays in the app; without an answer within
