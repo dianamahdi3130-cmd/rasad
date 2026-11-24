@@ -170,7 +170,9 @@ class PlatformRadiusCacheTests(unittest.TestCase):
 class SparkleHistoryTests(unittest.TestCase):
     NOW = dt.datetime(2026, 11, 7, 23, tzinfo=dt.timezone.utc)
 
-    def watch(self, history, now=None, old_threshold=3, threshold=3, completed=False):
+    FIELD = {"flare_km": 2.0, "spot_days": 5}     # a field of platforms NASA's long-term map knows
+
+    def watch(self, history, now=None, old_threshold=3, threshold=3, completed=False, platforms=True):
         now = now or self.NOW
         cfg = copy.deepcopy(engine.DEFAULTS)
         cfg["seawatch"].update({"boxes": [{"id": "test", "bbox": [55, 25, 57, 27]}],
@@ -195,6 +197,7 @@ class SparkleHistoryTests(unittest.TestCase):
 
         with patch.object(seawatch, "Pictures"), \
                 patch.object(seawatch, "_night", return_value=[True]), \
+                patch("rasad.patterns.platform_area", return_value=self.FIELD if platforms else None), \
                 patch.object(seawatch, "find_spots", side_effect=spots) as find:
             found = seawatch.watch(cfg, Mock(), state, now, avail=availability)
         return found, state, find, done
@@ -208,6 +211,18 @@ class SparkleHistoryTests(unittest.TestCase):
     def test_three_independent_prior_nights_suppress_recurrent_specks(self):
         found, _, _, _ = self.watch({"522,1120": ["2026-11-03", "2026-11-04", "2026-11-05"]})
         self.assertEqual(found, [])
+
+    def test_in_open_water_a_few_nights_of_ship_fires_are_not_a_flare(self):
+        # Hormuz, 24 Nov 2026: a ship fire the night before and specks on three other nights held a
+        # burning ship's pairs for 1.5 hours; in open water a flare is a speck on most nights
+        nights = ["2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"]
+        found, _, _, _ = self.watch({"522,1120": nights}, platforms=False)
+        self.assertEqual(len(found), 3)
+        found, _, _, _ = self.watch({"522,1120": nights + ["2026-10-31", "2026-11-01", "2026-11-02"]},
+                                    platforms=False)
+        self.assertEqual(found, [], "seven of the fourteen nights kept: a flare the maps do not know")
+        self.assertEqual(seawatch.sparkle_nights(26.39, 56.25, 3), 7)
+        self.assertEqual(seawatch.sparkle_nights(24.85, 53.70, 3), 3, "Zakum's field: the plain rule")
 
     def test_same_historical_night_in_multiple_cells_counts_once(self):
         found, _, _, _ = self.watch({"522,1120": ["2026-11-04"],

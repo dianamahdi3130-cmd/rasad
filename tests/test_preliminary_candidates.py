@@ -85,6 +85,10 @@ class PreliminaryCandidateTests(unittest.TestCase):
                  "sea_sparkle": {key: ["2026-11-11", "2026-11-12", "2026-11-13", "2026-11-12"]}}
         self.assertEqual(len(self.preview(state=state)), 1)
         state["sea_sparkle"][key].append("2026-11-10")
+        with patch("rasad.patterns.platform_area", return_value={"flare_km": 2.0, "spot_days": 5}):
+            self.assertEqual(self.preview(state=state), [], "among platforms three earlier nights make a flare")
+        self.assertEqual(len(self.preview(state=state)), 1, "in open water a flare burns on most nights")
+        state["sea_sparkle"][key] += ["2026-11-06", "2026-11-07", "2026-11-08", "2026-11-09"]
         self.assertEqual(self.preview(state=state), [])
 
     def test_matching_observation_removes_preview_but_nearby_other_event_does_not(self):

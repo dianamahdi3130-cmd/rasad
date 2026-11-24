@@ -123,6 +123,12 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   of the month stays news (`engine.usual_heat`; Hormuz, 23 Nov 2026: 6 earlier days made a ship fire
   seen in 13 pictures «usual», and it never got past its first sighting). At platforms the plain rule
   holds: asked of them too, Zakum and Zirku's usual flares were posted as fires the same night.
+  The sea finder's own record of earlier nights (`state["sea_sparkle"]`, 14 nights, ~5 km cells)
+  follows the same rule (`seawatch.sparkle_nights`, also for first sightings): specks on 3 earlier
+  nights make a pair «a flare, not news» only among platforms; in open water it takes 7 of the 14.
+  Hormuz, 24 Nov 2026, 25 km north of Khasab: the ship fire of the night before and specks on three
+  other nights held a burning ship's pairs from 22:30 to 00:08 Baghdad time; another channel posted
+  it at 00:10, Rasad at 00:10 too (`docs/reviews/hormuz_khasab_20261124.md`).
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture. In a field of platforms NASA's long-term map
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture

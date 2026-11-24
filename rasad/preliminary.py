@@ -57,6 +57,8 @@ def _represented(lat, lon, when, incidents):
 
 
 def _usual(state, lat, lon, when, threshold):
+    from .seawatch import sparkle_nights   # in open water: most nights, as for the finder's pairs
+    threshold = sparkle_nights(lat, lon, threshold)
     night = (when - dt.timedelta(hours=12)).date()
     ci, cj = math.floor(lat / .05), math.floor(lon / .05)
     history = state.get("sea_sparkle") or {}
