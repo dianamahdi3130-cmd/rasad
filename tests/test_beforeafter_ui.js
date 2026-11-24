@@ -694,6 +694,29 @@ test("the report says the place, both dates with satellite and sharpness, the ar
 /* ---------- the screen ---------- */
 const FIELD = () => [{date: ago(150), veg: true}, {date: ago(40), veg: true}, {date: ago(20), cloud: "all"}, {date: ago(6), veg: true, scar: true, flame: true}];
 
+test("marks, the place's ticks and moving the area: the owner's tools of 24 Nov 2026", async () => {
+  const p = page(makeArchive({lat: 26, lon: 50, passes: PASSES()}));
+  p.context.setRoute("ba:26.00000,50.00000,1");
+  await p.loaded();
+  const tools = p.el("#baTools").innerHTML;
+  assert.match(tools, /data-tool="mark"/); assert.match(tools, /data-act="ticks" aria-pressed="true"/); assert.match(tools, /data-act="hires"/);
+  p.act("ticks");
+  assert.match(p.el("#baTools").innerHTML, /data-act="ticks" aria-pressed="false"/, "the place's ticks can be hidden");
+  p.act("tool", {tool: "mark"});
+  const opts = p.el("#baMeasure").innerHTML;
+  assert.match(opts, /data-kind="rect" aria-pressed="true"/); assert.match(opts, /data-kind="arrow"/);
+  assert.match(opts, /data-color="#ff3b30" aria-pressed="true"/, "a thin red rectangle first");
+  p.act("mshape", {kind: "arrow"}); p.act("mcolor", {color: "#40d6ec"});
+  assert.match(p.el("#baMeasure").innerHTML, /data-kind="arrow" aria-pressed="true"/);
+  assert.match(p.el("#baMeasure").innerHTML, /data-color="#40d6ec" aria-pressed="true"/);
+  // the area moves east by half its width, with the same dates
+  const was = decodeURIComponent(p.context.location.hash);
+  p.act("shift", {dx: "1", dy: "0"});
+  const now = decodeURIComponent(p.context.location.hash), lon = +/ba:[\d.]+,([\d.]+),1/.exec(now)[1];
+  assert.ok(lon > 50.005 && lon < 50.015, now + " after " + was);
+  p.context.BA.leave();
+});
+
 test("the screen brings its own looks, once, and uses no class the page listens to", () => {
   const p = page(makeArchive({lat: 26, lon: 50, passes: PASSES()}));
   p.context.BA.init();

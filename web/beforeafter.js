@@ -26,7 +26,10 @@ const LOOK_BACK = 120 * DAY;
 const SHOWS = ["single", "split", "blink", "side"];
 const COMBOS = ["color", "swir", "veg", "fire", "nbr", "ndvi"];
 const LAYERS = ["change", "burn"];
-const KEYS = {places: "firms-places", recent: "firms-places-recent", lite: "firms-ba-lite", enhance: "firms-ba-enhance"};
+const KEYS = {places: "firms-places", recent: "firms-places-recent", lite: "firms-ba-lite", enhance: "firms-ba-enhance",
+  ticks: "firms-ba-ticks", mark: "firms-ba-mark"};
+// the colours a mark can take (a thin rectangle or an arrow drawn on the pictures)
+const MARK_COLORS = ["#ff3b30", "#ffd60a", "#40d6ec", "#3ddc97", "#ff7a1a", "#ffffff"];
 const store = {
   get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode: not kept */ } },
@@ -497,6 +500,9 @@ const ICON = {
   here: svg('<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><circle cx="12" cy="12" r="3"/>'),
   hand: svg('<path d="M12 3v18M3 12h18M12 3l-2.5 2.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/>'),
   map: svg('<path d="M9 5l6 2 5-2v14l-5 2-6-2-5 2V7z"/><path d="M9 5v14M15 7v14"/>'),
+  mark: svg('<rect x="3.5" y="5" width="11" height="9" rx="1"/><path d="M13 19l7-7M20 12v5M20 12h-5"/>'),
+  ticks: svg('<path d="M12 3v5M12 16v5M3 12h5M16 12h5"/>'),
+  hires: svg('<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5.5 5.5M8 10.5h5M10.5 8v5"/>'),
   flame: svg('<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 01-10 0c0-2 1-3.2 2-4.2.3 1.6 1 2.4 2 2.7C10.600 9 11 6 12 3z"/>'),
 };
 
@@ -891,6 +897,8 @@ function openViewer(o) {
     passes: [], before: null, after: null, shown: {}, img: {before: new Map(), after: new Map()}, pair: null, job: null,
     hot: {before: [], after: []}, hotKey: {before: "", after: ""}, hotSplit: null,
     tool: "", measure: null, area: null, probe: null, hover: null,
+    ticks: store.get(KEYS.ticks, true) !== false, notes: [], draft: null,
+    mark: Object.assign({kind: "rect", color: MARK_COLORS[0]}, store.get(KEYS.mark, {})),
     split: 0.5, zoom: 1, cx: 0.5, cy: 0.5, blinkOn: false, blinkTimer: 0, expand: false, more: 0,
     run: 0, gen: 0, session: new AbortController(), load: null, checked: false, busy: "", working: "", error: null,
     lite: lite == null ? !!(navigator.connection && navigator.connection.saveData) : !!lite,
@@ -909,6 +917,12 @@ function openViewer(o) {
           <span class="ba-tag b" id="baTagB" hidden></span><span class="ba-tag a" id="baTagA" hidden></span>
           <div class="ba-handle" id="baHandle" role="slider" tabindex="0" aria-label="الفاصل بين صورة قبل وصورة بعد" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" hidden><i></i></div>
           <div class="ba-tools" id="baTools" role="toolbar" aria-label="أدوات الصورة"></div>
+          <div class="ba-edges" role="group" aria-label="تحريك المنطقة">
+            <button type="button" class="ba-edge n" data-act="shift" data-dx="0" data-dy="-1" aria-label="تحريك المنطقة شمالاً"></button>
+            <button type="button" class="ba-edge s" data-act="shift" data-dx="0" data-dy="1" aria-label="تحريك المنطقة جنوباً"></button>
+            <button type="button" class="ba-edge e" data-act="shift" data-dx="1" data-dy="0" aria-label="تحريك المنطقة شرقاً"></button>
+            <button type="button" class="ba-edge w" data-act="shift" data-dx="-1" data-dy="0" aria-label="تحريك المنطقة غرباً"></button>
+          </div>
           <div class="ba-scale" id="baScale" hidden></div>
           <div class="ba-q" id="baQ" hidden></div>
           <div class="ba-veil" id="baVeil" role="status"></div>
@@ -1038,6 +1052,9 @@ function renderTools() {
   if (!box) return;
   const tool = (name, icon, label) => `<button class="ba-tool" type="button" data-act="tool" data-tool="${name}" aria-pressed="${v.tool === name}" aria-label="${label}" title="${label}">${icon}</button>`;
   box.innerHTML = tool("probe", ICON.probe, "فحص نقطة") + tool("measure", ICON.ruler, "قياس مسافة") + tool("area", ICON.area, "قياس مساحة")
+    + tool("mark", ICON.mark, "تعليم: مستطيل أو سهم")
+    + `<button class="ba-tool" type="button" data-act="hires" aria-label="تفاصيل عالية الدقة" title="تفاصيل عالية الدقة (صورة الخريطة نحو نصف متر)">${ICON.hires}</button>`
+    + `<button class="ba-tool" type="button" data-act="ticks" aria-pressed="${v.ticks}" aria-label="علامة الموقع" title="${v.ticks ? "إخفاء علامة الموقع" : "إظهار علامة الموقع"}">${ICON.ticks}</button>`
     + `<button class="ba-tool ba-zoom" type="button" data-act="zoom" data-dir="1" aria-label="تكبير" title="تكبير">${ICON.plus}</button>
     <button class="ba-tool ba-zoom" type="button" data-act="zoom" data-dir="-1" aria-label="تصغير" title="تصغير">${ICON.minus}</button>`
     + (v.zoom > 1.01 ? `<button class="ba-tool" type="button" data-act="fit" aria-label="الصورة كاملة" title="الصورة كاملة">${ICON.fit}</button>` : "");
@@ -1060,6 +1077,14 @@ function renderMeasure() {
       : `<b>${areaText(polygonArea(pts, v.grid.res) / 1e4)}</b><span>المحيط ${distanceText(pathLength(pts, v.grid.res, true))}</span>`)
       + (pts.length ? `<button class="ba-btn" type="button" data-act="undo">تراجع</button><button class="ba-btn" type="button" data-act="wipe">مسح</button>` : "");
   } else if (v.tool === "probe") html = probeHTML(copyAt);
+  else if (v.tool === "mark") {
+    const k = v.mark.kind;
+    html = `<b class="ba-ro-k">تعليم</b>
+      <span class="ba-seg"><button type="button" data-act="mshape" data-kind="rect" aria-pressed="${k === "rect"}">مستطيل</button><button type="button" data-act="mshape" data-kind="arrow" aria-pressed="${k === "arrow"}">سهم</button></span>
+      <span class="ba-colors">${MARK_COLORS.map(c => `<button type="button" class="ba-color" data-act="mcolor" data-color="${c}" aria-pressed="${v.mark.color === c}" aria-label="اللون" style="--c:${c}"></button>`).join("")}</span>
+      <span>${k === "rect" ? "اسحب على الصورة لرسم مستطيل" : "اسحب من ذيل السهم إلى رأسه"}</span>`
+      + (v.notes.length ? `<button class="ba-btn" type="button" data-act="mundo">تراجع</button><button class="ba-btn" type="button" data-act="mclear">مسح الكل</button>` : "");
+  }
   box.innerHTML = html;
   box.hidden = !html;
 }
@@ -1694,7 +1719,7 @@ function drawPanes(g, panes, f, dpr, {a, b, W, H, ox0 = 0, oy0 = 0, layerAlpha =
     // four ticks around the place itself (the centre is left free to look at); not on a wide overview
     const cx = ox + n / 2 * s, cy = oy + n / 2 * s;
     g.lineCap = "round";
-    if (v.half <= 5) for (const [w, col] of [[4 * dpr, "rgba(0,0,0,.55)"], [2 * dpr, "#fff"]]) {
+    if (v.half <= 5 && v.ticks) for (const [w, col] of [[4 * dpr, "rgba(0,0,0,.55)"], [2 * dpr, "#fff"]]) {
       g.lineWidth = w; g.strokeStyle = col; g.beginPath();
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(cx + dx * 12 * dpr, cy + dy * 12 * dpr); g.lineTo(cx + dx * 22 * dpr, cy + dy * 22 * dpr); }
       g.stroke();
@@ -1739,17 +1764,58 @@ function drawTools(g, ox, oy, s, dpr) {
       g.stroke();
     }
   };
+  for (const note of v.notes.concat(v.draft ? [v.draft] : [])) drawNote(g, note, at, dpr);
   if (v.tool === "probe" && v.probe) cross(v.probe, "#40d6ec", 9);
   if (v.hover && v.panes && v.panes.length === 2) cross(v.hover, "#fff", 6);       // the pointer, mirrored in the other pane
+}
+// a mark kept in latitude and longitude, so it stays on its place when the area moves or is resized
+function notePoints(note) {
+  const v = V;
+  return [note.a, note.b].map(q => { const [x, y] = I.gridPixel(v.grid, q.lat, q.lon); return {x, y}; });
+}
+// a thin rectangle or a clean arrow, in its colour over a dark edge so it reads on any ground
+function drawNote(g, note, at, k) {
+  const [p, q] = notePoints(note).map(at);
+  g.save(); g.lineJoin = "round"; g.lineCap = "round";
+  for (const [w, col] of [[5 * k, "rgba(0,0,0,.55)"], [2.4 * k, note.color]]) {
+    g.lineWidth = w; g.strokeStyle = col; g.fillStyle = col;
+    if (note.kind === "rect") {
+      g.strokeRect(Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.abs(q[0] - p[0]), Math.abs(q[1] - p[1]));
+    } else {
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, ux = (q[0] - p[0]) / len, uy = (q[1] - p[1]) / len;
+      const head = Math.min(len * 0.45, 18 * k), wide = head * 0.62;
+      const bx = q[0] - ux * head, by = q[1] - uy * head;
+      g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(bx, by); g.stroke();
+      g.beginPath(); g.moveTo(q[0], q[1]); g.lineTo(bx - uy * wide, by + ux * wide); g.lineTo(bx + uy * wide, by - ux * wide); g.closePath();
+      if (w > 3 * k) { g.lineWidth = 3 * k; g.stroke(); } else g.fill();
+    }
+  }
+  g.restore();
 }
 BA.resize = () => { if (V) paint(); };
 
 /* ---------- touch: drag the divider, pinch and pan, tap for the tool in hand ---------- */
+// The view may run a little past the pictures' edge (the map goes on there): let go past it and the
+// area moves to where the view is, with the same dates, size and settings («التحرك في الخريطة»).
+const OVER = 0.35;
 function clampView() {
   const v = V, pane = (v.panes && v.panes[0]) || {w: 1, h: 1};
   v.zoom = Math.min(10, Math.max(1, v.zoom));
   const share = sharesOf(pane, v.zoom);
-  v.cx = Math.min(1 - share.x / 2, Math.max(share.x / 2, v.cx)); v.cy = Math.min(1 - share.y / 2, Math.max(share.y / 2, v.cy));
+  v.cx = Math.min(1 - share.x / 2 + OVER, Math.max(share.x / 2 - OVER, v.cx));
+  v.cy = Math.min(1 - share.y / 2 + OVER, Math.max(share.y / 2 - OVER, v.cy));
+}
+function movedOut() {
+  const v = V, pane = (v.panes && v.panes[0]) || {w: 1, h: 1}, share = sharesOf(pane, v.zoom), m = 0.12;
+  return v.cx < share.x / 2 - m || v.cx > 1 - share.x / 2 + m || v.cy < share.y / 2 - m || v.cy > 1 - share.y / 2 + m;
+}
+function moveArea() {
+  const v = V, n = v.grid.size, [lat, lon] = I.gridPoint(v.grid, v.cx * n, v.cy * n);
+  v.lat = lat; v.lon = lon; v.cx = v.cy = 0.5; v.incident = null; v.title = v.title || "";
+  v.want = {before: v.before && v.before.date, after: v.after && v.after.date};
+  if (!v.want.before && !v.want.after) v.auto = true;
+  toast("صور المنطقة الجديدة…");
+  syncRoute(); renderChrome(); start();
 }
 // the pane under a point of the screen, and that point in the picture's own points
 function paneAt(clientX, clientY) {
@@ -1784,6 +1850,12 @@ function bindStage() {
       pinch = {d: Math.hypot(p.x - q.x, p.y - q.y) || 1, zoom: V.zoom}; drag = null;
     } else if (pts.size === 1) {
       const onHandle = !!e.target.closest("#baHandle"), now = viewNow(), both = now.both && V.show === "split";
+      if (V.tool === "mark" && !onHandle && V.grid && hasPicture()) {        // a mark is drawn from where the finger lands
+        const [lat, lon] = I.gridPoint(V.grid, ...Object.values(pointAt(e.clientX, e.clientY)));
+        V.draft = {kind: V.mark.kind, color: V.mark.color, a: {lat, lon}, b: {lat, lon}};
+        drag = {mode: "mark", moved: false, far: 0};
+        return;
+      }
       drag = {mode: both && (onHandle || (V.zoom <= 1.01 && !V.tool)) ? "split" : "pan", moved: false, far: 0, handle: onHandle};
       if (drag.mode === "split" && !onHandle) splitTo(e);
     }
@@ -1810,7 +1882,10 @@ function bindStage() {
       drag.far += Math.abs(dx) + Math.abs(dy);
       if (drag.far > 6) drag.moved = true;
       if (drag.mode === "split") splitTo(e);
-      else {
+      else if (drag.mode === "mark") {
+        const [lat, lon] = I.gridPoint(V.grid, ...Object.values(pointAt(e.clientX, e.clientY)));
+        V.draft.b = {lat, lon}; paint();
+      } else {
         const {pane} = paneAt(e.clientX, e.clientY), side = Math.max(pane.w, pane.h);
         V.cx -= dx / (side * V.zoom); V.cy -= dy / (side * V.zoom); clampView(); paint();
       }
@@ -1821,6 +1896,13 @@ function bindStage() {
     if (pts.size < 2) pinch = null;
     if (!pts.size) {
       const now = Date.now(), tap = drag && !drag.moved && !drag.handle && e.type === "pointerup";
+      if (drag && drag.mode === "mark") {                           // the mark is kept when it has a size
+        const d = V.draft, [p, q] = d ? notePoints(d) : [{x: 0, y: 0}, {x: 0, y: 0}];
+        if (d && e.type === "pointerup" && Math.hypot(q.x - p.x, q.y - p.y) >= 3) { V.notes.push(d); renderMeasure(); }
+        V.draft = null; drag = null; paint();
+        return;
+      }
+      if (drag && drag.mode === "pan" && drag.moved && e.type === "pointerup" && movedOut()) { drag = null; moveArea(); return; }
       if (tap && V.tool && V.grid && hasPicture()) {                // a tap with a tool in hand: a point for it
         tapTool(pointAt(e.clientX, e.clientY));
       } else if (drag && e.type === "pointerup" && now - lastTap < 320 && Math.hypot(e.clientX - lastX, e.clientY - lastY) < 30) {
@@ -1965,6 +2047,8 @@ async function renderShot() {
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
     g.drawImage(img, x, y, size, size);
     if (extra) extra(x, y, size);
+    const n = v.grid.size;
+    for (const note of v.notes) drawNote(g, note, pt => [x + pt.x / n * size, y + pt.y / n * size], size / 520);
     g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, size - 2, size - 2);
     g.font = `700 27px ${UI}`;
     const w = g.measureText(label).width + 28;
@@ -2431,6 +2515,16 @@ function onClick(e) {
   else if (act === "older" || act === "newer") extend(act === "older" ? -1 : 1);
   else if (act === "noday") setDay("");
   else if (act === "tool") setTool(t.dataset.tool);
+  else if (act === "ticks") { v.ticks = !v.ticks; store.set(KEYS.ticks, v.ticks); renderTools(); paint(); }
+  else if (act === "mshape" || act === "mcolor") {
+    if (act === "mshape") v.mark.kind = t.dataset.kind === "arrow" ? "arrow" : "rect";
+    else if (MARK_COLORS.includes(t.dataset.color)) v.mark.color = t.dataset.color;
+    store.set(KEYS.mark, v.mark); renderMeasure();
+  }
+  else if (act === "mundo") { v.notes.pop(); renderMeasure(); paint(); }
+  else if (act === "mclear") { v.notes = []; renderMeasure(); paint(); }
+  else if (act === "hires") BA.hires(v);
+  else if (act === "shift") { v.cx += 0.5 * +t.dataset.dx; v.cy += 0.5 * +t.dataset.dy; moveArea(); }
   else if (act === "measure") setTool("measure");
   else if (act === "undo") { if (v.area && v.area.pts.length) { v.area.pts.pop(); renderMeasure(); paint(); } }
   else if (act === "wipe") { v.area = {pts: []}; renderMeasure(); paint(); }
@@ -2489,6 +2583,17 @@ BA.pin = function (lat, lon, name) {
   root.L.marker([lat, lon]).addTo(pinLayer).bindPopup(card, {closeButton: false}).openPopup();
   S.map.setView([lat, lon], 13, {animate: false});
 };
+// Sentinel-2 sees 10 m per point at best. For the finer detail of a place (buildings, tanks,
+// vehicles) the app's map has Esri's high-detail picture (about 0.5 m in most of the region, a mosaic
+// of older dates, its date not given): the place opens there, pinned, as near as the picture goes.
+BA.hires = function (v) {
+  const n = v.grid ? v.grid.size : 0, [lat, lon] = n ? I.gridPoint(v.grid, v.cx * n, v.cy * n) : [v.lat, v.lon];
+  const name = v.title || "";
+  BA.pin(lat, lon, name);
+  if (typeof pickBase === "function") pickBase("sat");
+  if (S.map) S.map.setView([lat, lon], 18, {animate: false});
+  toast("صورة عالية التفاصيل (نحو نصف متر) من خريطة Esri، تاريخها غير محدد وقد تكون أقدم من صور القمر الأوروبي");
+};
 BA.init = function () {
   const s = sheet();
   if (!s || BA.ready) return;
@@ -2524,6 +2629,19 @@ BA.init = function () {
 const STYLE = `
 .ba-app,.ba-picktools,.ba-pin{--b:var(--bg,#0a101c);--s:var(--surface,#111a2b);--s2:var(--surface-2,#18233a);--l:var(--line,#24314c);--f:var(--fg,#e8edf6);--m:var(--muted,#93a0b8);--a:var(--accent,#ff7a1a);--g0:var(--ok,#3ddc97);--g1:var(--check,#f2c94c);--g2:var(--sure,#ff4d4f);--w:var(--likely,#ff9f1c);--ui:var(--font-ui,system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif);--dp:var(--font-display,var(--font-ui,system-ui,sans-serif))}
 #baSheet{padding-bottom:0;overflow:hidden}
+.ba-colors{display:inline-flex;gap:6px;align-items:center}
+.ba-color{width:24px;height:24px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:var(--c);padding:0;cursor:pointer}
+.ba-color[aria-pressed="true"]{border-color:#fff;box-shadow:0 0 0 2px var(--c)}
+.ba-edges{position:absolute;inset:0;pointer-events:none}
+.ba-edge{position:absolute;pointer-events:auto;border:0;background:rgba(5,8,13,.55);color:#fff;opacity:.55;transition:opacity .15s;cursor:pointer;padding:0}
+.ba-edge:hover,.ba-edge:focus-visible{opacity:1}
+.ba-edge::after{content:"";position:absolute;inset:0;margin:auto;width:10px;height:10px;border:solid #fff;border-width:0 2.5px 2.5px 0}
+.ba-edge.n,.ba-edge.s{left:50%;width:54px;height:22px;margin-left:-27px}
+.ba-edge.e,.ba-edge.w{top:50%;width:22px;height:54px;margin-top:-27px}
+.ba-edge.n{top:0;border-radius:0 0 10px 10px}.ba-edge.n::after{transform:rotate(-135deg) translate(-2px,-2px)}
+.ba-edge.s{bottom:0;border-radius:10px 10px 0 0}.ba-edge.s::after{transform:rotate(45deg) translate(-2px,-2px)}
+.ba-edge.e{right:0;border-radius:10px 0 0 10px}.ba-edge.e::after{transform:rotate(-45deg) translate(-2px,-2px)}
+.ba-edge.w{left:0;border-radius:0 10px 10px 0}.ba-edge.w::after{transform:rotate(135deg) translate(-2px,-2px)}
 #baHome{padding:0;background:var(--panel,#0b111c)}
 .ba-docked{height:auto;min-height:100%;background:transparent}
 .ba-docked .ba-main{padding:0 16px 28px}

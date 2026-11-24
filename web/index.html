@@ -1042,7 +1042,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <div id="report" aria-hidden="true"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="access.js?v=22"></script>
+<script src="access.js?v=23"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24,
@@ -1252,9 +1252,10 @@ function setBase(){
     S.base = L.layerGroup([picture, L.tileLayer(TILES.sat[1], {maxZoom:17, opacity:.9, zIndex:3})]).addTo(S.map);
   } else {
     const [base, labels, attr] = S.sat ? TILES.sat : (isLight() ? TILES.light : TILES.dark);
+    const z = S.sat ? 19 : 17;            // the satellite picture goes to about half a metre a point
     S.base = L.layerGroup([
-      L.tileLayer(base, {maxZoom:17, zIndex:1, attribution:attr}),
-      L.tileLayer(labels, {maxZoom:17, opacity:.9, zIndex:3})
+      L.tileLayer(base, {maxZoom:z, maxNativeZoom:z, zIndex:1, attribution:attr}),
+      L.tileLayer(labels, {maxZoom:z, maxNativeZoom:S.sat ? 19 : 17, opacity:.9, zIndex:3})
     ]).addTo(S.map);
   }
   renderDaily(); renderLayers();
@@ -3134,7 +3135,7 @@ async function signOut(){
 // The «قبل وبعد» screen (imagery.js, beforeafter.js) is behind the door on the private app, so its
 // scripts are added only once the app may run: at once on the open site, after a sign-in on the
 // private one. The app does not wait for them, and everything else works without them (hasBA()).
-const TOOLS = ["imagery.js?v=22", "beforeafter.js?v=22"];
+const TOOLS = ["imagery.js?v=23", "beforeafter.js?v=23"];
 function loadTools(){
   if (hasBA() || S.toolsBusy) return;
   S.toolsBusy = true;
@@ -3489,7 +3490,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 22;                    // the same number as CACHE in sw.js and ?v= of the scripts
+const APP_V = 23;                    // the same number as CACHE in sw.js and ?v= of the scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {
