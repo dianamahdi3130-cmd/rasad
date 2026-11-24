@@ -659,7 +659,33 @@ def finalize(inc, cfg):
     inc["last_text"] = local_text(parse_time(inc["last"]), cfg)
     inc["sources_text"] = "، ".join(sorted({FAMILY_AR.get(f, f) for f in inc["families"]}))
     assess.assess(inc, cfg)   # the confidence number, its reasons, the kind of event, who saw it
+    if inc["priority"] != "high" and sign_worthy(inc, cfg):
+        inc["priority"] = "high"
     return inc
+
+
+def sign_worthy(inc, cfg):
+    """A confirmed fire on land in the Gulf states that carries a sign worth attention («نقطة نادراً
+    ما تشتعل» at a site, or «بدأت فجأة وبقوة») is news, wherever it is (the owner's decision of 24 Nov
+    2026). Over 15-24 Nov the plain rules left out five such fires: Bu Hasa (52 MW), a sudden 22 MW
+    start in Saudi Arabia, beside Kuwait's GC-17 (13 MW), in Kuwait (12 MW) and near the Wasit power
+    plant (9 MW). The sign's own floor is the strength (5 MW for a rare
+    spot, 20 MW in the first half hour for a sudden start); no other floor, so a 7 MW fire like the
+    one near a Jizan power plant is not left out for being small."""
+    A = cfg["alerts"]
+    if not A.get("sign_alerts", True) or inc.get("verdict") != "مؤكد" or inc.get("kind") == "unusual":
+        return False
+    if inc.get("place") != "land" or inc.get("recovered_historical"):
+        return False
+    country = inc.get("country") or ""
+    if not any(c and c in country for c in A.get("new_heat_countries") or []):
+        return False
+    warn = {w.get("key") for w in ((inc.get("signals") or {}).get("warn") or [])}
+    if not warn & {"odd_spot", "sudden"}:
+        return False
+    if A.get("solar_glint_stop", True) and patterns.solar_glint(inc, cfg):
+        return False
+    return float(inc.get("max_frp") or 0) >= float(A.get("sign_min_mw", 5))
 
 
 def links(lat, lon, sea, nasa_later=False):

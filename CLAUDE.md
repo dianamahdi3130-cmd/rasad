@@ -177,7 +177,13 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   500 m of no spot hot on over 2% of the long-term map's dates, confirmed or likely and 5 MW or more),
   a sudden strong start, several places at once, heat spread wide. Calm and wait lines: everything
   else. Each list ends with «هذه علامات تستحق النظر وليست حكماً …». A first alert carries the first
-  warning as one line («⚠️ علامة تستحق الانتباه: …»); never part of a decision, never a cause.
+  warning as one line («⚠️ علامة تستحق الانتباه: …»); never a cause, never part of a verdict.
+  Since 24 Nov 2026 (the owner's decision) one warning decides a post: a **confirmed** fire on land in
+  `alerts.new_heat_countries` carrying «نقطة نادراً ما تشتعل» (`odd_spot`) or «بدأت فجأة وبقوة»
+  (`sudden`) is news wherever it is (`brain.sign_worthy`, `alerts.sign_alerts`), with no floor but
+  the sign's own (5 MW; the owner asked that a ~7 MW fire like the Jizan power plant's is not left
+  out). Replayed on the 985 stored events of 15-24 Nov: 5 more posts (Minagish 12 MW, beside GC-17
+  13 MW, near the Wasit power plant 9 MW, a sudden 22 MW start in Saudi Arabia, Bu Hasa 52 MW).
   Checked on 21 real attacks since 2024: 14 lit (`docs/plans/heat_patterns.md`). On the 29 posts
   made before 22 Nov, 9 would have carried a pattern or sign line.
 - Flare markers: `meta.flare_activity` is shown in the app («نشاط حراري أعلى من المعتاد»); it is

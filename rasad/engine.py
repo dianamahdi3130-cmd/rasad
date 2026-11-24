@@ -27,7 +27,7 @@ from .util import (floor_time, haversine_km, in_bbox, iso, load_json, log, make_
 from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
-RULES = 22  # bump when the importance rules change, so stored incidents are judged again
+RULES = 23  # bump when the importance rules change, so stored incidents are judged again
 CLIP_STYLE = 19  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
@@ -50,6 +50,8 @@ DEFAULTS = {
                # the Gulf, is news even far from every mapped facility (brain.new_heat)
                "new_heat_countries": ["السعودية", "الإمارات", "قطر", "البحرين", "الكويت", "عمان", "عُمان"],
                "new_heat_min_mw": 5, "new_heat_min_pictures": 4, "new_heat_strong_mw": 20,
+               # ...and a confirmed fire there that carries a sign worth attention (brain.sign_worthy)
+               "sign_alerts": True, "sign_min_mw": 5,
                # ...and heat that comes back to a place quiet for a week and burns on (patterns.new_heat_path)
                "new_heat_sustained": True, "new_heat_quiet_days": 7, "new_heat_max_known_days": 2,
                "new_heat_max_area_days": 1, "new_heat_sustained_min_mw": 10, "new_heat_sustained_hours": 6,
