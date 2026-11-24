@@ -162,3 +162,27 @@ class SeaIsNotAFlare(unittest.TestCase):
         self.assertTrue(engine.usual_heat(True, True, True), "a platform's flare burns on most days")
         self.assertTrue(engine.usual_heat(True, False, False), "on land the rule is as before")
         self.assertFalse(engine.usual_heat(False, False, True))
+
+
+class DriftingShip(unittest.TestCase):
+    """Hormuz, 23-24 Nov 2026: one burning ship drifted 10 km north-west in 5.5 hours."""
+
+    def incident(self):
+        track = [("2026-11-23T20:10:00Z", 26.3072, 56.2852), ("2026-11-23T22:00:00Z", 26.3453, 56.2975),
+                 ("2026-11-24T00:00:00Z", 26.3656, 56.2728), ("2026-11-24T00:30:00Z", 26.3813, 56.2530)]
+        return {"id": "ship", "lat": 26.349, "lon": 56.287, "place": "sea", "first": track[0][0], "last": track[-1][0],
+                "observations": [{"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": t, "lat": la, "lon": lo}
+                                 for t, la, lo in track]}
+
+    def test_a_drifting_fire_stays_one_fire(self):
+        from rasad import brain
+        inc = self.incident()
+        det = {"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": "2026-11-24T01:10:00Z", "lat": 26.3925, "lon": 56.2480}
+        self.assertGreater(brain.haversine_km(det["lat"], det["lon"], inc["lat"], inc["lon"]), 6)
+        self.assertIs(brain.find_incident([inc], det, 6, 12), inc, "it continues the track")
+        far = dict(det, lat=26.45, lon=56.20)                  # 7 km from the last sighting: another fire
+        self.assertIsNone(brain.find_incident([inc], far, 6, 12))
+        late = dict(det, t="2026-11-24T03:00:00Z")             # the track went cold two and a half hours ago
+        self.assertIsNone(brain.find_incident([inc], late, 6, 12))
+        land = dict(inc, place="land")                          # on land a fire does not move
+        self.assertIsNone(brain.find_incident([land], det, 6, 12))
