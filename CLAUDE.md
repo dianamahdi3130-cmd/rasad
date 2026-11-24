@@ -115,10 +115,12 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   plant within `unusual_repeat_days` unless `unusual_repeat_ratio` times what was posted. Its post
   carries `surge_note`. Replay any change on the real week in `tests/test_assess.py` (`PlantRecord`:
   Shedgum 109→94→80 MW stays one post, Ahmadi 49→66→85→110 MW is posted).
-- Heat seen before at a place is its usual heat, not news (`memory.persistent_min_days`), but at sea
-  only when it burns on most days (a platform's flare): a strait where ships burned on a few days of
-  the month stays news (`engine.usual_heat`; Hormuz, 23 Nov 2026: 6 earlier days made a ship fire
-  seen in 13 pictures «usual», and it never got past its first sighting).
+- Heat seen before at a place is its usual heat, not news (`memory.persistent_min_days`), but in open
+  water (`open_sea` in `run_cycle`: at sea, no facility or platform within 5 km, no platform field of
+  `patterns.platform_area`) only when it burns on most days: a strait where ships burned on a few days
+  of the month stays news (`engine.usual_heat`; Hormuz, 23 Nov 2026: 6 earlier days made a ship fire
+  seen in 13 pictures «usual», and it never got past its first sighting). At platforms the plain rule
+  holds: asked of them too, Zakum and Zirku's usual flares were posted as fires the same night.
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture. In a field of platforms NASA's long-term map
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture
