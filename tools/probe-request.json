@@ -1,5 +1,5 @@
-{"mode": "steps", "try": 9,
+{"mode": "steps", "try": 10,
  "steps": [
-  ["status"],
-  ["layers", "--match", "firetemperature|fire|ir039"]
+  ["probe", "--lat", "25.94", "--lon", "49.68", "--start", "2026-11-24T14:00Z", "--end", "2026-11-24T16:00Z", "--radius", "15"],
+  ["status"]
  ]}
