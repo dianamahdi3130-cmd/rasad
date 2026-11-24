@@ -265,8 +265,17 @@ def _track_km(inc, lat, lon, t, rules):
         if dt.timedelta(0) <= gap <= hour:
             km = haversine_km(lat, lon, float(row["lat"]), float(row["lon"]))
             if km <= reach:
-                best = min(best, 0.0)          # it continues this fire's track
+                best = min(best, km)           # it continues this fire's track
     return best
+
+
+def _elsewhere_same_picture(inc, det, lat, lon, km=2.5):
+    """One fire is in one place at a time. The sea finder gives one spot per hot place in a picture:
+    a spot of the same picture more than a pixel away (about 2.5 km here) from this one is another
+    fire, however close: two ships hit near each other within the hour are two fires."""
+    return any(row.get("src") == det.get("src") and row.get("t") == det.get("t") and row.get("lat") is not None
+               and haversine_km(lat, lon, float(row["lat"]), float(row["lon"])) > km
+               for row in inc.get("observations") or [])
 
 
 def find_incident(incidents, det, merge_km, merge_hours, rules=None, acquisition=None):
@@ -292,7 +301,9 @@ def find_incident(incidents, det, merge_km, merge_hours, rules=None, acquisition
         if t < parse_time(inc["first"]) - window or t > parse_time(inc["last"]) + window:
             continue
         d = haversine_km(current_lat, current_lon, inc["lat"], inc["lon"])
-        if d > merge_km and det.get("kind") != "polar" and inc.get("place") == "sea":
+        if det.get("kind") != "polar" and inc.get("place") == "sea":
+            if det.get("src") == "mtg_spot" and _elsewhere_same_picture(inc, det, current_lat, current_lon):
+                continue
             d = min(d, _track_km(inc, current_lat, current_lon, t, rules))
         if d > merge_km:
             continue

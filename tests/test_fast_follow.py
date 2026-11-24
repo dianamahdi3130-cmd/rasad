@@ -187,3 +187,23 @@ class DriftingShip(unittest.TestCase):
         self.assertIsNone(brain.find_incident([inc], late, 6, 12))
         land = dict(inc, place="land")                          # on land a fire does not move
         self.assertIsNone(brain.find_incident([land], det, 6, 12))
+
+
+class TwoShips(unittest.TestCase):
+    """Two ships hit near each other within the hour are two fires; one drifting ship stays one."""
+
+    def test_two_spots_of_one_picture_a_few_km_apart_are_two_fires(self):
+        from rasad import brain
+        spot = lambda t, la, lo: {"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": t, "lat": la, "lon": lo}
+        first = spot("2026-11-24T01:00:00Z", 26.390, 56.250)
+        a = {"id": "a", "lat": 26.390, "lon": 56.250, "place": "sea", "first": first["t"], "last": first["t"],
+             "observations": [dict(first)]}
+        other = spot("2026-11-24T01:00:00Z", 26.390, 56.285)       # 3.5 km east, the same picture
+        self.assertIsNone(brain.find_incident([a], other, 6, 12), "a second ship, not the first one")
+        b = {"id": "b", "lat": 26.390, "lon": 56.285, "place": "sea", "first": other["t"], "last": other["t"],
+             "observations": [dict(other)]}
+        # the next picture: each ship's spot goes to its own fire
+        self.assertIs(brain.find_incident([a, b], spot("2026-11-24T01:10:00Z", 26.391, 56.251), 6, 12), a)
+        self.assertIs(brain.find_incident([a, b], spot("2026-11-24T01:10:00Z", 26.391, 56.284), 6, 12), b)
+        # the same spot given again (its strength read later) is the same fire, not another
+        self.assertIs(brain.find_incident([a], dict(first), 6, 12), a)

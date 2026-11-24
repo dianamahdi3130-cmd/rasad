@@ -94,7 +94,9 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
 - One fire = one incident record; ids unique (`tests/test_no_duplicates.py`). A fire at sea can move:
   a sighting within 3 km of the fire's own sighting of the last hour continues it, however far from
   where it began (`brain._track_km`; Hormuz, 23-24 Nov 2026: a burning ship drifted 10 km in 5.5 hours
-  and was posted a second time once past 6 km).
+  and was posted a second time once past 6 km). And one fire is in one place at a time: a sea finder
+  spot of the same picture more than 2.5 km from the fire's own spot is another fire, however close
+  (`brain._elsewhere_same_picture`: two ships hit near each other within the hour are two fires).
 - Verdicts: «مؤكد» = two satellite families, or three consecutive pictures; «مرجّح» = two
   consecutive pictures or a clear NASA detection; «يحتاج تأكيداً» = one sighting. The sea finder
   alone is at most «مرجّح». The day finder never alerts on its own. One faint NASA pixel at night
