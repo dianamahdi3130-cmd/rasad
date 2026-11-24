@@ -258,7 +258,8 @@ class EarlyNightAlertTests(unittest.TestCase):
         self.assertEqual(self.sync(), 0)
         self.S.state["sea_candidates"] = [self.candidate()]
         key = f"{int(26.3716 // .05)},{int(56.2988 // .05)}"
-        self.S.state["sea_sparkle"] = {key: ["2026-11-10", "2026-11-11", "2026-11-12"]}
+        # in open water a flare is a speck on most of the fourteen nights kept (seawatch.sparkle_nights)
+        self.S.state["sea_sparkle"] = {key: [f"2026-11-{d:02d}" for d in range(6, 13)]}
         self.assertEqual(self.sync(), 0)
         for setting in ("enabled", "alerts"):
             self.cfg["seawatch"][setting] = False

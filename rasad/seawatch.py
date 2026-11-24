@@ -614,6 +614,31 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
     return out, notes
 
 
+SPARKLE_KEEP_DAYS = 14        # the nights `state["sea_sparkle"]` keeps
+OPEN_WATER_SHARE = 0.5        # in open water a flare is a speck on most of those nights
+
+
+def sparkle_nights(lat, lon, base, geo=None):
+    """How many earlier nights with specks within ~5 km make a pair «a flare, not news». Among
+    platforms, `base` (3): their flares are not seen every night either. In open water (no facility
+    or platform within 5 km, ports aside, and outside every field of platforms NASA's long-term map
+    knows) most of the nights kept: a strait where ships burned on a few nights is not a flare. The
+    case: Hormuz, 24 Nov 2026, 25 km north of Khasab. A ship fire there the night before and specks
+    on 13, 17 and 19 Nov held the burning ship's pairs from 22:30 to 00:08 Baghdad time; it went out
+    at 00:10, as another channel posted it. The same rule as `engine.usual_heat` for the memory."""
+    from . import patterns
+    try:
+        if geo is not None:
+            from .geodb import relevant_item
+            if geo.fac.nearest(lat, lon, 5.0, accept=lambda it: relevant_item(it) and it[4] != "port")[0] is not None:
+                return base
+        if patterns.platform_area(lat, lon) is not None:
+            return base
+    except Exception:  # noqa: BLE001 - unknown: the plain rule (a flare is not news)
+        return base
+    return max(base, math.ceil(OPEN_WATER_SHARE * SPARKLE_KEEP_DAYS))
+
+
 def confirm(cands, spot, km=3.0, minutes=40):
     """A speck counts only when another picture shows one at the same place within 40 minutes."""
     from .util import haversine_km
@@ -866,7 +891,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                 sparkle.setdefault(f"{ci},{cj}", [])
                 if night not in sparkle[f"{ci},{cj}"]:
                     sparkle[f"{ci},{cj}"].append(night)
-                if pair and len(before) >= sparkle_min_days:
+                if pair and len(before) >= sparkle_nights(sp["lat"], sp["lon"], sparkle_min_days, geo):
                     log.info("sea watch: specks at %.3f,%.3f again (also on %s): a flare, not news",
                              sp["lat"], sp["lon"], ", ".join(sorted(before)))
                 elif pair:
@@ -888,7 +913,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
         del done[key]
     keep_h = float(C.get("catchup_hours", 3)) + 1   # a late slot still pairs with its neighbours
     state["sea_candidates"] = [c for c in cands if now - parse_time(c["t"]) <= dt.timedelta(hours=keep_h)]
-    oldest = (now - dt.timedelta(days=14)).date().isoformat()
+    oldest = (now - dt.timedelta(days=SPARKLE_KEEP_DAYS)).date().isoformat()
     state["sea_sparkle"] = {k: [d for d in v if d >= oldest] for k, v in sparkle.items()
                             if any(d >= oldest for d in v)}
     uniq = {}
