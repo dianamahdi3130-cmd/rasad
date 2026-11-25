@@ -369,3 +369,39 @@ class SteadyAtSea(unittest.TestCase):
         self.assertEqual([sp for sp in spots if sp.get("steady")], [])
         self.assertIn("steady: a field of platforms (NASA's long-term map)", notes["rejected"])
         self.assertEqual([sp for sp in self.find(floor=0)[0] if sp.get("steady")], [], "off unless set")
+
+
+class FirstSightingInTheChannelsLook(unittest.TestCase):
+    """Hormuz, 25 Nov 2026 (17:50 Baghdad): a first sighting's video came in the old close-up look,
+    because the usual video could not make out the faint speck by itself. Now it keeps the channel's
+    look, centred where the finder saw it; the closer look itself still refuses what it cannot see."""
+
+    def render(self, trust):
+        import numpy as np
+        from PIL import Image
+        from rasad import twopanel
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        t_end = dt.datetime(2026, 11, 25, 14, 50, tzinfo=dt.timezone.utc)
+
+        class W:       # the sea stays the same: nothing the usual video can make out by itself
+            def getmap(self, name, bbox, w, h, t=None, style="", quiet=True, timeout=None):
+                a = np.full((h, w, 4), 60, np.uint8)
+                a[..., 3] = 255
+                if t >= t_end:
+                    a[h // 2, w // 2, 0] = 64
+                return Image.fromarray(a), t
+
+        with tempfile.TemporaryDirectory() as folder:
+            cfg["_site_dir"] = folder
+            layer = {"name": "x", "cadence_min": 10, "channel": 0, "hot_is_bright": True}
+            info = {"first": "2026-11-25T14:50:00Z", "place": "sea", "where": "في البحر قرب مضيق هرمز",
+                    "verdict": "يحتاج تأكيداً", **({"trust_center": True} if trust else {})}
+            return twopanel.render(cfg, W(), 26.3161, 56.2629, t_end, os.path.join(folder, "clips", "t"),
+                                   layer, None, 8, info)
+
+    def test_the_closer_look_still_refuses_but_a_posted_sighting_keeps_the_new_look(self):
+        from rasad.clip import NotVisible
+        with self.assertRaises(NotVisible):
+            self.render(False)
+        video, snap = self.render(True)
+        self.assertTrue(str(video).endswith((".mp4", ".gif")))
