@@ -1,4 +1,6 @@
-{"mode": "steps", "try": 14,
+{"mode": "steps", "try": 15,
  "steps": [
-  ["probe", "--lat", "26.688", "--lon", "50.105", "--start", "2026-11-24T15:00Z", "--end", "2026-11-25T06:10Z", "--radius", "12", "--out", "probe-out/today"]
+  ["probe", "--lat", "26.630", "--lon", "50.163", "--start", "2026-11-25T00:40Z", "--end", "2026-11-25T02:50Z", "--radius", "6", "--out", "probe-out/rt"],
+  ["pictures", "--lat", "26.630", "--lon", "50.163", "--start", "2026-11-25T01:00Z", "--end", "2026-11-25T02:30Z", "--out", "probe-out/rt"],
+  ["osm-near", "--lat", "26.630", "--lon", "50.163", "--km", "2", "--out", "probe-out/rt"]
  ]}
