@@ -715,9 +715,9 @@ def steady_spots(cfg, pics, box, t, cur, sea, km, W, H, found, notes, mem=None, 
             continue
         shine = 0.0 if glow is None else float(np.nanmax(glow[max(0, r - 2):r + 3, max(0, c - 2):c + 3]))
         out.append({"src": SRC, "family": "mtg", "kind": "geo", "t": iso(t), "lat": round(lat, 4),
-                    "lon": round(lon, 4), "frp": None, "rise": round(float(above), 1), "z": None, "z10": None,
-                    "area_px": None, "above_sea": round(float(above), 1), "extent_km": None, "glow": round(shine, 1),
-                    "flame": bool(shine >= float(C.get("flame_glow", 2.0))), "restless": None, "strong": False,
+                    "lon": round(lon, 4), "frp": None, "rise": round(float(above), 1), "z": 0.0, "z10": None,
+                    "area_px": 0, "above_sea": round(float(above), 1), "extent_km": 0.0, "glow": round(shine, 1),
+                    "flame": bool(shine >= float(C.get("flame_glow", 2.0))), "restless": 0.0, "strong": False,
                     "steady": [iso(tt) for tt in times]})
         notes["steady"] = notes.get("steady", 0) + 1
     return out

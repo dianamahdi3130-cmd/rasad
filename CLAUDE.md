@@ -135,6 +135,14 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture
   needs a rise of `early_alerts.platform_min_rise` (30), and sea posts there say so in one line
   (`patterns.platform_words`, «🛢 في منطقة منصات نفط وغاز…»). The case: Qatar's North Field, 24 Nov 2026.
+- Heat lit before dark is «hot before» to every rule that looks for new heat. At sea a spot at least
+  `seawatch.steady_min_above` (8, levels of the picture's red) above the clear sea in three dark
+  pictures in a row, in open water (no platform, no platform field of NASA's map, no heat there on
+  earlier days), is told as three sightings (`seawatch.steady_spots`, rows with `steady`): «مرجّح»
+  at most, its closer look first, never a first sighting. Replayed: the Hormuz ship fire of 23-24
+  Nov at any level 6-12; a whole ordinary night over Hormuz and the southern Gulf at 8: only
+  platform fields, all left out. Off in `DEFAULTS` (0). The case: Hormuz, 25 Nov 2026, warm spot
+  at sea from 15:10 Baghdad time; the night finder's first pictures found nothing.
 - The great energy sites on land are read by the same finder at night (`seawatch` boxes with
   `"land": True`, `seawatch.sites`): Saudi Arabia's east coast with Abqaiq, Bahrain, Ras Laffan and
   Mesaieed, Kuwait's Ahmadi/Shuaiba/Zour, Ruwais and Habshan, Jebel Ali, Fujairah, Yanbu, Jeddah, Jizan.
