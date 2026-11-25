@@ -1,6 +1,6 @@
-{"mode": "steps", "try": 23,
+{"mode": "steps", "try": 25,
  "steps": [
-  ["hotspots", "--start", "2026-11-25T12:00Z", "--end", "2026-11-25T13:50Z", "--bbox", "55.6,25.6,57.0,27.0"],
-  ["grab", "--start", "2026-11-25T12:00Z", "--end", "2026-11-25T13:50Z", "--bbox", "55.6,25.6,57.0,27.0",
-   "--layers", "mtg_fd:rgb_firetemperature", "--km", "0.5", "--tag", "hormuz_dusk"]
+  ["seascan", "--start", "2026-11-25T13:50Z", "--end", "2026-11-25T14:50Z", "--boxes", "hormuz_oman", "--steady", "12"],
+  ["seascan", "--start", "2026-11-23T21:00Z", "--end", "2026-11-24T00:30Z", "--boxes", "hormuz_oman", "--steady", "12"],
+  ["seascan", "--start", "2026-11-21T14:00Z", "--end", "2026-11-22T02:30Z", "--boxes", "hormuz_oman,gulf_south", "--steady", "12"]
  ]}

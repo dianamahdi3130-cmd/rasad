@@ -42,7 +42,7 @@ from PIL import Image, PngImagePlugin
 
 from .geodb import land_mask_points, ring_points
 from .thermal_history import history_rules, persistent_local_heat
-from .util import box_around, floor_time, iso, log, parse_time, px_to_latlon, sun_elevation
+from .util import box_around, floor_time, haversine_km, iso, log, parse_time, px_to_latlon, sun_elevation
 from .wms import Availability, components, served
 
 SRC = "mtg_spot"
@@ -650,7 +650,77 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if len(out) - len(strong):
             notes["rejected"]["weather (many specks at once)"] = len(out) - len(strong)
         out = strong
+    if not land:
+        out += steady_spots(cfg, pics, box, t, cur, sea, km, W, H, out, notes, mem, geo, glow)
     return out, notes
+
+
+def steady_spots(cfg, pics, box, t, cur, sea, km, W, H, found, notes, mem=None, geo=None, glow=None):
+    """Heat that was there before the night began. Every rule above looks for heat that is new
+    against the pictures 30-90 minutes before; a fire lit in daylight is «hot before» to all of
+    them and was never told at night (Hormuz, 25 Nov 2026: warm spot at sea from 15:10 Baghdad
+    time, the night finder's first pictures found nothing). Here: a spot clearly warmer than the
+    clear sea around it (`steady_min_above`, levels of the picture's red) in this picture and the
+    two before it, all dark, at the same place, in open water: no platform, no usual flare of
+    NASA's long-term map, no heat on earlier days there. Told as three sightings («مرجّح» at
+    most, like everything the finder sees alone; its closer look still comes before a post)."""
+    C = cfg["seawatch"]
+    floor = float(C.get("steady_min_above", 0) or 0)
+    if floor <= 0:
+        return []
+    cad, sun = int(C["cadence_min"]), float(C["sun_max_elev"])
+    times = [t - dt.timedelta(minutes=cad * k) for k in (1, 2)]
+    if not all(all(_night(box["bbox"], tt, sun)) for tt in [t] + times):
+        return []
+    prev = [pics.get(C["layer"], box["bbox"], W, H, tt, 0) for tt in times]
+    if any(p is None for p in prev):
+        return []
+    hot = cur - local_mean(cur, max(4, round(12 / km)))
+    b = np.where(np.asarray(sea, dtype=bool) & np.isfinite(hot), hot, -1e9)
+    look = max(1, round(1.5 / km))
+    replay = bool(cfg.get("_replay"))
+    out = []
+    for _ in range(int(C.get("steady_max", 3))):
+        r, c = np.unravel_index(int(np.argmax(b)), b.shape)
+        if b[r, c] < floor * (0.5 if replay else 1.0):
+            break
+        k = max(3, round(6 / km))
+        b[max(0, r - k):r + k + 1, max(0, c - k):c + k + 1] = -1e9
+        lat, lon = px_to_latlon(box["bbox"], W, H, c, r)
+        above = above_clear_sea(cur, sea, r, c, km)
+        befores = []
+        for p in prev:
+            win = p[max(0, r - look):r + look + 1, max(0, c - look):c + look + 1]
+            rr, cc = np.unravel_index(int(np.nanargmax(win)), win.shape)
+            befores.append(above_clear_sea(p, sea, max(0, r - look) + rr, max(0, c - look) + cc, km))
+        values = [above] + befores
+        if replay:
+            log.info("   steady? %.4f,%.4f at %s: above the clear sea %s", lat, lon, iso(t),
+                     [None if v is None else round(v, 1) for v in values])
+        if any(v is None or v < floor for v in values):
+            continue
+        if any(haversine_km(lat, lon, sp["lat"], sp["lon"]) <= 3.0 for sp in found):
+            continue                                   # already told by the rules above
+        why = None
+        if geo is not None and geo.platform_within(lat, lon, float(C["platform_km"])):
+            why = "oil platform"
+        else:
+            from . import patterns
+            if patterns.platform_area(lat, lon) is not None:
+                why = "a field of platforms (NASA's long-term map)"
+            elif persistent_local_heat(mem, lat, lon, (t - dt.timedelta(hours=12)).date(), C):
+                why = "heat seen here before"
+        if why:
+            notes["rejected"][f"steady: {why}"] = notes["rejected"].get(f"steady: {why}", 0) + 1
+            continue
+        shine = 0.0 if glow is None else float(np.nanmax(glow[max(0, r - 2):r + 3, max(0, c - 2):c + 3]))
+        out.append({"src": SRC, "family": "mtg", "kind": "geo", "t": iso(t), "lat": round(lat, 4),
+                    "lon": round(lon, 4), "frp": None, "rise": round(float(above), 1), "z": 0.0, "z10": None,
+                    "area_px": 0, "above_sea": round(float(above), 1), "extent_km": 0.0, "glow": round(shine, 1),
+                    "flame": bool(shine >= float(C.get("flame_glow", 2.0))), "restless": 0.0, "strong": False,
+                    "steady": [iso(tt) for tt in times]})
+        notes["steady"] = notes.get("steady", 0) + 1
+    return out
 
 
 def live_boxes(C):
@@ -936,6 +1006,10 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                 sparkle.setdefault(f"{ci},{cj}", [])
                 if night not in sparkle[f"{ci},{cj}"]:
                     sparkle[f"{ci},{cj}"].append(night)
+                if sp.get("steady"):
+                    # three pictures of its own: the two before it are sightings too
+                    pair = pair + [dict(sp, t=tt, steady=True) for tt in sp["steady"]
+                                   if not any(c.get("t") == tt for c in pair)]
                 if pair and len(before) >= sparkle_nights(sp["lat"], sp["lon"], sparkle_min_days, geo):
                     log.info("sea watch: specks at %.3f,%.3f again (also on %s): a flare, not news",
                              sp["lat"], sp["lon"], ", ".join(sorted(before)))

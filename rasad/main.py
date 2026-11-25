@@ -160,6 +160,7 @@ def main(argv=None):
     p.add_argument("--end", required=True)
     p.add_argument("--boxes", help="comma separated box ids (default: all)")
     p.add_argument("--day", action="store_true", help="replay the experimental day finder instead of the night one")
+    p.add_argument("--steady", type=float, help="night: replay the steady-heat rule at this level above the clear sea")
     p.add_argument("--km", type=float, help="with --day: km per pixel of the pictures (default: as it runs)")
     sub.add_parser("sea-ready", help="between checks: exit 0 when a new night picture of the priority seas is out")
     p = sub.add_parser("restest", help="how a small fire shows at different picture detail")
@@ -369,6 +370,8 @@ def main(argv=None):
             rows = seawatch.scan_day(cfg, wms, parse_time(args.start), parse_time(args.end), Memory(S.memory), geo,
                                      chosen, args.km)
         else:
+            if args.steady:
+                cfg = dict(cfg, seawatch=dict(cfg["seawatch"], steady_min_above=args.steady), _replay=True)
             rows = seawatch.scan(cfg, wms, parse_time(args.start), parse_time(args.end), Memory(S.memory), geo, chosen)
         groups = seawatch.group(rows)
         print(f"\n{len(rows)} spot(s), {len(groups)} place(s):")

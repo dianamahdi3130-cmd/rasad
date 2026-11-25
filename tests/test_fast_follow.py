@@ -313,3 +313,59 @@ class RightNames(unittest.TestCase):
         self.assertEqual(after["country"], "السعودية")
         self.assertIn("حقل شيبة", after["headline"])
         self.assertNotEqual(geo_before.version, geo_after.version, "recent incidents are described again")
+
+
+class SteadyAtSea(unittest.TestCase):
+    """A fire lit before dark is «hot before» to every rule that looks for new heat (Hormuz, 25 Nov
+    2026). A spot clearly warmer than the clear sea in three dark pictures in a row is told too."""
+
+    WHEN = dt.datetime(2026, 11, 25, 16, 0, tzinfo=dt.timezone.utc)
+
+    def find(self, above=20.0, pictures=3, platform=None, floor=12.0):
+        from unittest.mock import Mock, patch
+        import numpy as np
+        from rasad import patterns
+        from rasad.util import box_around, px_to_latlon
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        cfg["seawatch"]["steady_min_above"] = floor
+        box = {"id": "test", "bbox": box_around(26.30, 56.10, 25)}
+        W, H = seawatch.box_size(box, cfg["seawatch"]["km_per_px"])
+        r, c = H // 2, W // 2
+        lat, lon = px_to_latlon(box["bbox"], W, H, c, r)
+        sea = np.full((H, W), 30.0, dtype=np.float32)
+        hot = sea.copy()
+        hot[r - 1:r + 2, c - 1:c + 2] += above          # the same spot in every picture: «hot before»
+        dark = np.zeros((H, W), dtype=np.float32)
+        cad = dt.timedelta(minutes=10)
+        lit = {self.WHEN - k * cad for k in range(pictures)}
+
+        def get(layer, bbox, w, h, t, channel=None):
+            if channel in (1, 2):
+                return dark
+            return hot if t in lit or t < self.WHEN - 2 * cad else sea
+        pics = Mock()
+        pics.get.side_effect = get
+        open_sea = lambda lats, lons: np.zeros_like(np.asarray(lats), dtype=bool)
+        with patch.dict(seawatch._SEA, {}, clear=True), \
+                patch.object(seawatch, "land_mask_points", return_value=open_sea), \
+                patch.object(seawatch, "sun_elevation", return_value=-30.0), \
+                patch.object(seawatch, "_ir105_change", return_value=0.7), \
+                patch.object(patterns, "platform_area", return_value=platform):
+            spots, notes = seawatch.find_spots(cfg, pics, box, self.WHEN, mem=None, geo=None)
+        return spots, notes, (lat, lon)
+
+    def test_heat_lit_before_dark_is_told_from_three_dark_pictures(self):
+        spots, notes, (lat, lon) = self.find()
+        steady = [sp for sp in spots if sp.get("steady")]
+        self.assertEqual(len(steady), 1, notes)
+        self.assertEqual(len(steady[0]["steady"]), 2, "the two pictures before it are sightings too")
+        self.assertFalse(steady[0]["strong"], "never a first sighting from one picture")
+        self.assertAlmostEqual(steady[0]["lat"], lat, places=2)
+
+    def test_not_in_two_pictures_not_faint_not_among_platforms_not_when_off(self):
+        self.assertEqual([sp for sp in self.find(pictures=2)[0] if sp.get("steady")], [])
+        self.assertEqual([sp for sp in self.find(above=8.0)[0] if sp.get("steady")], [])
+        spots, notes, _ = self.find(platform={"flare_km": 2.0, "spot_days": 5})
+        self.assertEqual([sp for sp in spots if sp.get("steady")], [])
+        self.assertIn("steady: a field of platforms (NASA's long-term map)", notes["rejected"])
+        self.assertEqual([sp for sp in self.find(floor=0)[0] if sp.get("steady")], [], "off unless set")
