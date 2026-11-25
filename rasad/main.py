@@ -142,6 +142,11 @@ def main(argv=None):
     p.add_argument("--lat", type=float, required=True)
     p.add_argument("--lon", type=float, required=True)
     p.add_argument("--time", help="event time UTC, e.g. 2026-11-01T21:30Z")
+    p.add_argument("--end", help="last picture UTC (default: two pictures after --time)")
+    p.add_argument("--frames", type=int, help="pictures in the video (default: as for alerts)")
+    p.add_argument("--where", help="the place's name written in the video")
+    p.add_argument("--country", help="the country written in the video")
+    p.add_argument("--out", help="folder to keep the video in (default: the app's clips)")
     p.add_argument("--send", action="store_true")
     p = sub.add_parser("probe", help="what each satellite saw at a place and period (checks a known fire)")
     p.add_argument("--lat", type=float, required=True)
@@ -379,18 +384,38 @@ def main(argv=None):
         session = make_session()
         wms = WMS(cfg["eumetview"]["wms_url"], session)
         S = State(cfg)
-        L = cfg["eumetview"]["clip_layer"]
-        cad = int(L["cadence_min"])
-        pbox = [args.lon - 0.2, args.lat - 0.2, args.lon + 0.2, args.lat + 0.2]
-        latest = latest_time(wms, S.state, L["name"], cad, pbox)
-        if latest is None:
-            sys.exit("no thermal images available")
-        t_end = latest
-        if args.time:
-            after = int(cfg["clip"].get("frames_after", 2))
-            t_end = min(latest, floor_time(parse_time(args.time), cad) + dt.timedelta(minutes=cad * after))
-        base = Path(cfg["_site_dir"]) / "clips" / f"manual_{args.lat:.3f}_{args.lon:.3f}_{t_end:%Y%m%d%H%M}"
-        video, snap = make_clip(cfg, wms, args.lat, args.lon, t_end, base)
+        from .clip import NotVisible
+        from .engine import clip_layers
+        # the same pictures as an alert's video: Meteosat-12's fire picture first, then IODC's
+        info = {"where": args.where, "country": args.country, "place": "land",
+                "first": iso(floor_time(parse_time(args.time), 10)) if args.time else None}
+        video = err = None
+        for L in clip_layers(cfg):
+            cad = int(L["cadence_min"])
+            pbox = [args.lon - 0.2, args.lat - 0.2, args.lon + 0.2, args.lat + 0.2]
+            if args.end:
+                t_end = floor_time(parse_time(args.end), cad)
+            else:
+                latest = latest_time(wms, S.state, L["name"], cad, pbox)
+                if latest is None:
+                    err = f"{L['name']}: no pictures"
+                    continue
+                t_end = latest
+                if args.time:
+                    after = int(cfg["clip"].get("frames_after", 2))
+                    t_end = min(latest, floor_time(parse_time(args.time), cad) + dt.timedelta(minutes=cad * after))
+            folder = Path(args.out) if args.out else Path(cfg["_site_dir"]) / "clips"
+            folder.mkdir(parents=True, exist_ok=True)
+            base = folder / f"manual_{args.lat:.3f}_{args.lon:.3f}_{t_end:%Y%m%d%H%M}"
+            try:
+                video, snap = make_clip(dict(cfg, eumetview=dict(cfg["eumetview"], clip_layer=L)), wms,
+                                        args.lat, args.lon, t_end, base, frames=args.frames, info=info)
+                break
+            except (NotVisible, RuntimeError) as e:
+                err = f"{L['name']}: {e}"
+                log.warning("clip with %s: %s", L["name"], e)
+        if video is None:
+            sys.exit(f"no video: {err}")
         print(f"Saved: {video}")
         if args.send:
             deliver(cfg, session, f"🛰 صور حرارية حتى {iso(t_end)}\n<code>{args.lat:.4f}, {args.lon:.4f}</code>",
