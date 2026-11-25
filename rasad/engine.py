@@ -18,7 +18,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue, earlyalerts
-from . import acquisitions, archive, assess, flares, noaafire, patterns, repairs, satpic, smoke
+from . import acquisitions, archive, assess, flares, noaafire, patterns, reading, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -42,6 +42,8 @@ DEFAULTS = {
     "watermark_logo": "",
     "local_time": {"offset_hours": 3, "name": "بغداد"},
     "paths": {"state": "data/state", "site": "data/site", "geodata": "data/state/geo"},
+    # «قراءة رصد» (reading.py): off here, so the tests count posts as before; on in config.yaml
+    "reading": {"enabled": False},
     "regions": [],
     "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
                "big_fire_mw": 50, "big_fire_far_mw": 100, "busy_area_days": 2, "faint_mw": 3,
@@ -1504,6 +1506,23 @@ def run_cycle(cfg, send=True, alert_now=False):
                     inc["smoke_posted"] = iso(now)
                     _remember_post(inc, now)
 
+    # «قراءة رصد»: once a posted event has run its course, Rasad's reading of what it measured goes
+    # out once as a reply under the post (the owner's wish of 25 Nov 2026: "analyse like you"); the
+    # app gets the same lines. Facts with their numbers, never a cause (reading.py).
+    R = reading.settings(cfg)
+    if R.get("enabled"):
+        for inc in S.incidents:
+            if inc.get("status") != "alerted" or inc.get("reading_posted") or inc.get("recovered_historical"):
+                continue
+            out = reading.make(inc, cfg, now)
+            if out is None:
+                continue
+            inc["reading"] = out
+            if reading.due(inc, cfg, now) and post(reading.message(out), reply_to=inc.get("tg_msg")):
+                S.sent = True
+                inc["reading_posted"] = iso(now)
+                _remember_post(inc, now)
+
     # sea incidents found before the look-back existed, or not touched in this run
     for inc in sorted(S.incidents, key=lambda i: i["last"], reverse=True):
         if look_budget <= 0:
@@ -1580,6 +1599,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "sources_text", "regions", "region_name", "clip", "snap", "clip_note", "frp_series",
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
           "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke",
+          "reading",
           "early_ids", "early_promotion_ambiguous",
           # the assessment (assess.py): what kind of event, how sure and why, how serious
           "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",

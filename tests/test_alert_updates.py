@@ -237,6 +237,26 @@ class AlertUpdateIntegrationTests(unittest.TestCase):
         inc.update(headline="حرارة جديدة مستمرة في السعودية")
         self.assertIn("تحديث: الحرارة مؤكدة الآن", alert_message(inc, self.cfg, update=True, threaded=True))
 
+    def test_a_finished_event_gets_rasads_reading_once_under_its_post(self):
+        self.cfg["reading"] = {"enabled": True}
+        self.change_incident(alerted_max_frp=164, clip_max_frp=164, clip_peak_time="2026-11-08T11:50:00Z",
+                             clip_style=engine.CLIP_STYLE)
+        self.now = dt.datetime(2026, 11, 8, 13, 10, tzinfo=UTC)      # quiet for 80 minutes
+        incident = self.cycle()
+        texts = [c.args[2] for c in self.deliver.call_args_list]
+        readings = [t for t in texts if t.startswith("📋 <b>قراءة رصد للحدث</b>")]
+        self.assertEqual(len(readings), 1, texts)
+        call = next(c for c in self.deliver.call_args_list if c.args[2] in readings)
+        self.assertEqual(call.kwargs.get("reply_to"), 123)
+        self.assertTrue(incident["reading_posted"])
+        self.assertTrue(incident["reading"])
+        published = load_json(self.cfg["_site_dir"] / "data" / "incidents.json", {})["items"][0]
+        self.assertEqual(published["reading"], incident["reading"])
+        self.now += dt.timedelta(minutes=10)
+        self.cycle()
+        again = [c for c in self.deliver.call_args_list if c.args[2].startswith("📋")]
+        self.assertEqual(len(again), 1, "once")
+
     def test_failed_later_video_delivery_keeps_pending_until_success(self):
         self.refresh_ok = False
         self.cycle()

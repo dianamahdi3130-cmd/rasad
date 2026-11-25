@@ -90,6 +90,8 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     (`brain.sign_worthy`); its post carries that sign as its «⚠️» line, as every first alert does.
 20. Smoke seen from a posted fire goes out once as a reply under it: «💨 دخان مرئي من موضع الحرارة»,
     its length and direction, «🛰 صور القمر الأوروبي النهارية (Meteosat-12)» (`smoke.message`).
+21. «📋 قراءة رصد للحدث» (`reading.py`) goes out once under a posted event when it has run its course:
+    measured facts, a lean only at a plant («يشبه حرقاً طارئاً للغاز…» / «يشبه حريقاً…»), never a cause.
 19. A video is promised only as far as it can be kept: «🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في
     الصور.» (`brain.video_note`). A fire NASA alone saw keeps its own line (no video expected).
 
