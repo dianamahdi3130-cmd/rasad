@@ -52,6 +52,12 @@ Neither is switched back before the work below is done and replayed.
   never reached.
 - **A steady source is a new incident every evening** (more than 12 hours of daylight between).
 - **`reading.py` and `brain.near_posted` do not know the followed track.**
+- **«حريق مؤكد آخر» judges.** The older nearby-fire line says «رُصد حريق مؤكد آخر…» (`reading.py`,
+  `brain.verdict_of`, `brain.alert_message`, `assess.py`). «آخر» asserts a different fire, which the
+  pictures cannot tell; the owner read it as the tool's own verdict (25 Nov, screenshot of three
+  readings). The wording must be neutral: a confirmed fire was seen X km away, Y hours before.
+- **Two posts of one heat get two readings** with different durations (20:10-20:50 and 17:40-22:00
+  for the same heat off Khasab), and «ثم لم تعد تظهر» only means the finder stopped seeing it.
 - **`follow.look` takes another posted fire's heat for its own** when two burn within reach.
 - **The follow reply calls `_remember_post`**, which can swallow a strength update.
 - **`rec["from"]` in the reply is never renewed** after the fire's own sightings resume.
