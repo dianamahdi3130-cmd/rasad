@@ -12,7 +12,8 @@ from pathlib import Path
 import yaml
 
 from .brain import (VERDICT_RANK, Memory, add_to_incident, alert_message, finalize, find_incident,
-                    nearby_confirmed, new_incident, day_requires_confirmation, association_requires_confirmation,
+                    nearby_confirmed, near_posted, new_incident, day_requires_confirmation,
+                    association_requires_confirmation,
                     sea_finder_doubt, video_note)
 from .clip import NotVisible, make_clip
 from .geodb import Geo
@@ -1335,12 +1336,16 @@ def run_cycle(cfg, send=True, alert_now=False):
             continue
         if inc.get("place") == "sea":  # another fire confirmed close by shortly before this one
             inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
+            if inc.get("status") != "alerted":   # a posted fire still burning or lately seen close by
+                inc["near_posted"] = near_posted(inc, S.incidents)
         enrich(inc, cfg, geo)
         if inc.get("place") == "sea" and "near_confirmed" not in inc:
             # a new record learns that it is at sea only now: its first post must say it too (Hormuz,
             # 25 Nov 2026: a ship fire NASA saw at 13:02, 14 km from the confirmed fire of the night
             # before, was posted without «قبل 10 ساعات رُصد حريق مؤكد آخر في البحر…»)
             inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
+            if inc.get("status") != "alerted":
+                inc["near_posted"] = near_posted(inc, S.incidents)
             finalize(inc, cfg)
         # important only because the rules or the facility map changed, not because of what it did
         # (an incident whose place was never described yet is not such a case: nothing changed for it)

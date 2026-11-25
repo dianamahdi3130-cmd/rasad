@@ -146,7 +146,15 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   at most, its closer look first, never a first sighting. Replayed: the Hormuz ship fire of 23-24
   Nov at any level 6-12; a whole ordinary night over Hormuz and the southern Gulf at 8: only
   platform fields, all left out. Off in `DEFAULTS` (0). The case: Hormuz, 25 Nov 2026, warm spot
-  at sea from 15:10 Baghdad time; the night finder's first pictures found nothing.
+  at sea from 15:10 Baghdad time; the night finder's first pictures found nothing. A strong source
+  is drawn as a streak about 4 km long east to west, so a steady spot within `steady_found_km` (6)
+  of a spot the finder found in the same picture is that fire, not another (Hormuz, 25 Nov 2026,
+  20:10: the west end of a fire being followed was posted as a new one).
+- A first post at sea near a fire already posted says so, from the posted fire's sighting at that
+  time (or its last): «📌 على بعد 4 كم من حريق في البحر نُشر عند 18:01 وما زال ظاهراً في الصور», or
+  «… من آخر موضع لحريق … آخر رصد له قبل 10 ساعات: قد تكون النار نفسها وقد انجرفت» (`brain.near_posted`,
+  within 5 km + 3 km/h, at most 20 km and 12 hours; any verdict). It replaces the older line about
+  a confirmed fire nearby (`near_confirmed`), which is kept for the reason text.
 - The great energy sites on land are read by the same finder at night (`seawatch` boxes with
   `"land": True`, `seawatch.sites`): Saudi Arabia's east coast with Abqaiq, Bahrain, Ras Laffan and
   Mesaieed, Kuwait's Ahmadi/Shuaiba/Zour, Ruwais and Habshan, Jebel Ali, Fujairah, Yanbu, Jeddah, Jizan.

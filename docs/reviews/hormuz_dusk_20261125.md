@@ -78,3 +78,34 @@ micron), each against the 12 km around:
 - the fire: red 7-33, green and blue 0-10;
 - sunlit clouds and glint: green and blue as bright as the red, or brighter.
 The red must lead both by 2.5 (`red_margin`).
+
+## 20:10 Baghdad: «حريق في البحر قرب مضيق هرمز», posted again
+
+- The fire posted at 18:01 (incident 1440) was in every picture until 20:50, drifting north-east to
+  26.345 N, 56.31 E.
+- At 20:10 the steady rule found a spot 4 km west of it in the same picture (26.343 N, 56.263 E).
+- By the rule «one fire is in one place at a time», a spot more than 2.5 km away is another fire, so
+  it was posted as one, with only «قبل 17 ساعة رُصد حريق مؤكد آخر في البحر على بعد 4 كم».
+
+**What the pictures show** (`clip` and `hotspots`, 16:00-18:20 UTC):
+- One hot streak about 4 km long, east to west, and no second spot anywhere in the box.
+- A strong source is drawn so (Jafurah the same evening: 3.5-3.8 km).
+- The 20:10 spot was the streak's west end.
+
+**What changed.**
+- A steady spot within 6 km of a spot the finder found in the same picture is that fire
+  (`steady_found_km`).
+- A first post at sea near a posted fire says so (`brain.near_posted`): «📌 على بعد 4 كم من حريق في
+  البحر نُشر عند 18:01 وما زال ظاهراً في الصور».
+- The fire's track, 24-25 Nov (Baghdad time):
+
+| Time | Where |
+|---|---|
+| 23:30 | 26.41 N, 56.26 E |
+| 03:30 | 26.35 N, 56.24 E |
+| 08:10 | 26.34 N, 56.18 E |
+| 13:02 | 26.29 N, 56.14 E |
+| 17:40 | 26.32 N, 56.26 E |
+| 20:50 | 26.35 N, 56.31 E |
+
+  It stayed within about 15 km for 21 hours, moving back and forth with the strait's tides.
