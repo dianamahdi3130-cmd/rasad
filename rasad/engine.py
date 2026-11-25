@@ -232,7 +232,35 @@ DEFAULTS = {
             {"id": "red_sea_north", "bbox": [32.3, 26.5, 36.0, 30.0], "day": False},    # Suez and Aqaba
             {"id": "arabian_west", "bbox": [52.5, 16.4, 56.2, 18.0], "day": False},
             {"id": "arabian_east", "bbox": [56.1, 16.4, 60.2, 22.5], "day": False},
+            # The great energy sites on land, read the same way at night (seawatch.find_spots with
+            # "land": the land and its shore, a flame's glow required). Ras Tanura, 25 Nov 2026: a
+            # blaze at the terminal from 04:40 to 05:10 Baghdad time was in every Meteosat-12
+            # picture and in none of the official fire symbols. Read only with "sites" on.
+            {"id": "site_east_sa", "bbox": [49.3, 25.7, 50.35, 27.2], "land": True, "day": False,
+             "name": "رأس تنورة والجعيمة والجبيل والدمام وبقيق"},
+            {"id": "site_bahrain", "bbox": [50.4, 25.9, 50.75, 26.3], "land": True, "day": False,
+             "name": "البحرين (سترة)"},
+            {"id": "site_qatar", "bbox": [51.3, 24.85, 51.75, 26.05], "land": True, "day": False,
+             "name": "رأس لفان ومسيعيد"},
+            {"id": "site_kuwait", "bbox": [47.75, 28.55, 48.45, 29.45], "land": True, "day": False,
+             "name": "الأحمدي والشعيبة والزور"},
+            {"id": "site_uae_west", "bbox": [52.5, 23.55, 53.95, 24.25], "land": True, "day": False,
+             "name": "الرويس وحبشان"},
+            {"id": "site_jebel_ali", "bbox": [54.9, 24.85, 55.25, 25.15], "land": True, "day": False,
+             "name": "جبل علي"},
+            {"id": "site_fujairah", "bbox": [56.2, 25.0, 56.45, 25.35], "land": True, "day": False,
+             "name": "الفجيرة"},
+            {"id": "site_yanbu", "bbox": [37.9, 23.8, 38.4, 24.25], "land": True, "day": False,
+             "name": "ينبع"},
+            {"id": "site_jeddah", "bbox": [39.05, 21.25, 39.35, 21.7], "land": True, "day": False,
+             "name": "جدة"},
+            {"id": "site_jizan", "bbox": [42.45, 16.7, 42.85, 17.05], "land": True, "day": False,
+             "name": "جيزان"},
         ],
+        # the sites above: read at all, and how clear a blaze must be there (levels of the picture's
+        # red, 0-255, never Kelvin or MW). Industry is warm at night; a flame's glow in the short
+        # waves (1.6 and 2.2 micron) is what a lamp, a hot roof or a chimney does not have.
+        "sites": False, "site_min_rise": 20.0, "site_min_glow": 4.0, "site_halo_km": 3.0,
     },
 }
 
@@ -1038,7 +1066,8 @@ def run_cycle(cfg, send=True, alert_now=False):
                         and frp < again * float(other.get("max_frp") or 0.0):
                     beats_record = False
                     break
-        routine = usual_heat(known, steady, known and not steady and open_sea(d["lat"], d["lon"])) and not unusual
+        routine = usual_heat(known, steady, known and not steady and open_sea(d["lat"], d["lon"])) and not unusual \
+            and not d.get("site")   # a watched site always has heat around; the finder judged this blaze itself
         # a steady flare burning far busier than usual: noted for the app only (flares.py)
         if FL.get("enabled", True) and d["src"] == flares.SRC and steady and typical is not None \
                 and (steady_facility if steady_facility is not None else
@@ -1608,7 +1637,7 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         "local_name": cfg["local_time"]["name"],
         "regions": [{"id": r["id"], "name": r["name"], "bbox": r["bbox"]} for r in cfg["regions"]],
         # the seas the night finder reads at full detail (for the app's coverage layer)
-        "sea_watch": [{"id": b["id"], "bbox": b["bbox"]} for b in cfg["seawatch"].get("boxes", [])
+        "sea_watch": [{"id": b["id"], "bbox": b["bbox"]} for b in seawatch.live_boxes(cfg["seawatch"])
                       if cfg["seawatch"].get("enabled") and b.get("enabled", True)],
         "sources": status, "telegram": bool(cfg["telegram"].get("bot_token")),
         "flare_activity": busy})

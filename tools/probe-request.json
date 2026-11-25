@@ -1,5 +1,10 @@
-{"mode": "steps", "try": 16,
+{"mode": "steps", "try": 17,
  "steps": [
-  ["clip", "--lat", "26.628", "--lon", "50.163", "--time", "2026-11-25T01:40Z", "--end", "2026-11-25T02:40Z", "--frames", "13",
-   "--where", "رأس تنورة", "--country", "السعودية", "--out", "probe-out/video"]
+  ["grab", "--start", "2026-11-24T23:20Z", "--end", "2026-11-25T03:00Z", "--bbox", "49.8787,26.4154,50.3813,26.8646",
+   "--layers", "mtg_fd:rgb_firetemperature", "--km", "0.25", "--tag", "rt_fire"],
+  ["grab", "--start", "2026-11-24T15:20Z", "--end", "2026-11-24T23:20Z", "--bbox", "49.8787,26.4154,50.3813,26.8646",
+   "--layers", "mtg_fd:rgb_firetemperature", "--km", "0.25", "--tag", "rt_night"],
+  ["grab", "--start", "2026-11-24T15:20Z", "--end", "2026-11-25T02:30Z", "--bbox", "49.4303,25.7054,49.9297,26.1546",
+   "--layers", "mtg_fd:rgb_firetemperature", "--km", "0.25", "--tag", "abqaiq_night"],
+  ["seascan", "--start", "2026-11-25T00:30Z", "--end", "2026-11-25T03:00Z", "--boxes", "site_east_sa"]
  ]}

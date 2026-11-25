@@ -57,7 +57,8 @@ class Collector:
         day_km = float(D.get("km_per_px", km))   # the day finder keeps its own picture detail
         end = floor_time(now - dt.timedelta(minutes=max(0, float(C.get("delay_min", 0)))), cad)
         count = max(1, min(36, math.ceil(float(C.get("catchup_hours", 3)) * 60 / cad) + 1))
-        boxes = [box for box in C.get("boxes", []) if box.get("enabled", True)]
+        from .seawatch import live_boxes
+        boxes = live_boxes(C)
         for k in range(count):
             when = end - dt.timedelta(minutes=k * cad)
             for index, box in enumerate(boxes):
