@@ -18,7 +18,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue, earlyalerts
-from . import acquisitions, archive, assess, flares, noaafire, patterns, reading, repairs, satpic, smoke
+from . import acquisitions, archive, assess, flares, follow, noaafire, patterns, reading, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -28,7 +28,7 @@ from .wms import WMS, Availability, latest_time
 
 STALE_HOURS = 3
 RULES = 23  # bump when the importance rules change, so stored incidents are judged again
-CLIP_STYLE = 19  # bump when clips change look, so the app's clips are made again
+CLIP_STYLE = 20  # bump when clips change look, so the app's clips are made again
 SEA_CHECK = 1    # bump when the closer look changes: clips of the sea finder's own finds are checked again
 TIDY = 1         # bump to tidy the stored incidents once more (copies under one id, split recoveries)
 PATTERNS = 3     # bump when the heat patterns' rules change, so every stored event is labelled again
@@ -44,6 +44,9 @@ DEFAULTS = {
     "paths": {"state": "data/state", "site": "data/site", "geodata": "data/state/geo"},
     # «قراءة رصد» (reading.py): off here, so the tests count posts as before; on in config.yaml
     "reading": {"enabled": False},
+    # a posted fire at sea followed after the finders lose it: one reply «ما زالت الحرارة ظاهرة»
+    # (follow.py; on in config.yaml)
+    "follow": {"enabled": False},
     "regions": [],
     "alerts": {"min_verdict": "مرجّح", "at_facility_km": 2, "near_facility_km": 10, "near_facility_min_mw": 50,
                "big_fire_mw": 50, "big_fire_far_mw": 100, "busy_area_days": 2, "faint_mw": 3,
@@ -122,6 +125,9 @@ DEFAULTS = {
     # request and timed out on others, whatever the box: geodb.build_geodata).
     "geodata": {"facility_max_km": 30, "place_max_km": 80, "coast_km": 1.5, "query_tile_deg": 8,
                 "oil_query_split": 1, "min_part_deg": 1.0, "rebuild_days": 7,
+                # wells and pipelines (field.json): asked in 2-degree boxes, a box given up after 6
+                # failures; told in a post within field_km of heat on land
+                "field": True, "field_query_split": 4, "field_max_fails": 6, "field_km": 3.0,
                 # facilities added by hand: {lat, lon, name, category, code} (config.yaml)
                 "extra_facilities": [],
                 "overpass_urls": ["https://overpass-api.de/api/interpreter",
@@ -472,6 +478,13 @@ def enrich(inc, cfg, geo):
         inc["place"] = geo.place_kind(inc["lat"], inc["lon"])
         inc["facility"] = geo.facility(inc["lat"], inc["lon"])
         inc["where"], inc["country"] = geo.describe(inc["lat"], inc["lon"], inc["place"])
+        # wells and pipelines of the open map around heat on land: told in the post, decide nothing
+        field = geo.field_near(inc["lat"], inc["lon"], float(cfg["geodata"].get("field_km", 3.0))) \
+            if inc["place"] != "sea" and hasattr(geo, "field_near") else None
+        if isinstance(field, dict) and field:
+            inc["field"] = field
+        else:
+            inc.pop("field", None)
         f = inc["facility"]
         if f and f.get("named_site") and f["km"] <= float(cfg["geodata"].get("named_site_km", 3.0)):
             # a place whose right name the owner gave: told by it, not by the nearest town (Shaybah,
@@ -831,6 +844,20 @@ def run_cycle(cfg, send=True, alert_now=False):
                 "latest": checked_at, "experimental": True,
             }
         log.info("sea watch: %d spot(s), %.0f s", len(spots), time.time() - t1)
+
+    # 1c) Posted fires at sea that the finders lost: the newest picture around where each was last seen
+    #     (follow.py). Hormuz, 25 Nov 2026: a fire posted at night burned on all day, drifting, unseen.
+    if follow.settings(cfg).get("enabled") and SW.get("enabled"):
+        t1 = time.time()
+        try:
+            budget = getattr(type(wms), "budget", None)
+            with wms.budget(float(follow.settings(cfg)["budget_s"]), timeout_s=15) if callable(budget) \
+                    else nullcontext():
+                n = follow.run(cfg, wms, S.incidents, now, geo)
+            if n:
+                log.info("following posted sea fires: %d picture(s), %.0f s", n, time.time() - t1)
+        except Exception as e:  # noqa: BLE001
+            log.warning("following posted sea fires failed: %s", e)
 
     # Queue first-frame media while the remaining sources are being read. The
     # renderer reuses the original detection grid and never waits for a future pass.
@@ -1512,6 +1539,16 @@ def run_cycle(cfg, send=True, alert_now=False):
                     inc["smoke_posted"] = iso(now)
                     _remember_post(inc, now)
 
+    # A posted fire at sea still seen after the finders lost it: once, as a reply under its post
+    # (follow.py). What the pictures show and how far from the last sighting; never a cause.
+    for inc in S.incidents:
+        if follow.due(inc, cfg):
+            text = follow.message(inc, cfg)
+            if text and post(text, reply_to=inc.get("tg_msg")):
+                S.sent = True
+                inc["still_posted"] = iso(now)
+                _remember_post(inc, now)
+
     # «قراءة رصد»: once a posted event has run its course, Rasad's reading of what it measured goes
     # out once as a reply under the post (the owner's wish of 25 Nov 2026: "analyse like you"); the
     # app gets the same lines. Facts with their numbers, never a cause (reading.py).
@@ -1610,6 +1647,10 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           # the assessment (assess.py): what kind of event, how sure and why, how serious
           "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
           "known_days", "typical_frp", "site_record", "site_habit", "new_heat",
+          # the open map's wells and pipelines around heat on land (geodb.field_near)
+          "field",
+          # a posted fire at sea followed after the finders lost it (follow.py)
+          "follow", "still_posted",
           # the heat pattern (patterns.py): a label with its reasons, shown in the app only
           "pattern",
           # signals worth attention (patterns.signals_of), app only

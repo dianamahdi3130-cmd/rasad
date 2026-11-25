@@ -129,6 +129,7 @@ class MapRebuildInSlices(unittest.TestCase):
         self.cfg["_geodata_dir"] = Path(folder.name) / "geo"
         self.cfg["regions"] = [{"id": "east", "name": "شرق السعودية", "bbox": [48.0, 25.0, 50.0, 27.0]}]
         self.cfg["geodata"]["overpass_pause_s"] = 0
+        self.cfg["geodata"]["field"] = False   # wells and pipelines: their own tests (WellsAndPipelines)
         self.calls = []
         self.heavy_deg = None          # oil boxes wider than this are too big for the server (runtime error)
         self.busy_kinds = set()        # parts of these kinds get no answer (a busy server)
@@ -138,7 +139,8 @@ class MapRebuildInSlices(unittest.TestCase):
         import re as regex
         from unittest.mock import Mock
         query = data["data"]
-        kind = "oil" if "->.ind" in query else "place" if '"place"' in query else "fac"
+        kind = "oil" if "->.ind" in query else "place" if '"place"' in query else \
+            "field" if "petroleum_well" in query else "fac"
         s_, w_, n_, e_ = (float(v) for v in regex.search(r"\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)", query).groups())
         self.calls.append((kind, (w_, s_, e_, n_), timeout, url))
         if kind == "oil" and self.heavy_deg is not None and e_ - w_ > self.heavy_deg:
@@ -159,6 +161,14 @@ class MapRebuildInSlices(unittest.TestCase):
                     "tags": {"industrial": "refinery", "name": "Ras Tanura Refinery"}}]
         if kind == "place":
             els = [{"type": "node", "id": 3, "lat": 26.4, "lon": 50.0, "tags": {"place": "city", "name": "الدمام"}}]
+        if kind == "field" and w_ <= 50.0 <= e_ + 1e-9 and s_ <= 25.47 <= n_:
+            # Jafurah, 25 Nov 2026: a well 1.1 km and a pipeline 0.5 km from a 64 MW blaze; a water pipe too
+            # (the real place moved 0.2 degrees west, into this test's region)
+            els = [{"type": "node", "id": 11, "lat": 25.48356, "lon": 49.98273, "tags": {"man_made": "petroleum_well"}},
+                   {"type": "way", "id": 12, "tags": {"man_made": "pipeline"},
+                    "geometry": [{"lat": 25.47087, "lon": 49.9600}, {"lat": 25.47087, "lon": 49.9999}]},
+                   {"type": "way", "id": 13, "tags": {"man_made": "pipeline", "substance": "water"},
+                    "geometry": [{"lat": 25.4700, "lon": 49.9700}, {"lat": 25.4800, "lon": 49.9700}]}]
         return Mock(status_code=200, json=Mock(return_value={"elements": els}))
 
     def build(self, budget_s=None):
@@ -300,6 +310,50 @@ class MapRebuildInSlices(unittest.TestCase):
                   {"tiles": [tile], "done": {tile: True}, "fac": {}, "place": {}})   # before this change
         self.assertTrue(self.build())
         self.assertEqual([c[0] for c in self.calls], ["fac", "oil", "place"], "nothing taken from the old file")
+
+
+class WellsAndPipelines(unittest.TestCase):
+    """Saudi Arabia, 25 Nov 2026: a blaze of 64 MW in the Jafurah gas field, a well 1.1 km and a pipeline
+    0.5 km away on the open map, was posted as «لا منشأة مسجّلة في الخريطة هنا». Wells and pipelines are
+    kept in their own file and told in posts; they never count as facilities."""
+    STATION = MapRebuildInSlices.STATION
+    post = MapRebuildInSlices.post
+    build = MapRebuildInSlices.build
+    facilities = MapRebuildInSlices.facilities
+
+    def setUp(self):
+        MapRebuildInSlices.setUp(self)
+        self.cfg["geodata"]["field"] = True
+
+    def test_wells_and_oil_or_gas_pipelines_are_kept_water_pipes_are_not(self):
+        from rasad.util import load_json
+        self.assertTrue(self.build())
+        kinds = [c[0] for c in self.calls]
+        self.assertEqual(kinds.count("field"), 16, "a 2-degree tile asked as 16 boxes: pipelines are heavy")
+        field = load_json(self.cfg["_geodata_dir"] / "field.json", {})
+        codes = [it[4] for it in field["items"]]
+        self.assertEqual(codes.count("well"), 1)
+        self.assertGreaterEqual(codes.count("pipe"), 4, "a 4 km pipeline is kept as points about 1 km apart")
+        self.assertFalse(any(abs(it[1] - 49.97) < 1e-6 and it[4] == "pipe" for it in field["items"]),
+                         "the water pipe is left out")
+
+    def test_the_heat_is_told_what_lies_around_it_and_no_rule_sees_a_facility(self):
+        from unittest.mock import Mock
+        self.assertTrue(self.build())
+        geo = geodb.Geo(self.cfg, Mock(), Mock(), {})
+        near = geo.field_near(25.4750, 49.9880, 3.0)
+        self.assertEqual(near["well_km"], 1.1)
+        self.assertAlmostEqual(near["pipe_km"], 0.5, delta=0.1)
+        self.assertFalse(geo.facility_within(25.4750, 49.9880, 3.0), "a well is not a facility")
+        self.assertIsNone(geo.field_near(26.4, 49.0, 3.0))
+
+    def test_a_box_of_wells_the_servers_never_answer_does_not_hold_the_map_back(self):
+        self.busy_kinds = {"field"}
+        for _ in range(6 * 16):
+            if self.build(budget_s=150):
+                break
+        fac = self.facilities()[1]
+        self.assertIn("refinery", fac.values(), "the facility map is finished without the wells")
 
 
 class NewsByChange(unittest.TestCase):

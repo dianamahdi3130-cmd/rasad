@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 
-from rasad.twopanel import _power_timeline
+from rasad.twopanel import _hold_peak, _power_timeline
 
 
 class MeasuredClipPowerTests(unittest.TestCase):
@@ -11,6 +11,18 @@ class MeasuredClipPowerTests(unittest.TestCase):
 
     def times(self, count):
         return [self.start + dt.timedelta(minutes=10 * i) for i in range(count)]
+
+    def test_the_held_last_picture_says_the_highest_reading_when_it_was_higher(self):
+        # the Jafurah gas field, 25 Nov 2026: 13, 64, 9.4 MW; the fire showed clearly only from the
+        # third picture, so the video's numbers began there and it ended on «9.4 MW»
+        times = self.times(3)
+        rows = [[t.isoformat(), v] for t, v in zip(times, (13.2, 63.5, 9.4))]
+        measured, shown = _power_timeline(times, rows, 10, shown_from=2)
+        self.assertEqual(shown, [None, None, 9.4])
+        self.assertEqual(_hold_peak(measured, shown), 63.5)
+        measured, shown = _power_timeline(times, [[times[2].isoformat(), 40]], 10)
+        self.assertIsNone(_hold_peak(measured, shown), "the last reading is the highest: nothing to add")
+        self.assertIsNone(_hold_peak([None, None], [None, None]))
 
     def test_missing_measurements_never_create_power_values(self):
         self.assertEqual(_power_timeline(self.times(4), [], 10),

@@ -702,6 +702,41 @@ def platform_words(area):
     return "🛢 في منطقة منصات نفط وغاز: يرى سجل ناسا منذ 2024 " + " ".join(parts)
 
 
+def field_words(field):
+    """The open map's wells and pipelines around heat on land: «بئر نفط أو غاز على بعد 1.1 كم (وآبار
+    أخرى حوله)، وخط أنابيب على بعد 0.5 كم». What lies there, never what burns."""
+    if not field:
+        return ""
+    parts = []
+    if field.get("well_km") is not None:
+        parts.append(f"بئر نفط أو غاز على بعد {field['well_km']:.1f} كم"
+                     + (" (وآبار أخرى حوله)" if int(field.get("wells") or 0) >= 2 else ""))
+    if field.get("pipe_km") is not None:
+        what = f" {field['pipe']}" if field.get("pipe") else ""
+        parts.append(f"خط أنابيب{what} على بعد {field['pipe_km']:.1f} كم")
+    return "، و".join(parts)
+
+
+def longterm_words(lat, lon, spot_km=1.0, near_km=5.0, A=None):
+    """NASA's long-term record of a spot, for a post about new heat on land: how often heat was seen
+    there since March 2024, and around it when not there. Saudi Arabia, 25 Nov 2026: «no heat here
+    for a month» was posted for a well site of the Jafurah gas field that NASA's record saw hot on 6 of
+    its 197 dates. '' without the record. Never a cause."""
+    A = atlas() if A is None else A
+    if not A:
+        return ""
+    dates, since = int(A.get("dates") or 0), _since(A)
+    spot = spot_count(A, lat, lon, spot_km)
+    if spot:
+        return (f"سجل ناسا منذ {since}: حرارة في هذه النقطة في "
+                f"{_n(spot, 'تاريخ واحد', 'تاريخين', 'تواريخ', 'تاريخاً')} من {dates}")
+    near = list(_cells_near(A, lat, lon, near_km))
+    if near:
+        km = max(1, round(min(d for _, d in near)))
+        return f"سجل ناسا منذ {since}: لا حرارة في هذه النقطة، وحرارة متفرقة على بعد {km} كم"
+    return f"سجل ناسا منذ {since}: لا حرارة هنا ولا حولها"
+
+
 def usual_flare_km(A, lat, lon, km, share):
     """The distance to the nearest spot hot on at least `share` of the sampled dates, within km."""
     need = share * float(A.get("dates") or 0)

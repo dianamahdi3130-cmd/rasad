@@ -50,6 +50,45 @@ PLACE_QUERY = """[out:json][timeout:90];
 );
 out center tags;"""
 
+# Oil and gas wells and pipelines: never facilities (they decide nothing), only told in a post as what
+# lies around the heat. Saudi Arabia, 25 Nov 2026: a blaze of 64 MW 1 km from wells and 0.5 km from a
+# pipeline in the Jafurah gas field was posted as «لا منشأة مسجّلة في الخريطة هنا».
+FIELD_QUERY = """[out:json][timeout:90];
+(
+  node["man_made"="petroleum_well"]({b});
+  way["man_made"="pipeline"]({b});
+);
+out tags geom;"""
+NOT_OIL_GAS = ("water", "wastewater", "waste_water", "sewage", "sewerage", "heat", "hot_water", "steam",
+               "drinking_water", "irrigation", "rainwater", "ماء", "مياه")
+SUBSTANCE_AR = {"oil": "نفط", "crude": "نفط", "crude_oil": "نفط", "petroleum": "نفط", "fuel": "وقود",
+                "gas": "غاز", "natural_gas": "غاز", "lng": "غاز", "condensate": "مكثفات"}
+
+
+def field_items(el, step_km=1.0):
+    """A well as one item, a pipeline as points about every step_km along it: [lat, lon, "", category,
+    "well"|"pipe", substance in Arabic]. Water and sewage pipes are left out."""
+    tags = el.get("tags") or {}
+    what = (tags.get("substance") or tags.get("type") or "").strip().lower()
+    if el.get("type") == "node":
+        if "lat" not in el:
+            return []
+        return [[round(el["lat"], 5), round(el["lon"], 5), "", "بئر نفط أو غاز", "well",
+                 SUBSTANCE_AR.get(what, "")]]
+    if any(w in what for w in NOT_OIL_GAS):
+        return []
+    pts = [(g["lat"], g["lon"]) for g in el.get("geometry") or [] if g and "lat" in g]
+    out = []
+    for (a, b), (c, d) in zip(pts, pts[1:]):
+        k = max(1, int(math.ceil(haversine_km(a, b, c, d) / step_km)))
+        for i in range(k):
+            out.append([round(a + (c - a) * i / k, 4), round(b + (d - b) * i / k, 4), "", "خط أنابيب", "pipe",
+                        SUBSTANCE_AR.get(what, "")])
+    if pts:
+        out.append([round(pts[-1][0], 4), round(pts[-1][1], 4), "", "خط أنابيب", "pipe", SUBSTANCE_AR.get(what, "")])
+    return out
+
+
 POWER_SOURCE_AR = {"gas": "غاز", "oil": "نفط", "diesel": "ديزل", "solar": "شمسية", "nuclear": "نووية",
                    "coal": "فحم", "wind": "رياح", "hydro": "مائية"}
 
@@ -139,8 +178,9 @@ def short_country(name):
     return name
 
 
-GEO_VERSION = 3  # 2: facilities also keep their operator, so unnamed ones can still be told apart
+GEO_VERSION = 4  # 2: facilities also keep their operator, so unnamed ones can still be told apart
                  # 3: industrial land named or operated as an oil or gas site (pumping stations...)
+                 # 4: oil and gas wells and pipelines, in their own file (field.json), told in posts only
 
 
 def osm_name(tags):
@@ -212,8 +252,9 @@ def _center(el):
     return (c["lat"], c["lon"]) if c else (None, None)
 
 
-def _write_db(out_dir, fac, places, built):
-    """Write the lookup files (one entry per category per ~1 km, so tank farms count once)."""
+def _write_db(out_dir, fac, places, built, field=None):
+    """Write the lookup files (one entry per category per ~1 km, so tank farms count once; wells per
+    ~500 m, pipelines per ~1 km)."""
     thinned, seen = [], set()
     for f in sorted(fac.values(), key=lambda f: (f[2] == "", f[4])):
         lat, lon, name, cat, code = f[:5]
@@ -225,6 +266,16 @@ def _write_db(out_dir, fac, places, built):
     save_json(out_dir / "facilities.json", {"built": built, "version": GEO_VERSION, "items": thinned},
               compact=True)
     save_json(out_dir / "places.json", {"built": built, "items": list(places.values())}, compact=True)
+    if field is not None:
+        items, seen = [], set()
+        for group in field.values():
+            for it in group:
+                cell = 200 if it[4] == "well" else 100
+                k = (it[4], round(it[0] * cell), round(it[1] * cell))
+                if k not in seen:
+                    seen.add(k)
+                    items.append(it)
+        save_json(out_dir / "field.json", {"built": built, "items": items}, compact=True)
     return len(thinned), len(places)
 
 
@@ -246,7 +297,7 @@ def quarters(w, s, e, n, split=2):
     return [(w + i * dx, s + j * dy, w + (i + 1) * dx, s + (j + 1) * dy) for i in range(split) for j in range(split)]
 
 
-QUERIES = {"fac": FACILITY_QUERY, "oil": OIL_QUERY, "place": PLACE_QUERY}
+QUERIES = {"fac": FACILITY_QUERY, "oil": OIL_QUERY, "place": PLACE_QUERY, "field": FIELD_QUERY}
 
 
 def part_name(kind, box):
@@ -261,10 +312,14 @@ def part_of(name):
 
 def tile_parts(tile, G):
     """What one tile asks the map for, each part saved by itself: the facilities, the named oil and
-    gas land (geodata.oil_query_split x split boxes), the places."""
+    gas land (geodata.oil_query_split x split boxes), the places, and the wells and pipelines
+    (geodata.field_query_split x split boxes: their geometry is heavy)."""
     split = max(1, int(G.get("oil_query_split", 1)))
-    return ([part_name("fac", tile)] + [part_name("oil", box) for box in quarters(*tile, split)]
-            + [part_name("place", tile)])
+    parts = ([part_name("fac", tile)] + [part_name("oil", box) for box in quarters(*tile, split)]
+             + [part_name("place", tile)])
+    if G.get("field", True):
+        parts += [part_name("field", box) for box in quarters(*tile, max(1, int(G.get("field_query_split", 4))))]
+    return parts
 
 
 def build_geodata(cfg, session, budget_s=None):
@@ -282,6 +337,7 @@ def build_geodata(cfg, session, budget_s=None):
     prog = load_json(out_dir / "progress.json", {})
     if prog.get("tiles") != keys or prog.get("version") != GEO_VERSION or "work" not in prog:
         prog = {"tiles": keys, "version": GEO_VERSION, "done": {}, "fac": {}, "place": {}, "work": {}, "fails": {}}
+    prog.setdefault("field", {})
     for key, tile in zip(keys, tiles):
         if not prog["done"].get(key):
             prog["work"].setdefault(key, tile_parts(tile, G))
@@ -312,7 +368,18 @@ def build_geodata(cfg, session, budget_s=None):
             if "heavy" in why:
                 heavy[name] = heavy.get(name, 0) + 1
             prog["fails"][name] = prog["fails"].get(name, 0) + 1
-            if heavy.get(name, 0) >= 2 and kind != "place" and min(e - w, n - s) / 2 >= min_deg:
+            if kind == "field" and prog["fails"][name] >= int(G.get("field_max_fails", 6)):
+                # wells and pipelines only describe: a box the servers never answer must not keep the
+                # whole map from being finished
+                prog["work"][key] = [x for x in prog["work"][key] if x != name]
+                prog["fails"].pop(name, None)
+                heavy.pop(name, None)
+                log.warning("facility map: tile %d/%d, %s given up (wells and pipelines there stay unknown)",
+                            i + 1, len(tiles), name)
+                if not prog["work"][key]:
+                    prog["done"][key] = True
+                    del prog["work"][key]
+            elif heavy.get(name, 0) >= 2 and kind != "place" and min(e - w, n - s) / 2 >= min_deg:
                 prog["work"][key] = [x for x in prog["work"][key] if x != name] + \
                     [part_name(kind, box) for box in quarters(w, s, e, n)]
                 prog["fails"].pop(name, None)
@@ -324,11 +391,16 @@ def build_geodata(cfg, session, budget_s=None):
             save_json(out_dir / "progress.json", prog, compact=True)
             break  # the map servers are busy: do not spend this run's time on more parts
         for el in els:
+            oid = f"{el['type'][0]}{el['id']}"
+            if kind == "field":
+                got = field_items(el)
+                if got:
+                    prog["field"][oid] = got
+                continue
             lat, lon = _center(el)
             if lat is None:
                 continue
             tags = el.get("tags") or {}
-            oid = f"{el['type'][0]}{el['id']}"
             if kind == "place":
                 prog["place"][oid] = [round(lat, 5), round(lon, 5), osm_name(tags), tags.get("place", "")]
             else:
@@ -348,9 +420,9 @@ def build_geodata(cfg, session, budget_s=None):
     first_build = not (out_dir / "facilities.json").exists() or not load_json(
         out_dir / "facilities.json", {}).get("built")
     if complete:
-        nf, npl = _write_db(out_dir, prog["fac"], prog["place"], iso(utcnow()))
+        nf, npl = _write_db(out_dir, prog["fac"], prog["place"], iso(utcnow()), prog.get("field") or {})
         save_json(out_dir / "progress.json", {"tiles": keys, "version": GEO_VERSION, "done": {}, "fac": {},
-                                               "place": {}, "work": {}, "fails": {}}, compact=True)
+                                               "place": {}, "field": {}, "work": {}, "fails": {}}, compact=True)
         log.info("facility map complete: %d facilities, %d places", nf, npl)
     elif first_build:
         nf, npl = _write_db(out_dir, prog["fac"], prog["place"], None)  # usable while still loading
@@ -360,6 +432,22 @@ def build_geodata(cfg, session, budget_s=None):
 
 class GeoIndex:
     """Fast nearest lookup on a 1-degree grid."""
+
+    def within(self, lat, lon, km, accept=None):
+        """Every item within km, nearest first: [(item, km), ...]."""
+        out = []
+        r = int(math.ceil(km / 90.0))
+        gi, gj = math.floor(lat), math.floor(lon)
+        for di in range(-r, r + 1):
+            for dj in range(-r, r + 1):
+                for idx in self.grid.get((gi + di, gj + dj), ()):
+                    it = self.items[idx]
+                    if accept and not accept(it):
+                        continue
+                    d = haversine_km(lat, lon, it[0], it[1])
+                    if d <= km:
+                        out.append((it, d))
+        return sorted(out, key=lambda x: x[1])
 
     def __init__(self, items):
         self.items, self.grid = items, {}
@@ -430,9 +518,12 @@ class Geo:
         extra = extra_facilities(cfg)
         self.fac = GeoIndex(fac["items"] + extra)
         self.places = GeoIndex(load_json(d / "places.json", {"items": []})["items"])
+        field = load_json(d / "field.json", {"items": []})
+        self.field = GeoIndex(field.get("items") or [])
         self.names = site_names(cfg)   # a change of the right names describes recent incidents again
         self.version = f"{fac.get('built')}|{len(fac['items'])}" + (f"|+{_extra_mark(extra)}" if extra else "") \
-            + (f"|n{_extra_mark(sorted(self.names.items()))}" if self.names else "")
+            + (f"|n{_extra_mark(sorted(self.names.items()))}" if self.names else "") \
+            + (f"|f{len(self.field.items)}" if self.field.items else "")
         self.broken = False
         self._last_nominatim = 0.0
 
@@ -453,6 +544,27 @@ class Geo:
     def facility_within(self, lat, lon, km):
         """Is there an oil/gas/power/port facility within km? (no network, used while judging)"""
         return self.fac.nearest(lat, lon, km, accept=relevant_item)[0] is not None
+
+    def field_near(self, lat, lon, km=3.0):
+        """Oil and gas wells and pipelines of the open map within km: {"well_km", "wells" (about how
+        many, one per ~500 m), "pipe_km", "pipe" (what it carries, when the map says)}, or None. Told
+        in a post as what lies around the heat; never a facility, never part of a rule."""
+        field = getattr(self, "field", None)
+        if field is None or not field.items:
+            return None
+        wells = field.within(lat, lon, km, accept=lambda it: it[4] == "well")
+        pipe, pipe_km = field.nearest(lat, lon, km, accept=lambda it: it[4] == "pipe")
+        if not wells and pipe is None:
+            return None
+        out = {}
+        if wells:
+            out["well_km"] = round(wells[0][1], 1)
+            out["wells"] = len(wells)
+        if pipe is not None:
+            out["pipe_km"] = round(pipe_km, 1)
+            if len(pipe) > 5 and pipe[5]:
+                out["pipe"] = pipe[5]
+        return out
 
     # -- nearest facility -------------------------------------------------------
     def facility(self, lat, lon):

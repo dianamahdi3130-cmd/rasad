@@ -276,26 +276,48 @@ def _blob(mask, r0, c0, limit=4000):
     return out
 
 
+def _hold_peak(measured, shown, others=()):
+    """The highest reading of the video's time (its pictures' readings and `others`, readings within its
+    span whose picture is missing), for its held last picture, when it is higher than the reading that
+    picture shows; None otherwise. The Jafurah gas field, 25 Nov 2026: 13, 64, 9, 45 MW; the 64 MW
+    picture was still faint, so the video began its numbers at the next picture and ended on «9.4 MW»
+    for a 64 MW event."""
+    values = [v for v in list(measured) + list(others) if v is not None]
+    last = shown[-1] if shown else None
+    if not values:
+        return None
+    top = max(values)
+    return top if last is None or top > last + 0.05 else None
+
+
+def _utc(value):
+    when = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return when.replace(tzinfo=dt.timezone.utc) if when.tzinfo is None else when.astimezone(dt.timezone.utc)
+
+
+def _readings(rows):
+    """[(time, MW)] of the valid rows [time, MW, ...]."""
+    readings = []
+    for row in rows or []:
+        try:
+            if not isinstance(row, (list, tuple)) or len(row) < 2 or isinstance(row[1], bool):
+                continue
+            when, mw = _utc(row[0]), float(row[1])
+            if math.isfinite(mw) and mw >= 0:
+                readings.append((when, mw))
+        except (ValueError, TypeError, OverflowError):
+            continue
+    return readings
+
+
 def _power_timeline(times, rows, cadence_min, shown_from=0):
     """Match actual readings to nearby frames, then hold the last measured value.
 
     WMS pictures contain display indices without a validated temperature scale.
     Neither missing measurements nor brighter pixels may create a power estimate.
     """
-    def utc(value):
-        when = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return when.replace(tzinfo=dt.timezone.utc) if when.tzinfo is None else when.astimezone(dt.timezone.utc)
-
-    readings = []
-    for row in rows or []:
-        try:
-            if not isinstance(row, (list, tuple)) or len(row) < 2 or isinstance(row[1], bool):
-                continue
-            when, mw = utc(row[0]), float(row[1])
-            if math.isfinite(mw) and mw >= 0:
-                readings.append((when, mw))
-        except (ValueError, TypeError, OverflowError):
-            continue
+    utc = _utc
+    readings = _readings(rows)
     slot = dt.timedelta(minutes=float(cadence_min) / 2 + 1)
     measured = [max((mw for when, mw in readings if abs(when - utc(t)) <= slot), default=None)
                 for t in times]
@@ -436,6 +458,9 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
 
     # Actual source measurements only; the last reading stays until another arrives.
     measured, shown_mw = _power_timeline([t for t, _, _ in shots], info.get("frp"), cad, shown_from)
+    span = (shots[0][0] - dt.timedelta(minutes=cad / 2 + 1), shots[-1][0] + dt.timedelta(minutes=cad / 2 + 1))
+    within = [v for t, v in _readings(info.get("frp")) if span[0] <= t <= span[1]]
+    hold_peak = _hold_peak(measured, shown_mw, within)   # said on the held last picture: «أعلى شدة»
 
     base_img = stack[0]
     lo = float(np.percentile(base_img, 1))
@@ -563,9 +588,13 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
                  else Image.new("RGB", (PW, PH), (12, 16, 28)))
         return left, right
 
-    def draw_callout(d, si, k):
-        """A short line from the circle to the fire's strength at this moment (heat picture only)."""
+    def draw_callout(d, si, k, hold=False):
+        """A short line from the circle to the fire's strength at this moment (heat picture only); on
+        the held last picture, the highest reading of the video when it was higher («أعلى شدة»)."""
         val = shown_mw[si]
+        caption = None
+        if hold and hold_peak is not None:
+            val, caption = hold_peak, "أعلى شدة"
         if val is None:
             callout["since"] = None
             return
@@ -576,7 +605,7 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         sx = -1 if tx_ > PW * 0.62 else 1   # point towards the open side of the picture
         sy = 1 if ty_ < PH * 0.30 else -1
         text = _mw_text(val)
-        tw = _width(d, text, f_mw)
+        tw = max(_width(d, text, f_mw), _width(d, caption, f_lab, rtl=True) if caption else 0)
         rr = r + 12
         p0 = (cx + sx * rr * 0.7071, cy + sy * rr * 0.7071)
         p1 = (p0[0] + sx * 46, p0[1] + sy * 46)
@@ -596,8 +625,12 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
             ty = p1[1] - 24 if sy < 0 else p1[1] + 26
             for dx, col in ((2, (0, 0, 0, 200)), (0, WHITE)):  # a soft shadow, then the text
                 _text(d, (left + dx, ty + dx), text, f_mw, col, anchor="lm")
+            if caption:   # on the other side of the line
+                cy2 = p1[1] + 26 if sy < 0 else p1[1] - 24
+                for dx, col in ((2, (0, 0, 0, 200)), (0, (*CYAN, 255))):
+                    _text(d, ((p1[0] + p2[0]) / 2 + dx, cy2 + dx), caption, f_lab, col, anchor="mm", rtl=True)
 
-    def chrome(frame, si, k, fire_on):
+    def chrome(frame, si, k, fire_on, hold=False):
         """Target marks, strength line, brand light, clock and timeline for picture si, frame k."""
         t = shots[si][0]
         live = 0.5 + 0.5 * math.sin(2 * math.pi * k / (out_fps * 1.6))  # the brand light breathes
@@ -615,7 +648,7 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
                 ph = (k % int(out_fps * 1.6)) / (out_fps * 1.6)
                 rr = int(r + 10 + ph * 120)
                 rd.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(*vcol, int(200 * (1 - ph))), width=3)
-        draw_callout(rd, si, k)
+        draw_callout(rd, si, k, hold)
         frame.alpha_composite(clipped(rings))
         d = ImageDraw.Draw(frame)
         loc = t + dt.timedelta(hours=off)
@@ -672,13 +705,16 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
         frame = Image.new("RGBA", (W, H), (*BG, 255))
         frame.paste(left, (LX, PY))
         frame.paste(right, (RX, PY))
+        hold = i >= len(shots)
         for _ in range(rep):
             fr = frame.copy()
             add_tiles(fr, k)
             fr.alpha_composite(static)
-            chrome(fr, si, k, fire_on)
+            chrome(fr, si, k, fire_on, hold)
             k += 1
             out.append(fr.convert("RGB"))
+        if hold and hold_peak is not None:
+            best = len(out) - 1      # the poster says the highest reading too
         prev = (left, right)
     Path(base).parent.mkdir(parents=True, exist_ok=True)
     snap = Path(f"{base}.jpg")

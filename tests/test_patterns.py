@@ -371,7 +371,8 @@ class Posting(unittest.TestCase):
         self.assertEqual(inc["headline"], "حرارة جديدة مستمرة في موقع نفط وغاز في السعودية")
         message = alert_message(inc, config())
         self.assertIn("🗺 لا منشأة مسجّلة في الخريطة هنا. لم تُرصد حرارة في هذا المكان منذ 14 يوماً، ورُصدت فيه على "
-                      "مدى نحو 22 ساعة. تصنّف NOAA هذه النقطة موقع نفط وغاز. صور الأقمار ترى الحرارة ولا ترى سببها.", message)
+                      "مدى نحو 22 ساعة. تصنّف NOAA هذه النقطة موقع نفط وغاز. سجل ناسا منذ آذار 2024: لا حرارة هنا ولا "
+                      "حولها. صور الأقمار ترى الحرارة ولا ترى سببها.", message)
         self.assertNotIn("خلال شهر", message, "there was heat here two weeks before: never say a month")
         for cause in self.CAUSES:
             self.assertNotIn(cause, message)

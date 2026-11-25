@@ -230,6 +230,10 @@ def _fire_evidence(inc, cfg):
     if inc.get("new_heat") and inc.get("new_heat_path") == "b":
         ev.insert(min(1, len(ev)), {"s": "+", "text": patterns.quiet_words(inc)
                                     + "، ولا منشأة مسجّلة في الخريطة هنا"})
+    elif inc.get("new_heat") and inc.get("field"):
+        ev.insert(min(1, len(ev)), {"s": "+", "text": "لم تُرصد حرارة في هذا المكان ولا حوله خلال شهر، ولا منشأة "
+                                                      "كبيرة في الخريطة؛ في الخريطة المفتوحة "
+                                                      + patterns.field_words(inc["field"])})
     elif inc.get("new_heat"):
         ev.insert(min(1, len(ev)), {"s": "+", "text": "لم تُرصد حرارة في هذا المكان ولا حوله خلال شهر، ولا منشأة "
                                                       "مسجّلة في الخريطة: قد يكون موقعاً غير مرسوم"})

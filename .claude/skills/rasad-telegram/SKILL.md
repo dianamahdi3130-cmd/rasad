@@ -92,6 +92,14 @@ description: The rules for everything Rasad posts to its Telegram channel (alert
     its length and direction, «🛰 صور القمر الأوروبي النهارية (Meteosat-12)» (`smoke.message`).
 21. «📋 قراءة رصد للحدث» (`reading.py`) goes out once under a posted event when it has run its course:
     measured facts, a lean only at a plant («يشبه حرقاً طارئاً للغاز…» / «يشبه حريقاً…»), never a cause.
+22. A posted fire at sea that the finders lost and that is still in the pictures goes out once as a reply
+    under its post: «🔥 ما زالت الحرارة ظاهرة قرب موضع هذا الحريق», how many pictures, until when, how
+    far from the last sighting, and «قد تكون النار نفسها وقد انجرفت مع التيار؛ صور الأقمار ترى الحرارة
+    ولا ترى سببها.» (`follow.message`). Never «السفينة نفسها», never a cause.
+23. Heat on land is told what the open map holds around it: «🛢 في الخريطة المفتوحة: بئر نفط أو غاز
+    على بعد 1.1 كم (وآبار أخرى حوله)، وخط أنابيب على بعد 0.5 كم» (`patterns.field_words`), and a
+    new-heat post says NASA's long-term record of the spot («سجل ناسا منذ آذار 2024: …»,
+    `patterns.longterm_words`). Facts of the place, never what burns.
 19. A video is promised only as far as it can be kept: «🎞 يُرسل الفيديو هنا إن ظهر الحدث بوضوح في
     الصور.» (`brain.video_note`). A fire NASA alone saw keeps its own line (no video expected).
 
