@@ -13,6 +13,29 @@
   - another fire: two at once, or further than a burning hull can drift;
   - not settled: a gap of hours, then heat within drifting distance.
 
+## Phase 2, silent step, shipped 25 Nov 2026 night: the channel decides and records, posts nothing new
+
+- The owner said "start phase 2". By the rule of that day it starts silent.
+- At the first post of a fire at sea, `chains.decide` says what the channel should do, and the engine
+  records it (`inc["thread"]`, `state["thread_log"]`, the log line «THREAD (silent) …»). The post
+  itself goes out as before.
+  - **A reply under the older fire's post** («ما زالت النار مشتعلة», `chains.reply_message`): the
+    older fire's heat was seen in at least three pictures of the hour before, the newest within 5 km.
+    One followed picture never proves it (the review's first defect).
+  - **A post of its own, said as not settled:** within drifting distance after a gap, or a second
+    peak 2.5-5 km from the older fire's own spot in the same picture (one streak or two ships).
+  - **A plain post:** everything else, and an older fire seen more than 5 km away in the same picture.
+- Replayed on the six posts off Khasab as the tool stored them: five would be «غير محسوم», none a
+  reply. The tool held no run of sightings before any of them, because the follow record only began
+  that evening. With the follow record running, the day passes of NASA would be replies.
+- The wording «رُصد حريق مؤكد آخر» is now «رُصد حريق مؤكد»: the tool does not say "another".
+- **To switch it on** (`chains.thread_post: true`), first:
+  1. read `state["thread_log"]` after some days against what was posted;
+  2. build the acting side: the reply instead of the post, the threaded record's updates and reading
+     under the older post, one owner of a followed heat, a sudden strong rise beside a posted fire
+     told as a reply;
+  3. an independent review.
+
 ## Why
 
 - One burning ship off Khasab was posted six times in two days as a new fire

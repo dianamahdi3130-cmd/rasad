@@ -205,7 +205,7 @@ def _fire_evidence(inc, cfg):
     elif mw >= 30:
         add(6, "+", f"شدة واضحة: {_mw(mw)}")
     if inc.get("near_confirmed"):
-        add(5, "+", "رُصد حريق مؤكد آخر في البحر قريباً منه قبل ساعات")
+        add(5, "+", "رُصد حريق مؤكد في البحر قريباً منه قبل ساعات")
     # what speaks against it
     known = int(inc.get("known_days") or 0)
     if known >= 1:

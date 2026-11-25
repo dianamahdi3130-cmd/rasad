@@ -412,7 +412,7 @@ def verdict_of(inc):
         span = (parse_time(inc["geo_slots"][-1]) - parse_time(inc["geo_slots"][0])).total_seconds() / 60
         return "مرجّح", ("ظهر في صورتين متتاليتين" if span <= 15 else f"ظهر في صورتين خلال {span:.0f} دقيقة")
     nc = inc.get("near_confirmed")
-    ctx = (f"، وقبل {hours_ar(nc['hours'])} رُصد حريق مؤكد آخر في البحر على بعد {nc['km']:.0f} كم"
+    ctx = (f"، وقبل {hours_ar(nc['hours'])} رُصد حريق مؤكد في البحر على بعد {nc['km']:.0f} كم"
            if nc else "")
     strong = any(p.get("conf") in ("h", "high") or (p.get("frp") or 0) >= 10 for p in inc["polar"])
     if strong:
@@ -523,7 +523,7 @@ def near_posted(inc, incidents, drift_kmh=3.0, base_km=5.0, max_km=20.0, hours=1
     """A fire at sea already posted, whose sighting at the time this one began (or its last, if it had
     ended) lies within the distance burning wreckage drifts since then. Hormuz, 25 Nov 2026: a fire
     posted at 18:01 Baghdad time was still in every picture, 4 km away, when a spot beside it was posted
-    at 20:10 as «حريق في البحر قرب مضيق هرمز» with only «قبل 17 ساعة رُصد حريق مؤكد آخر…»: the owner
+    at 20:10 as «حريق في البحر قرب مضيق هرمز» with only «قبل 17 ساعة رُصد حريق مؤكد…»: the owner
     asked whether it was new. base_km: a strong source is drawn as a streak about 4 km long. Says where
     the posted fire was, never that it is the same one."""
     if inc.get("place") != "sea":
@@ -962,7 +962,7 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     if inc.get("near_posted"):     # a posted fire at sea close by, still burning or lately seen
         lines.append(near_posted_line(inc["near_posted"], cfg))
     elif nc and not sure:
-        lines.append(f"📌 قبل {hours_ar(nc['hours'])} رُصد حريق مؤكد آخر في البحر على بعد {nc['km']:.0f} كم")
+        lines.append(f"📌 قبل {hours_ar(nc['hours'])} رُصد حريق مؤكد في البحر على بعد {nc['km']:.0f} كم")
     lines.append("")
     lines.append(f"<code>{inc['lat']:.4f}, {inc['lon']:.4f}</code>")
     viirs = [p for p in inc.get("polar") or [] if p.get("family") == "viirs"]

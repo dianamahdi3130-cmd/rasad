@@ -175,7 +175,7 @@ if __name__ == "__main__":
 
 class PostedFireNearby(unittest.TestCase):
     """Hormuz, 25 Nov 2026: a fire posted at 18:01 Baghdad time was still in every picture, 4 km away,
-    when a spot beside it was posted at 20:10 as a new fire, with only «قبل 17 ساعة رُصد حريق مؤكد آخر…».
+    when a spot beside it was posted at 20:10 as a new fire, with only «قبل 17 ساعة رُصد حريق مؤكد…».
     The owner asked whether it was new."""
 
     def posted_fire(self):
@@ -210,7 +210,7 @@ class PostedFireNearby(unittest.TestCase):
         new["near_posted"] = near
         text = brain.alert_message(new, config())
         self.assertIn("📌 على بعد 4 كم من حريق في البحر نُشر عند 18:01 وما زال ظاهراً في الصور", text)
-        self.assertNotIn("حريق مؤكد آخر", text)
+        self.assertNotIn("حريق مؤكد", text)
 
     def test_a_spot_where_a_posted_fire_drifted_since_says_it_may_be_the_same(self):
         from rasad import brain

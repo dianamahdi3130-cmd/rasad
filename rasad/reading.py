@@ -234,7 +234,7 @@ def lines(inc, cfg, F):
         place.append(f"تحرّك موضع الحرارة نحو {km:.0f} كم باتجاه {way} خلال {_span_ar(F['minutes']).replace('نحو ', '')}")
     if F["near"]:
         from .brain import hours_ar
-        place.append(f"قبله بـ{hours_ar(F['near']['hours'])} رُصد حريق مؤكد آخر على بعد {F['near']['km']:.0f} كم")
+        place.append(f"قبله بـ{hours_ar(F['near']['hours'])} رُصد حريق مؤكد على بعد {F['near']['km']:.0f} كم")
     if F["linked"]:
         place.append("ظهرت حرارة جديدة في موقع آخر في الوقت نفسه تقريباً")
     if place:
