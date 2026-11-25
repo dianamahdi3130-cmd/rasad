@@ -470,6 +470,13 @@ def enrich(inc, cfg, geo):
         inc["place"] = geo.place_kind(inc["lat"], inc["lon"])
         inc["facility"] = geo.facility(inc["lat"], inc["lon"])
         inc["where"], inc["country"] = geo.describe(inc["lat"], inc["lon"], inc["place"])
+        f = inc["facility"]
+        if f and f.get("named_site") and f["km"] <= float(cfg["geodata"].get("named_site_km", 3.0)):
+            # a place whose right name the owner gave: told by it, not by the nearest town (Shaybah,
+            # 25 Nov 2026: «على بعد 30 كم جنوب شرق بطين ليوا», a town in another country)
+            inc["country"] = f.get("country") or inc["country"]
+            inc["where"] = f"في {f['label']}" + (f" ({inc['country']})" if inc["country"] else "")
+            geo.naming_deferred = False
         if not getattr(geo, "naming_deferred", False):
             inc["_pos"] = pos
     region, ids = smallest_region(cfg, inc["lat"], inc["lon"])  # cheap: follows renamed regions
@@ -1392,7 +1399,10 @@ def run_cycle(cfg, send=True, alert_now=False):
         first_post = inc.get("tg_msg")
         media = None
         early_confirmation = bool(inc.get("early_ids")) and inc.get("early_video_sent_at") != iso(now)
-        with_video = intensity or early_confirmation
+        # a video the first post still owes goes with this update when it is made (Shaybah, 25 Nov
+        # 2026: the video was ready a minute before «الحرارة مؤكدة الآن», which went out as text)
+        owed = bool(inc.get("clip_video_pending"))
+        with_video = intensity or early_confirmation or owed
         if with_video and prepare_clip(inc, refresh=True) and inc.get("clip"):
             path = Path(cfg["_site_dir"]) / inc["clip"]
             if path.exists():
@@ -1406,7 +1416,7 @@ def run_cycle(cfg, send=True, alert_now=False):
                 media = path
         message = alert_message(inc, cfg, update=True, threaded=bool(first_post),
                                 intensity=intensity, delayed=_delayed_update(inc, cfg, now))
-        if with_video and media is None and cfg["clip"].get("enabled", True):
+        if (intensity or early_confirmation) and media is None and cfg["clip"].get("enabled", True):
             message += "\n🎞 الفيديو المحدث قيد التجهيز؛ سيُرسل عند توفر صور تُظهر الرصد الجديد بوضوح."
         if post(message, media, reply_to=first_post):
             S.sent = True
