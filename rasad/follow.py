@@ -29,6 +29,7 @@ SETTINGS = {
     "enabled": False,       # on in config.yaml
     "post": True,
     "hours": 12.0,          # follow for this long after the last sighting (the fire's own or a followed one)
+    "total_hours": 120.0,   # ...and no longer than this after the fire began
     "quiet_min": 30,        # start once the fire has not been seen for this long
     "drift_kmh": 3.0,       # how far a burning hull drifts: the strait's currents, 1.5-2.5 km/h measured
     "base_km": 3.0,
@@ -82,6 +83,15 @@ def last_seen(inc):
     return best
 
 
+def followed_until(inc):
+    """When the fire's heat was last seen by following it, or None."""
+    track = (inc.get("follow") or {}).get("track") or []
+    try:
+        return parse_time(track[-1][0]) if track else None
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 def own_last(inc):
     try:
         return max(parse_time(o["t"]) for o in inc.get("observations") or [] if o.get("t"))
@@ -90,9 +100,16 @@ def own_last(inc):
 
 
 def wanted(inc, cfg, now):
-    """A posted fire at sea, quiet for a while, not followed past the hours, not replied to yet."""
+    """A posted fire at sea, quiet for a while, not followed past the hours. It is followed on after
+    its one reply too: where its heat is now tells whether a later sighting is this fire
+    (brain._followed_km)."""
     F = settings(cfg)
-    if not F.get("enabled") or inc.get("still_posted") or inc.get("recovered_historical"):
+    if not F.get("enabled") or inc.get("recovered_historical"):
+        return False
+    try:
+        if (now - parse_time(inc["first"])).total_seconds() / 3600 > float(F["total_hours"]):
+            return False
+    except (KeyError, TypeError, ValueError):
         return False
     if inc.get("status") != "alerted" or not inc.get("tg_msg") or inc.get("place") != "sea":
         return False
@@ -249,7 +266,7 @@ def run(cfg, wms, incidents, now, geo=None, pics=None):
                 log.info("following %s: heat %.1f above the sea at %s, %.1f km from the last sighting",
                          inc.get("id"), got["above"], got["t"], got["km"])
             if due(inc, cfg):
-                break
+                break            # the reply says these three pictures: it goes out before more are read
     return looked
 
 

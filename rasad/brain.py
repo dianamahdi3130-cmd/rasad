@@ -269,6 +269,32 @@ def _track_km(inc, lat, lon, t, rules):
     return best
 
 
+def _followed_km(inc, lat, lon, t, rules):
+    """A posted fire at sea is followed picture by picture after the finders lose it (follow.py). A
+    sighting that comes where its heat was followed to in the last hour is that fire's own heat, however
+    far it has drifted and however long since its own last sighting. Hormuz, 23-25 Nov 2026: one source
+    was in every picture for 47 hours, drifting back and forth within 20 km, and was posted six times
+    as a new fire: each time a finder or NASA regained it, it lay more than 6 km or 12 hours from
+    where its record had ended (docs/reviews/hormuz_one_source_20261125.md). The reach is the length
+    of the streak a strong source is drawn as (about 4 km). Returns the distance to the nearest such
+    followed sighting, or infinity."""
+    if inc.get("status") != "alerted" or inc.get("place") != "sea":
+        return float("inf")
+    reach = float(rules.get("sea_follow_km", 5.0))
+    span = dt.timedelta(minutes=float(rules.get("sea_follow_minutes", 60)))
+    best = float("inf")
+    for row in (inc.get("follow") or {}).get("track") or []:
+        try:
+            gap = t - parse_time(row[0])
+            if dt.timedelta(minutes=-10) <= gap <= span:
+                km = haversine_km(lat, lon, float(row[1]), float(row[2]))
+                if km <= reach:
+                    best = min(best, km)
+        except (TypeError, ValueError, IndexError):
+            continue
+    return best
+
+
 def _elsewhere_same_picture(inc, det, lat, lon, km=2.5):
     """One fire is in one place at a time. The sea finder gives one spot per hot place in a picture:
     a spot of the same picture more than a pixel away (about 2.5 km here) from this one is another
@@ -296,15 +322,24 @@ def find_incident(incidents, det, merge_km, merge_hours, rules=None, acquisition
     det.pop("_association", None)
     window = dt.timedelta(hours=merge_hours)
     for inc in incidents:
+        # a posted fire at sea whose heat was followed to this very place in the last hour
+        followed = _followed_km(inc, current_lat, current_lon, t, rules) if rules.get("sea_follow", True) \
+            else float("inf")
         # within the incident's own span, or close to either end of it (a detection in the
         # middle of a long fire belongs to it too, however far it is from both ends)
-        if t < parse_time(inc["first"]) - window or t > parse_time(inc["last"]) + window:
+        if followed == float("inf") and (t < parse_time(inc["first"]) - window or t > parse_time(inc["last"]) + window):
             continue
         d = haversine_km(current_lat, current_lon, inc["lat"], inc["lon"])
         if det.get("kind") != "polar" and inc.get("place") == "sea":
             if det.get("src") == "mtg_spot" and _elsewhere_same_picture(inc, det, current_lat, current_lon):
                 continue
             d = min(d, _track_km(inc, current_lat, current_lon, t, rules))
+        if followed <= merge_km:
+            # its own heat, followed here: it continues this fire whatever NASA's earlier pixels of
+            # it lay under (the fire has drifted since)
+            if followed <= best_d:
+                best, best_d = inc, followed
+            continue
         if d > merge_km:
             continue
         observations = _polar_observations(inc) if det.get("kind") == "polar" else []

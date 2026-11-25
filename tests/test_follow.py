@@ -155,7 +155,8 @@ class Follow(unittest.TestCase):
         self.assertFalse(follow.wanted(posted(), cfg, SEEN + dt.timedelta(hours=13)), "after 12 hours")
         self.assertFalse(follow.wanted(posted(status="new"), cfg, now), "never posted")
         self.assertFalse(follow.wanted(posted(place="land"), cfg, now))
-        self.assertFalse(follow.wanted(posted(still_posted=iso(now)), cfg, now), "once")
+        self.assertTrue(follow.wanted(posted(still_posted=iso(now)), cfg, now),
+                        "followed on after its reply: where it is now tells whether a later sighting is this fire")
         self.assertFalse(follow.wanted(posted(), copy.deepcopy(engine.DEFAULTS), now), "off unless switched on")
 
     def test_a_missing_picture_waits_for_the_next_check(self):
@@ -227,3 +228,65 @@ class PostedFireNearby(unittest.TestCase):
         self.assertIsNone(brain.near_posted(self.new_spot(t="2026-11-26T08:00:00Z"), [old]))
         old["status"] = "new"
         self.assertIsNone(brain.near_posted(self.new_spot(), [old]), "only a posted fire")
+
+
+class OneFireFollowedIsOneFire(unittest.TestCase):
+    """Hormuz, 23-25 Nov 2026: one source was in every picture for 47 hours, drifting within 20 km, and
+    was posted six times as a new fire. A sighting where a posted fire's heat was followed to in the
+    last hour is that fire (brain._followed_km)."""
+
+    RULES = {"merge_km": 6, "merge_hours": 12}
+
+    def fire(self, track):
+        inc = posted()
+        inc["follow"] = {"track": track, "streak": len(track), "looked": track[-1][0]}
+        return inc
+
+    def find(self, inc, det):
+        from rasad.brain import find_incident
+        return find_incident([inc], det, 6, 12, rules={})
+
+    def test_nasas_day_pass_on_the_followed_heat_continues_the_fire(self):
+        # the night fire's own last sighting 00:30 UTC; followed from 05:30; NASA at 10:02, 13 km away
+        inc = self.fire([[f"2026-11-25T{h:02d}:{m:02d}:00Z", 26.2936, 56.1502, 6.0] for h, m in ((9, 40), (9, 50), (10, 0))])
+        nasa = {"src": "VIIRS_NOAA20_NRT", "family": "viirs", "kind": "polar", "t": "2026-11-25T10:02:00Z",
+                "lat": 26.2897, "lon": 56.1407, "frp": 8.9, "conf": "n"}
+        self.assertIs(self.find(inc, nasa), inc)
+
+    def test_the_night_finder_regaining_it_a_day_later_continues_it(self):
+        inc = self.fire([["2026-11-25T13:30:00Z", 26.3107, 56.2138, 8.9], ["2026-11-25T13:50:00Z", 26.3152, 56.2388, 7.0]])
+        spot = {"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": "2026-11-25T14:40:00Z", "lat": 26.3161, "lon": 56.2629}
+        self.assertIs(self.find(inc, spot), inc, "14 hours after its own last sighting, 5 km from where it began")
+
+    def test_heat_elsewhere_or_after_the_trail_went_cold_is_another_fire(self):
+        inc = self.fire([["2026-11-25T10:00:00Z", 26.2936, 56.1502, 6.0]])
+        far = {"src": "VIIRS_NOAA20_NRT", "family": "viirs", "kind": "polar", "t": "2026-11-25T10:02:00Z",
+               "lat": 26.36, "lon": 56.26, "frp": 8.9, "conf": "n"}
+        self.assertIsNone(self.find(inc, far), "13 km from where the heat was followed to")
+        later = {"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": "2026-11-25T14:40:00Z", "lat": 26.2936, "lon": 56.1502}
+        self.assertIsNone(self.find(inc, later), "not followed there for over an hour")
+
+    def test_only_a_posted_fire_at_sea_is_continued_so(self):
+        track = [["2026-11-25T10:00:00Z", 26.2936, 56.1502, 6.0]]
+        nasa = {"src": "VIIRS_NOAA20_NRT", "family": "viirs", "kind": "polar", "t": "2026-11-25T10:02:00Z",
+                "lat": 26.2897, "lon": 56.1407, "frp": 8.9, "conf": "n"}
+        for change in ({"status": "new"}, {"place": "land"}):
+            inc = self.fire(track)
+            inc.update(change)
+            self.assertIsNone(self.find(inc, nasa), change)
+
+    def test_it_is_followed_on_after_its_reply_and_not_past_five_days(self):
+        cfg = config()
+        now = SEEN + dt.timedelta(minutes=45)
+        self.assertTrue(follow.wanted(posted(still_posted=iso(now)), cfg, now), "where it is now is still asked")
+        self.assertFalse(follow.due(dict(posted(still_posted=iso(now)), follow={"streak": 5, "track": []}), cfg),
+                         "but the reply goes out once")
+        old = posted(first="2026-11-19T00:00:00Z")
+        self.assertFalse(follow.wanted(old, cfg, now))
+
+    def test_a_first_sighting_on_the_followed_heat_is_not_a_first_sighting(self):
+        from rasad import preliminary
+        inc = self.fire([["2026-11-25T16:00:00Z", 26.33, 56.275, 9.0]])
+        when = dt.datetime(2026, 11, 25, 16, 10, tzinfo=UTC)
+        self.assertTrue(preliminary._represented(26.335, 56.29, when, [inc]))
+        self.assertFalse(preliminary._represented(26.45, 56.45, when, [inc]))

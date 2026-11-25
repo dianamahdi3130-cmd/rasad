@@ -993,7 +993,10 @@ def run_cycle(cfg, send=True, alert_now=False):
     # days old: those look at the whole memory, so they join their incident instead of
     # starting a copy of it.
     fresh_from = now - dt.timedelta(hours=merge_h)
-    open_incs = [i for i in S.incidents if parse_time(i["last"]) >= fresh_from - dt.timedelta(hours=merge_h)]
+    # ...and a posted fire at sea still being followed is open however long since its own last
+    # sighting: a new sighting where its heat is now is its own (brain._followed_km)
+    open_incs = [i for i in S.incidents if parse_time(i["last"]) >= fresh_from - dt.timedelta(hours=merge_h)
+                 or (follow.followed_until(i) or fresh_from - dt.timedelta(days=1)) >= fresh_from]
     by_id = {i["id"]: i for i in S.incidents}
 
     def pattern_facts(inc, det, reach):
