@@ -184,6 +184,10 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
 - NASA's daytime pixels on a mapped solar plant (within 3 km, or NOAA's panel tag) while a Meteosat
   picture read at that time showed nothing are sun glint, not posted (`patterns.solar_glint`,
   `alerts.solar_glint_stop`): the «حريق جديد في الإمارات» post of 11 Nov 2026 was one.
+- A first sighting's video keeps the channel's look: when the usual video cannot make out the speck
+  by itself it is drawn centred where the finder saw it (`info["trust_center"]`, `twopanel.render`);
+  the old close-up (`earlyclip.render`) only when there are no pictures for it (Hormuz, 25 Nov 2026:
+  «تم ارسال فيديو بقالب قديم»). The closer look never trusts: it keeps its refusal.
 - A first alert sent before its video promises it only as far as it can be kept: «🎞 يُرسل الفيديو
   هنا إن ظهر الحدث بوضوح في الصور.» (`brain.video_note`); some events never show clearly enough.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when

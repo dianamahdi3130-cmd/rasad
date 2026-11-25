@@ -511,7 +511,12 @@ def clip_for(cfg, wms, S, inc, focus_time=None):
         try:
             return clip_for(cfg, wms, S, dict(inc, preliminary=False), focus_time)
         except Exception as e:  # noqa: BLE001
-            log.info("first sighting %s: the usual video could not show it (%s); its own close-up", inc.get("id"), e)
+            log.info("first sighting %s: the usual video could not make it out (%s); centred on the finder's spot",
+                     inc.get("id"), e)
+        try:   # the channel's own look, centred where the finder saw it (not the old close-up)
+            return clip_for(cfg, wms, S, dict(inc, preliminary=False, trust_center=True), focus_time)
+        except Exception as e:  # noqa: BLE001
+            log.info("first sighting %s: no pictures for the usual video (%s); its own close-up", inc.get("id"), e)
             from .earlyclip import render
             return render(cfg, wms, inc, utcnow())
 
@@ -561,7 +566,8 @@ def clip_for(cfg, wms, S, inc, focus_time=None):
                 "country": inc.get("country"), "place": inc.get("place"),
                 "size": inc.get("size"), "first": inc.get("first"),
                 "frp": [list(r) for r in sorted(measurements)],
-                "facility": fac["text"] if fac and fac.get("km", 99) <= 15 else None}
+                "facility": fac["text"] if fac and fac.get("km", 99) <= 15 else None,
+                **({"trust_center": True} if inc.get("trust_center") else {})}
         # The cloud publisher uploads new names only. A changed clip must have a new
         # content revision so an existing remote video and browser cache cannot hide it.
         revision = {"style": CLIP_STYLE, "layer": L["name"], "end": iso(t_end),

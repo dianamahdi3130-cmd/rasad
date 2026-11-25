@@ -409,6 +409,12 @@ def render(cfg, wms, lat, lon, t_end, base, fire_layer, context_layer, frames, i
             if blob.sum() <= max_px and extent_km(blob) <= max_ext:
                 speck, ref = blob, np.full_like(top_img, bg)
                 before = []
+    if speck is None and info.get("trust_center"):
+        # a first sighting already posted from Rasad's own finder: the video shows that place in the
+        # channel's own look, centred on it, rather than the old close-up (the owner, 25 Nov 2026:
+        # «تم ارسال فيديو بقالب قديم»). Never used to judge: the closer look keeps its refusal.
+        speck = dist <= float(C.get("trust_km", 1.5))
+        ref = np.median(stack[before], axis=0) if before else stack.min(axis=0)
     if speck is None:
         raise NotVisible("the fire does not show in these pictures")
     excess = np.maximum(stack - ref, 0)

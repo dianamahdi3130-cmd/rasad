@@ -1,6 +1,5 @@
-{"mode": "steps", "try": 25,
+{"mode": "steps", "try": 26,
  "steps": [
-  ["seascan", "--start", "2026-11-25T13:50Z", "--end", "2026-11-25T14:50Z", "--boxes", "hormuz_oman", "--steady", "12"],
-  ["seascan", "--start", "2026-11-23T21:00Z", "--end", "2026-11-24T00:30Z", "--boxes", "hormuz_oman", "--steady", "12"],
-  ["seascan", "--start", "2026-11-21T14:00Z", "--end", "2026-11-22T02:30Z", "--boxes", "hormuz_oman,gulf_south", "--steady", "12"]
+  ["clip", "--lat", "26.3161", "--lon", "56.2629", "--time", "2026-11-25T14:40Z", "--end", "2026-11-25T15:00Z", "--frames", "8",
+   "--where", "في البحر قرب مضيق هرمز", "--out", "probe-out/hormuz_video"]
  ]}
