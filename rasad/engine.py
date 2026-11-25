@@ -1264,6 +1264,12 @@ def run_cycle(cfg, send=True, alert_now=False):
         if inc.get("place") == "sea":  # another fire confirmed close by shortly before this one
             inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
         enrich(inc, cfg, geo)
+        if inc.get("place") == "sea" and "near_confirmed" not in inc:
+            # a new record learns that it is at sea only now: its first post must say it too (Hormuz,
+            # 25 Nov 2026: a ship fire NASA saw at 13:02, 14 km from the confirmed fire of the night
+            # before, was posted without «قبل 10 ساعات رُصد حريق مؤكد آخر في البحر…»)
+            inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
+            finalize(inc, cfg)
         # important only because the rules or the facility map changed, not because of what it did
         # (an incident whose place was never described yet is not such a case: nothing changed for it)
         by_change = (rejudge or (stale_map and old_map is not None)) \
