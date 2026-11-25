@@ -54,3 +54,27 @@ Warmest spot at sea in each Meteosat-12 picture over 55.95-56.45 E, 26.15-26.50 
 - **By day it was in every picture from 08:10, but it was posted only when NASA passed (13:02).**
   - Its rows are the day finder's, which never posts alone.
   - A day spot that carries on a posted night fire's track (within some km and hours) could be told as that fire still burning, under its post. This is a proposal, not a change.
+
+## Following a posted fire (`follow.py`, replayed with `python -m rasad follow`)
+
+How it works:
+- After a posted sea fire goes quiet for 30 minutes, each check reads the newest picture around its
+  last sighting.
+- It takes the warmest spot of open sea there, at least 4 above the 12 km around, within the
+  distance a hull drifts since then.
+- Three pictures in a row go out once as a reply under the post.
+
+| Replay | Result |
+|---|---|
+| The Hormuz fire, from its last sighting (03:30 Baghdad) | 01:00 UTC one weak sighting; then from 05:30 UTC the fire in every picture, drifting west; reply at 06:20 UTC (09:20 Baghdad), «على بعد 7 كم غرب…» |
+| Central Gulf (25.9 N, 53.3 E), 25 Nov | a speck running 3 km east per picture: refused by the speed rule |
+| Northern Gulf (28.5 N, 50.0 E), 25 Nov | sunlit clouds after sunrise for hours (green and blue brighter than red): refused |
+| Gulf of Oman side of Musandam (26.3 N, 56.45 E), 22 Nov | the same after sunrise: refused |
+| Red Sea (20.0 N, 38.5 E), 25 Nov | the same, all day: refused |
+| Gulf of Oman (25.6 N, 57.0 E), 25 Nov | nothing |
+
+**What tells heat from sunlight.** The red (3.8 micron) against the two short waves (1.6 and 2.2
+micron), each against the 12 km around:
+- the fire: red 7-33, green and blue 0-10;
+- sunlit clouds and glint: green and blue as bright as the red, or brighter.
+The red must lead both by 2.5 (`red_margin`).
