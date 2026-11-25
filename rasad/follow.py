@@ -37,6 +37,9 @@ SETTINGS = {
                             # was 4-12 by day and 4-6 at night; open sea elsewhere stayed under 3
     "pictures": 3,          # pictures in a row before the reply
     "step_km": 3.0,         # a spot further than this (plus the drift) from the one before starts again
+    "net_km": 2.0,          # ...and the run may not travel further than this plus the drift: a hull drifts
+                            # 1.5-2.5 km/h; a sunlit cloud edge or a ship under way runs 15-30 km/h (the
+                            # central Gulf, 25 Nov 2026: a speck 3 km further east in each picture)
     "coast_km": 2.0,        # islets and shores warm in the sun
     "flare_km": 1.5,        # a usual flare of NASA's long-term map this close is a platform, not the fire
     "max_fires": 3,         # fires followed in one check (one small picture each)
@@ -164,13 +167,19 @@ def note(inc, got, cfg):
         rec["streak"] = 0
         return rec
     track = rec["track"]
+    drift = float(F["drift_kmh"])
     if track and rec.get("streak"):
         pt, plat, plon = parse_time(track[-1][0]), track[-1][1], track[-1][2]
         gap = (parse_time(got["t"]) - pt).total_seconds() / 3600
-        close = haversine_km(plat, plon, got["lat"], got["lon"]) <= float(F["step_km"]) + float(F["drift_kmh"]) * gap
-        rec["streak"] = rec["streak"] + 1 if close and gap <= 0.5 else 1
+        close = haversine_km(plat, plon, got["lat"], got["lon"]) <= float(F["step_km"]) + drift * gap
+        run = rec.get("run") or [track[-1][0], plat, plon]
+        span = (parse_time(got["t"]) - parse_time(run[0])).total_seconds() / 3600
+        slow = haversine_km(run[1], run[2], got["lat"], got["lon"]) <= float(F["net_km"]) + drift * span
+        rec["streak"] = rec["streak"] + 1 if close and slow and gap <= 0.5 else 1
     else:
         rec["streak"] = 1
+    if rec["streak"] == 1:
+        rec["run"] = [got["t"], got["lat"], got["lon"]]
     if not rec.get("from"):
         seen = last_seen(dict(inc, follow={}))
         if seen:

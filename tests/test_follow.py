@@ -106,6 +106,18 @@ class Follow(unittest.TestCase):
                                   dt.datetime(2026, 11, 25, 1, 50, tzinfo=UTC))
         self.assertEqual(replies, [])
 
+    def test_a_speck_running_east_is_a_cloud_or_a_ship_under_way_not_a_drifting_fire(self):
+        # the central Gulf, 25 Nov 2026 (no fire): 25.82,53.456 -> 25.848,53.470 -> 25.852,53.501, a
+        # speck 3 km further in each picture, about 18 km/h
+        seen = dt.datetime(2026, 11, 25, 3, 0, tzinfo=UTC)
+        inc = posted(last=iso(seen), observations=[{"t": iso(seen), "lat": 25.9, "lon": 53.3}])
+        path = [(25.8203, 53.4560), (25.8484, 53.4697), (25.8518, 53.5009), (25.8600, 53.5300), (25.8650, 53.5600)]
+        spots = {dt.datetime(2026, 11, 25, 8, 10 + 10 * k, tzinfo=UTC): (lat, lon, 6.0)
+                 for k, (lat, lon) in enumerate(path)}
+        _, replies = self.run_day(spots, dt.datetime(2026, 11, 25, 3, 30, tzinfo=UTC),
+                                  dt.datetime(2026, 11, 25, 9, 0, tzinfo=UTC), inc)
+        self.assertEqual(replies, [])
+
     def test_a_flicker_is_not_enough(self):
         spots = {dt.datetime(2026, 11, 25, 5, 10, tzinfo=UTC): (26.335, 56.179, 9.0),
                  dt.datetime(2026, 11, 25, 5, 20, tzinfo=UTC): (26.335, 56.179, 9.0),
