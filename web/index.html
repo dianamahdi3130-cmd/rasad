@@ -535,6 +535,12 @@ video,.snap{width:100%;max-width:100%;border-radius:14px;background:#000;display
 .srcs td:not(:first-child){white-space:nowrap}
 .srcs .mk{display:inline-block;margin-inline-end:6px;vertical-align:-1px}
 .agree{margin-top:8px;font-size:13px;color:var(--muted);line-height:1.7}
+/* «قراءة رصد»: one measured fact per line, the lean in a soft box, the note last */
+.reading-list{list-style:none;margin:0;padding:10px 12px;display:flex;flex-direction:column;gap:6px;
+  border:1px solid var(--line);border-radius:var(--r-l);background:var(--surface)}
+.reading-list li{font-size:13.5px;line-height:1.7;overflow-wrap:anywhere}
+.reading-list li.lean{font-weight:600;padding:6px 8px;border-radius:var(--r);background:color-mix(in srgb,var(--data) 12%,transparent)}
+.reading-list li.note{color:var(--muted);font-size:12.5px}
 /* charts: thin marks, hairline grid, text in ink (never in the series colour) */
 .chart{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 10px 6px}
 .chart svg{display:block;width:100%;height:auto;overflow:visible}
@@ -1042,7 +1048,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <div id="report" aria-hidden="true"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="access.js?v=24"></script>
+<script src="access.js?v=25"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24,
@@ -1975,7 +1981,14 @@ function usualHTML(it){
 function detailSig(it){
   return [it.last, it.verdict, it.confidence, it.severity, it.max_frp, it.clip, it.snap, it.clip_status_text, it.clip_note,
     (it.timeline || []).length, (it.frp_series || []).length, it.smoke_text, it.satpic && it.satpic.after, it.alerted,
-    it.signals ? JSON.stringify(it.signals) : ""].join("|");
+    it.signals ? JSON.stringify(it.signals) : "", (it.reading || []).join("|")].join("|");
+}
+// «قراءة رصد»: what Rasad measured once the event ran its course (rasad/reading.py), one fact per line
+function readingHTML(it){
+  const rows = (it.reading || []).filter(x => typeof x === "string" && x.trim());
+  if (!rows.length) return "";
+  return `<section class="sec reading"><h3>قراءة رصد للحدث</h3><ul class="reading-list">${
+    rows.map(x => `<li${x.startsWith("ℹ️") ? ' class="note"' : x.startsWith("⚖️") ? ' class="lean"' : ""}>${esc(x)}</li>`).join("")}</ul></section>`;
 }
 function detailHTML(it){
   const f = it.facility, cat = categoryOf(it), c = confOf(it), m = latestMeasure(it);
@@ -2010,6 +2023,7 @@ function detailHTML(it){
     ${chart ? `<section class="sec"><h3>الشدة عبر الوقت</h3>${chart}</section>` : ""}
     ${usualHTML(it)}
     ${it.smoke_text ? `<section class="sec"><h3>دخان مرئي</h3><p class="agree" style="margin:0">${esc(it.smoke_text)}</p></section>` : ""}
+    ${readingHTML(it)}
     <div class="acts">
       <button class="btn primary" type="button" id="shareBtn">${icon("share")}مشاركة</button>
       <button class="btn" type="button" id="shotBtn">📸 صورة</button>
@@ -3135,7 +3149,7 @@ async function signOut(){
 // The «قبل وبعد» screen (imagery.js, beforeafter.js) is behind the door on the private app, so its
 // scripts are added only once the app may run: at once on the open site, after a sign-in on the
 // private one. The app does not wait for them, and everything else works without them (hasBA()).
-const TOOLS = ["imagery.js?v=24", "beforeafter.js?v=24"];
+const TOOLS = ["imagery.js?v=25", "beforeafter.js?v=25"];
 function loadTools(){
   if (hasBA() || S.toolsBusy) return;
   S.toolsBusy = true;
@@ -3490,7 +3504,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 24;                    // the same number as CACHE in sw.js and ?v= of the scripts
+const APP_V = 25;                    // the same number as CACHE in sw.js and ?v= of the scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {
