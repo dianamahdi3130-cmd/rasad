@@ -25,7 +25,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `rasad/sources.py`, `rasad/wms.py` | EUMETView fire symbols (`detect_geo_layer`, `fetch_frp`), NASA FIRMS (`firms_fetch`); WMS client with time budgets, `Availability` |
 | `rasad/noaafire.py` | NASA's NOAA-20/21 fire pixels from NOAA's own public files (AWS, no account), about 25 min after a day pass and 45 after a night pass instead of ~3 h through FIRMS; same pixels (99% match, `docs/reviews/noaa_files_20261116.md`), entered as FIRMS rows of the same source; a later FIRMS copy is its twin (`Twins`), never a second sighting. On in `config.yaml` (`noaa.enabled`), off in `DEFAULTS` (tests) |
 | `rasad/geocollect.py` | which European pictures each check reads (never-read first, then settled second reads) |
-| `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert): reads the Fire Temperature picture at **0.25 km per pixel in tiles** over ten sea boxes, red = 3.8 micron, green/blue = flame glow; and the experimental day finder (first light to last light, sun above −6°, its two boxes at 0.5 km; never alerts alone) |
+| `rasad/seawatch.py`, `rasad/daywatch.py` | Rasad's own sea finder (night, can alert): reads the Fire Temperature picture at **0.25 km per pixel in tiles** over ten sea boxes, red = 3.8 micron, green/blue = flame glow; since 25 Nov 2026 also ten boxes over the great energy sites on land (`"land": True`, switched by `seawatch.sites`, `live_boxes`); and the experimental day finder (first light to last light, sun above −6°, its two boxes at 0.5 km; never alerts alone) |
 | `rasad/daysteady.py` | by day, a place at sea that stays clearly hotter than the sea around it in 4 pictures in a row (40 min), not warmer at 10.5 micron (sun-warmed land is), not a platform, not usual heat (atlas), not steady on 2 earlier days (`state["sea_day_steady_days"]`). Its rows join the day finder's (`mtg_day_spot`): shown in the app, never posted alone. Replayed 18-21 Nov 2026: what it finds at sea are flares (Zakum, Das Island, a new site off the UAE); the 20 Nov Muscat spot did not show at 3.8 micron |
 | `rasad/earlyalerts.py`, `preliminary.py`, `earlyclip.py` | the first sea sighting from one picture («رصد حراري أولي»): posted at once only when unmistakable (`strong`), shown in the app otherwise; its own short video |
 | `rasad/pictureworker.py`, `thermal_history.py` | background fetching of the finders' pictures (tiles) into `.rasad-pictures/`; "heat seen here before" for the sea finder |
@@ -134,6 +134,24 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture
   needs a rise of `early_alerts.platform_min_rise` (30), and sea posts there say so in one line
   (`patterns.platform_words`, «🛢 في منطقة منصات نفط وغاز…»). The case: Qatar's North Field, 24 Nov 2026.
+- The great energy sites on land are read by the same finder at night (`seawatch` boxes with
+  `"land": True`, `seawatch.sites`): Saudi Arabia's east coast with Abqaiq, Bahrain, Ras Laffan and
+  Mesaieed, Kuwait's Ahmadi/Shuaiba/Zour, Ruwais and Habshan, Jebel Ali, Fujairah, Yanbu, Jeddah, Jizan.
+  - **What counts.** On land only a flame counts: a rise of `site_min_rise` (20) with a glow in the
+    short waves of `site_min_glow` (4).
+  - **What is left out.** A source hot before; a usual flare of NASA's long-term map within
+    `site_flare_km` (1); the halo of a stronger source within 3 km.
+  - **Clouds.** The 10.5 micron check is asked only when the glow is under `site_sure_glow` (20), and
+    then only a sharp warming rejects (a cloud going away). A blaze's smoke rises cold, and no cloud
+    glows at night.
+  - **Posting.** A site's blaze is news from its second picture («مرجّح», `brain.site_blaze`),
+    whatever the facility distances; the flares around never make it routine (`d["site"]` in
+    `run_cycle`). Never a first sighting from one picture; the open sea in a site box is the sea
+    boxes'.
+  - **The case.** Ras Tanura, 25 Nov 2026: a blaze at the terminal from 04:40 to 05:10 Baghdad time
+    was in every Meteosat-12 picture and in no official fire symbol (`docs/reviews/ras_tanura_20261125.md`;
+    cuts `tests/fixtures/site_*.npz`). Replayed: found in four pictures; two whole ordinary nights
+    at all ten sites gave nothing.
 - What the sea finder finds alone is posted only once its closer look at the pictures shows it
   (the alert then carries its video): `engine` → `waits_for_closer_look`, `seawatch.closer_look_first`.
   Not shown, it is doubted and stays in the app; without an answer within
