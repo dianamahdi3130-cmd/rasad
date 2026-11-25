@@ -180,6 +180,13 @@ def main(argv=None):
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
     p.add_argument("--bbox", default="55.0,25.0,57.6,27.3", help="west,south,east,north")
+    p = sub.add_parser("s2-look", help="diagnosis: what Sentinel-2 (10 m) saw at a place: passes, glowing spots, pictures")
+    p.add_argument("--lat", type=float, required=True)
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--half-km", type=float, default=6.0)
+    p.add_argument("--out", default="probe-out")
     p = sub.add_parser("follow", help="diagnosis: replay following a posted sea fire after its last sighting")
     p.add_argument("--lat", type=float, required=True, help="the fire's last sighting")
     p.add_argument("--lon", type=float, required=True)
@@ -281,6 +288,10 @@ def main(argv=None):
                          d.get("frp"), d.get("conf"), d.get("night"))
             day += dt.timedelta(days=1)
         hotspots(cfg, WMS(cfg["eumetview"]["wms_url"], session), start, end, bb)
+        return
+    if args.cmd == "s2-look":
+        from .probe import s2_look
+        s2_look(cfg, args.lat, args.lon, parse_time(args.start), parse_time(args.end), args.half_km, args.out)
         return
     if args.cmd == "follow":
         from . import follow

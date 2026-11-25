@@ -604,3 +604,23 @@ class CycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LookByHand(unittest.TestCase):
+    """`python -m rasad s2-look`: what Sentinel-2 saw at a place, pass by pass (diagnosis only)."""
+
+    def test_every_pass_is_listed_with_its_sky_and_its_glowing_spots(self):
+        import tempfile
+        from rasad import probe
+        fake = FakeArchive(PASSES)
+        with tempfile.TemporaryDirectory() as folder, patch.object(probe, "make_session", return_value=fake):
+            passes = probe.s2_look({}, LAT, LON, T("2026-10-01T00:00:00Z"), T("2026-11-10T00:00:00Z"), 1.0, folder)
+            text = (Path(folder) / f"s2_look_{LAT:.3f}_{LON:.3f}.txt").read_text(encoding="utf-8")
+            pictures = sorted(p.name for p in Path(folder).glob("*.jpg"))
+        self.assertEqual(len(passes), 4)
+        self.assertEqual(len(pictures), 4, "one picture per pass: natural colour beside short-wave infrared")
+        flame = next(line for line in text.splitlines() if "2026-11-09" in line)
+        self.assertIn("1 glowing spot(s)", flame)
+        clear = next(line for line in text.splitlines() if "2026-10-05" in line)
+        self.assertIn("0 glowing spot(s)", clear)
+        self.assertIn("cloud 1.00", next(line for line in text.splitlines() if "2026-10-25" in line))

@@ -498,3 +498,70 @@ def gibs_layers(pattern, out_dir="probe-out", url="https://gibs.earthdata.nasa.g
     for ident, grid, fmt in rows:
         log.info("   %s | %s | %s", ident, grid, fmt)
     return rows
+
+
+def s2_look(cfg, lat, lon, start, end, half_km=6.0, out_dir="probe-out", budget_s=240):
+    """Diagnosis: what Sentinel-2 (10-20 m) saw at a place between two times. Every pass is listed
+    with its sky; for each one a picture is kept (natural colour beside short-wave infrared, where a
+    flame glows) and every glowing spot is logged with its position. At sea this tells a burning hull
+    (a bright object with smoke) from a flare or from nothing at all."""
+    import time
+
+    from PIL import Image
+
+    from . import s2
+    archive = s2.Archive(make_session(), deadline=time.monotonic() + budget_s)
+    grid = s2.Grid(lat, lon, half_km)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    lines = [f"Sentinel-2 at {lat:.4f}, {lon:.4f} ({2 * half_km:.0f} km box, {grid.res:.0f} m per pixel), "
+             f"{iso(start)} .. {iso(end)}:"]
+    try:
+        passes = sorted(archive.list_passes(grid, start, end), key=lambda p: p["time"])
+    except s2.ArchiveError as e:
+        passes = []
+        lines.append(f"  the archive did not answer ({e})")
+    for p in passes:
+        try:
+            sky = archive.assess(p, grid)
+            scene = archive.load_scene(p, grid)
+        except s2.ArchiveError as e:
+            lines.append(f"  {iso(p['time'])} {p['platform']}: not read ({e})")
+            continue
+        a, b, c = (np.nan_to_num(scene[k]) for k in ("swir22", "swir16", "nir08"))
+        lb, lc = np.maximum(b, 0.01), np.maximum(c, 0.01)
+        flag = ((a >= 0.15) & (a / lb >= 1.4) & (a / lc >= 1.4)) | ((b >= 0.5) & (b / lc >= 2) & (a >= 0.5))
+        flag &= np.isfinite(scene["swir22"])
+        spots = []
+        for comp in (components(flag) if flag.any() else []):
+            k = int(np.argmax(a[comp[:, 0], comp[:, 1]]))
+            y, x = comp[k]
+            la, lo = grid.point(x + 0.5, y + 0.5)
+            spots.append((round(la, 4), round(lo, 4), len(comp), round(float(a[y, x]), 2)))
+        # bright things on dark water that are not cloud: hulls, platforms, wakes (near infrared)
+        water = np.nanmedian(c)
+        bright = (c >= max(0.12, 3 * water)) & ~np.isin(scene["scl"], (8, 9, 10))
+        objects = []
+        for comp in (components(bright) if bright.any() else []):
+            if 2 <= len(comp) <= 4000:
+                y, x = comp.mean(axis=0)
+                la, lo = grid.point(x + 0.5, y + 0.5)
+                length = (np.ptp(comp[:, 0]) ** 2 + np.ptp(comp[:, 1]) ** 2) ** 0.5 * grid.res
+                objects.append((round(la, 4), round(lo, 4), len(comp), round(float(length))))
+        objects.sort(key=lambda o: -o[2])
+        lines.append(f"  {iso(p['time'])} {p['platform']} cover {p['cover']:.2f} cloud {sky['cloud']:.2f} "
+                     f"hidden {sky['hidden']:.2f}: {len(spots)} glowing spot(s) (lat, lon, pixels, swir) {spots[:12]}; "
+                     f"{len(objects)} bright object(s) on the water (lat, lon, pixels, length m) {objects[:15]}")
+        nat = s2.composite(scene, s2.COLOR_BANDS, s2.stretch_of([scene], s2.COLOR_BANDS))
+        swir = s2.composite(scene, s2.SWIR_BANDS, s2.stretch_of([scene], s2.SWIR_BANDS))
+        sheet = Image.new("RGB", (grid.size * 2 + 6, grid.size), (10, 12, 16))
+        sheet.paste(Image.fromarray(nat).convert("RGB"), (0, 0))
+        sheet.paste(Image.fromarray(swir).convert("RGB"), (grid.size + 6, 0))
+        name = out / f"s2_{lat:.3f}_{lon:.3f}_{p['time']:%Y%m%dT%H%M}_{p['platform']}.jpg"
+        sheet.save(name, quality=90)
+    if not passes:
+        lines.append("  no pass in this period")
+    text = "\n".join(lines)
+    (out / f"s2_look_{lat:.3f}_{lon:.3f}.txt").write_text(text + "\n", encoding="utf-8")
+    print(text)
+    return passes
