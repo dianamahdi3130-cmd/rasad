@@ -8,7 +8,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 
-from .brain import _followed_km, at_sea
+from .brain import at_sea
 from .util import haversine_km, in_bbox, iso, local_text, parse_time, sun_elevation
 
 SOURCE = "mtg_spot"
@@ -31,9 +31,6 @@ def _represented(lat, lon, when, incidents):
     for incident in incidents:
         if not isinstance(incident, dict):
             continue
-        # the heat of a posted fire that is being followed (follow.py): its own, not a first sighting
-        if _followed_km(incident, lat, lon, when, {}) != float("inf"):
-            return True
         observations = incident.get("observations") or []
         for row in observations:
             if not isinstance(row, dict):
