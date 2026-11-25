@@ -519,6 +519,50 @@ def nearby_confirmed(inc, incidents, km=25.0, hours=24.0):
     return best
 
 
+def near_posted(inc, incidents, drift_kmh=3.0, base_km=5.0, max_km=20.0, hours=12.0):
+    """A fire at sea already posted, whose sighting at the time this one began (or its last, if it had
+    ended) lies within the distance burning wreckage drifts since then. Hormuz, 25 Nov 2026: a fire
+    posted at 18:01 Baghdad time was still in every picture, 4 km away, when a spot beside it was posted
+    at 20:10 as «حريق في البحر قرب مضيق هرمز» with only «قبل 17 ساعة رُصد حريق مؤكد آخر…»: the owner
+    asked whether it was new. base_km: a strong source is drawn as a streak about 4 km long. Says where
+    the posted fire was, never that it is the same one."""
+    if inc.get("place") != "sea":
+        return None
+    t0 = parse_time(inc["first"])
+    best = None
+    for o in incidents:
+        if o is inc or o.get("id") == inc.get("id") or o.get("status") != "alerted" or not o.get("tg_msg") \
+                or o.get("place") != "sea" or o.get("recovered_historical"):
+            continue
+        seen = sorted((parse_time(x["t"]), float(x["lat"]), float(x["lon"])) for x in o.get("observations") or []
+                      if x.get("t") and x.get("lat") is not None and x.get("lon") is not None)
+        if not seen or seen[0][0] > t0:
+            continue
+        ref = [x for x in seen if x[0] <= t0][-1]
+        gap = (t0 - ref[0]).total_seconds() / 3600
+        if gap > hours:
+            continue
+        d = haversine_km(inc["lat"], inc["lon"], ref[1], ref[2])
+        if d > min(max_km, base_km + drift_kmh * gap):
+            continue
+        if best is None or d < best["km"]:
+            best = {"id": o["id"], "km": round(d, 1), "hours": round(gap, 1), "still": seen[-1][0] >= t0,
+                    "posted": o.get("alerted_at") or o.get("first")}
+    return best
+
+
+def near_posted_line(np_, cfg):
+    if not np_:
+        return ""
+    lt = cfg["local_time"]
+    when = f"{parse_time(np_['posted']) + dt.timedelta(hours=float(lt['offset_hours'])):%H:%M}"
+    km = f"{max(1, round(np_['km']))} كم"
+    if np_.get("still"):
+        return f"📌 على بعد {km} من حريق في البحر نُشر عند {when} وما زال ظاهراً في الصور"
+    return (f"📌 على بعد {km} من آخر موضع لحريق في البحر نُشر عند {when}، آخر رصد له قبل "
+            f"{hours_ar(np_['hours'])}: قد تكون النار نفسها وقد انجرفت")
+
+
 def hours_ar(h):
     n = int(round(h))
     if n < 1:
@@ -915,7 +959,9 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     if names:
         lines.append(f"🛰 <b>رصدته:</b> {' و'.join(names)}")
     nc = inc.get("near_confirmed")
-    if nc and not sure:
+    if inc.get("near_posted"):     # a posted fire at sea close by, still burning or lately seen
+        lines.append(near_posted_line(inc["near_posted"], cfg))
+    elif nc and not sure:
         lines.append(f"📌 قبل {hours_ar(nc['hours'])} رُصد حريق مؤكد آخر في البحر على بعد {nc['km']:.0f} كم")
     lines.append("")
     lines.append(f"<code>{inc['lat']:.4f}, {inc['lon']:.4f}</code>")

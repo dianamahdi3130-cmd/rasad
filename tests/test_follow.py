@@ -171,3 +171,59 @@ class Follow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PostedFireNearby(unittest.TestCase):
+    """Hormuz, 25 Nov 2026: a fire posted at 18:01 Baghdad time was still in every picture, 4 km away,
+    when a spot beside it was posted at 20:10 as a new fire, with only «قبل 17 ساعة رُصد حريق مؤكد آخر…».
+    The owner asked whether it was new."""
+
+    def posted_fire(self):
+        from rasad.brain import add_to_incident, finalize, new_incident
+        times = [f"2026-11-25T{h}:{m}:00Z" for h in ("14", "15", "16", "17") for m in ("00", "20", "40")]
+        path = [(26.3161 + 0.0025 * k, 56.2629 + 0.004 * k) for k in range(len(times))]
+        dets = [{"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": t, "lat": la, "lon": lo}
+                for t, (la, lo) in zip(times, path)]
+        inc = new_incident(dets[0], "new")
+        for d in dets:
+            add_to_incident(inc, d)
+        inc.update(place="sea", status="alerted", tg_msg=1342, alerted_at="2026-11-25T15:01:38Z")
+        return finalize(inc, config())
+
+    def new_spot(self, t="2026-11-25T17:10:00Z", lat=26.3431, lon=56.2629):
+        from rasad.brain import add_to_incident, finalize, new_incident
+        d = {"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": t, "lat": lat, "lon": lon}
+        inc = new_incident(d, "new")
+        add_to_incident(inc, d)
+        later = iso(dt.datetime.fromisoformat(t.replace("Z", "+00:00")) + dt.timedelta(minutes=40))
+        add_to_incident(inc, dict(d, t=later, lat=lat + 0.0157, lon=lon + 0.0124))
+        inc.update(place="sea", where="في البحر، على بعد 18 كم شمال خصب (عُمان)", country="عُمان",
+                   regions=["hormuz"], region_name="مضيق هرمز", known_days=0, area_days=0)
+        return finalize(inc, config())
+
+    def test_a_spot_beside_a_posted_fire_still_burning_says_so(self):
+        from rasad import brain
+        old, new = self.posted_fire(), self.new_spot()
+        near = brain.near_posted(new, [old, new])
+        self.assertTrue(near["still"])
+        self.assertLessEqual(near["km"], 5)
+        new["near_posted"] = near
+        text = brain.alert_message(new, config())
+        self.assertIn("📌 على بعد 4 كم من حريق في البحر نُشر عند 18:01 وما زال ظاهراً في الصور", text)
+        self.assertNotIn("حريق مؤكد آخر", text)
+
+    def test_a_spot_where_a_posted_fire_drifted_since_says_it_may_be_the_same(self):
+        from rasad import brain
+        old = self.posted_fire()
+        new = self.new_spot(t="2026-11-25T19:40:00Z", lat=26.36, lon=56.33)    # 1h50 after its last sighting
+        near = brain.near_posted(new, [old, new])
+        self.assertFalse(near["still"])
+        self.assertIn("قد تكون النار نفسها وقد انجرفت", brain.near_posted_line(near, config()))
+
+    def test_far_or_long_ago_is_another_matter(self):
+        from rasad import brain
+        old = self.posted_fire()
+        self.assertIsNone(brain.near_posted(self.new_spot(lat=26.0, lon=56.6), [old]))
+        self.assertIsNone(brain.near_posted(self.new_spot(t="2026-11-26T08:00:00Z"), [old]))
+        old["status"] = "new"
+        self.assertIsNone(brain.near_posted(self.new_spot(), [old]), "only a posted fire")

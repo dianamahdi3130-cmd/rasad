@@ -699,8 +699,11 @@ def steady_spots(cfg, pics, box, t, cur, sea, km, W, H, found, notes, mem=None, 
                      [None if v is None else round(v, 1) for v in values])
         if any(v is None or v < floor for v in values):
             continue
-        if any(haversine_km(lat, lon, sp["lat"], sp["lon"]) <= 3.0 for sp in found):
-            continue                                   # already told by the rules above
+        # already told by the rules above. A strong source is drawn as a streak about 4 km long, east to
+        # west (Hormuz, 25 Nov 2026: the steady rule posted the west end of a fire the finder was
+        # following 4 km east of it, in the same picture, as a new fire; Jafurah the same evening: 3.5 km)
+        if any(haversine_km(lat, lon, sp["lat"], sp["lon"]) <= float(C.get("steady_found_km", 6.0)) for sp in found):
+            continue
         why = None
         if geo is not None and geo.platform_within(lat, lon, float(C["platform_km"])):
             why = "oil platform"

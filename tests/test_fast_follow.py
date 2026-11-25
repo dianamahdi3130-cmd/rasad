@@ -270,10 +270,14 @@ class EarlierFireInTheFirstPost(unittest.TestCase):
                 S = engine.run_cycle(cfg, send=False)
         new = next(i for i in S.incidents if i["first"] == "2026-11-25T10:02:00Z")
         self.assertEqual(new["near_confirmed"]["id"], old["id"])
+        self.assertEqual(new["near_posted"]["id"], old["id"])
         text = brain.alert_message(new, cfg)
-        self.assertIn("رُصد حريق مؤكد آخر في البحر على بعد", text)
+        # the fire of the night before, drifting (docs/reviews/hormuz_dusk_20261125.md): where it was
+        # last seen, and that it may be the same fire
+        line = "📌 على بعد 13 كم من آخر موضع لحريق في البحر نُشر عند 02:40، آخر رصد له قبل 10 ساعات"
+        self.assertIn(line, text)
         posted = " ".join(str(c.args[2]) for c in sent.call_args_list if len(c.args) > 2)
-        self.assertIn("رُصد حريق مؤكد آخر في البحر على بعد", posted, "the first post itself says it")
+        self.assertIn(line, posted, "the first post itself says it")
 
 
 class RightNames(unittest.TestCase):
@@ -321,7 +325,7 @@ class SteadyAtSea(unittest.TestCase):
 
     WHEN = dt.datetime(2026, 11, 25, 16, 0, tzinfo=dt.timezone.utc)
 
-    def find(self, above=20.0, pictures=3, platform=None, floor=12.0):
+    def find(self, above=20.0, pictures=3, platform=None, floor=12.0, beside_km=None):
         from unittest.mock import Mock, patch
         import numpy as np
         from rasad import patterns
@@ -346,13 +350,27 @@ class SteadyAtSea(unittest.TestCase):
         pics = Mock()
         pics.get.side_effect = get
         open_sea = lambda lats, lons: np.zeros_like(np.asarray(lats), dtype=bool)
+        real_steady = seawatch.steady_spots
+
+        def steady(cfg_, pics_, box_, t_, cur, sea_, km, W_, H_, found, *rest):
+            if beside_km is not None:   # a fire the finder found in the same picture, beside_km east
+                import math
+                found = found + [{"lat": lat, "lon": lon + beside_km / (111.32 * math.cos(math.radians(lat)))}]
+            return real_steady(cfg_, pics_, box_, t_, cur, sea_, km, W_, H_, found, *rest)
         with patch.dict(seawatch._SEA, {}, clear=True), \
                 patch.object(seawatch, "land_mask_points", return_value=open_sea), \
                 patch.object(seawatch, "sun_elevation", return_value=-30.0), \
                 patch.object(seawatch, "_ir105_change", return_value=0.7), \
+                patch.object(seawatch, "steady_spots", steady), \
                 patch.object(patterns, "platform_area", return_value=platform):
             spots, notes = seawatch.find_spots(cfg, pics, box, self.WHEN, mem=None, geo=None)
         return spots, notes, (lat, lon)
+
+    def test_the_end_of_a_found_fires_streak_is_not_another_fire(self):
+        # Hormuz, 25 Nov 2026, 20:10 Baghdad time: the west end of the streak of a fire the finder was
+        # following, 4 km east of it in the same picture, was posted as a new fire
+        self.assertEqual([sp for sp in self.find(beside_km=4.0)[0] if sp.get("steady")], [])
+        self.assertEqual(len([sp for sp in self.find(beside_km=8.0)[0] if sp.get("steady")]), 1)
 
     def test_heat_lit_before_dark_is_told_from_three_dark_pictures(self):
         spots, notes, (lat, lon) = self.find()
