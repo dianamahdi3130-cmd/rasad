@@ -17,7 +17,7 @@ const NOW = Date.parse("2026-11-15T13:45:00Z");
 const NAMES = ["S", "UI", "ARC", "ADM", "WATCH", "NAV", "visible", "scoped", "passes", "shown", "render", "normAr", "kmBetween", "categoryOf", "confOf", "markerStyle",
   "sourceTags", "timelineView", "tlRange", "dashStats", "archiveFilter", "archiveMonths", "csvOf", "nearPlace", "watchNews", "sourceState", "statusInfo", "looksLikeKey", "gateText",
   "expiryInfo", "keyMessage", "subsHTML", "adminHTML", "nasaUrl", "nightDefault", "dailyUrl", "NASA_VIEWS", "chartModel", "strengthChart", "niceStep", "detailHTML", "reportHTML",
-  "suggestions", "parseCoords", "route", "setRoute", "go", "leave", "setTab", "openDetail", "lock", "cardHTML", "usualHTML", "histHTML", "TOOLS", "SEV", "flareCards", "showTab", "signalsHTML", "signalCount"];
+  "suggestions", "parseCoords", "route", "setRoute", "go", "leave", "setTab", "openDetail", "lock", "cardHTML", "usualHTML", "histHTML", "TOOLS", "SEV", "flareCards", "showTab", "signalsHTML", "signalCount", "chainView", "chainHTML"];
 
 function page(extra = {}) {
   const elements = new Map(), body = new Set(), storage = new Map(Object.entries(extra.storage || {}));
@@ -493,6 +493,33 @@ test("the top search offers live incidents and watched places while typing", () 
   assert.equal(app.parseCoords("مطار البصرة"), null); assert.equal(app.parseCoords("95, 50"), null);
 });
 
+test("one fire at sea is one marker with its path; an unsettled tie is dashed and said so", () => {
+  // Hormuz, 25 Nov 2026: the app showed four markers for what the pictures show as one moving heat
+  const {app} = page();
+  const rec = (id, last, extra) => ({it: Object.assign({id, first: last, last, lat: 26.3, lon: 56.2, headline: "حريق في البحر قرب مضيق هرمز"}, extra), state: ""});
+  const night = rec("night", "2026-11-25T00:30:00Z", {path: [[100, 26.40, 56.25], [200, 26.35, 56.24]]});
+  const noon = rec("noon", "2026-11-25T10:02:00Z", {chain: {root: "noon", n: 3, since: "2026-11-25T05:10:00Z", maybe: {prev: "night", text: "ظهر بعد انقطاع 5 ساعات على بعد 7 كم من آخر موضع لحريق سابق؛ قد يكون الحريق نفسه وقد يكون حريقاً آخر"}},
+                                                  path: [[300, 26.33, 56.18], [400, 26.29, 56.14]]});
+  const dusk = rec("dusk", "2026-11-25T19:00:00Z", {chain: {root: "noon", n: 3, since: "2026-11-25T05:10:00Z"}, path: [[500, 26.32, 56.26], [600, 26.34, 56.31]]});
+  const late = rec("late", "2026-11-25T17:50:00Z", {chain: {root: "noon", n: 3, since: "2026-11-25T05:10:00Z"}, path: [[550, 26.34, 56.26]]});
+  const far = rec("far", "2026-11-25T18:00:00Z", {lat: 27.1, lon: 56.9});
+  const raw = app.chainView([night, noon, dusk, late, far], "");
+  const view = {hide: raw.hide, pos: new Map([...raw.pos].map(([k, v]) => [k, [...v]])), trails: JSON.parse(JSON.stringify(raw.trails))};   // plain values of this realm
+  assert.deepEqual([...view.hide].sort(), ["late", "noon"], "the older records of the one fire draw no marker of their own");
+  assert.deepEqual(view.pos.get("dusk"), [26.34, 56.31], "its one marker stands where its heat is now");
+  const solid = view.trails.filter(t => !t.dashed), dashed = view.trails.filter(t => t.dashed);
+  assert.equal(solid.find(t => t.id === "noon").pts.length, 5, "one path through the records of the one fire, in time order");
+  assert.deepEqual(solid.find(t => t.id === "noon").pts[0], [26.33, 56.18]);
+  assert.ok(solid.some(t => t.id === "night"), "a fire that moved shows its own path");
+  assert.deepEqual(dashed.map(t => t.pts), [[[26.35, 56.24], [26.33, 56.18]]], "the unsettled tie: from the older fire's last place to this one's first");
+  assert.ok(!view.hide.has("far") && !view.hide.has("night"), "another fire and an unsettled one keep their markers");
+  assert.equal(app.chainView([night, noon, dusk, late], "noon").hide.has("noon"), false, "an opened record is always drawn");
+  assert.match(app.chainHTML(dusk.it), /🔗 الحريق نفسه: 3 رصدات لحرارة توبعت بلا انقطاع/);
+  assert.match(app.chainHTML(noon.it), /❔ غير محسوم: ظهر بعد انقطاع 5 ساعات/);
+  assert.equal(app.chainHTML(far.it), "");
+  assert.match(app.cardHTML(Object.assign(incident("c"), dusk.it)), /class="chain"/);
+});
+
 test("the page keeps what the before/after screen and the phone need", () => {
   for (const id of ["baSheet", "pickBar", "pickCancel", "baBtn", "finder", "finderQ", "shot", "toast", "map", "sheet", "detail", "list", "summary", "status", "learning", "gate", "adminSheet", "report"])
     assert.ok(html.includes(`id="${id}"`), id);
@@ -502,7 +529,7 @@ test("the page keeps what the before/after screen and the phone need", () => {
   assert.doesNotMatch(html, /الخليج العربي/);
   assert.match(html, /viewport-fit=cover/); assert.match(html, /prefers-reduced-motion/); assert.match(html, /@media print/);
   assert.match(html, /preload="none"/); assert.doesNotMatch(html, /<video[^>]*autoplay/);
-  assert.match(sw, /const CACHE = "firms-v25"/); assert.match(html, /const APP_V = 25;/);
+  assert.match(sw, /const CACHE = "firms-v26"/); assert.match(html, /const APP_V = 26;/);
   // the three sizes of the phone's sheet are states of the page, not page reloads
   for (const state of ["sheet-peek", "sheet-half", "sheet-full"]) assert.ok(html.includes(state), state);
 });

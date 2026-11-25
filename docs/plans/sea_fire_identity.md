@@ -2,6 +2,17 @@
 
 **Status, 25 Nov 2026 evening: not built. Two features are switched off until it is.**
 
+## Phase 1, shipped 25 Nov 2026 night: the app only
+
+- The owner looked at the app, saw four markers off Khasab and asked "why four fires?".
+- `rasad/chains.py` now ties the records of one heat for the app, and the app draws one marker with
+  the path the heat took; an unsettled tie is a dashed line and says «غير محسوم».
+- Nothing in the channel changed. The channel is phase 2, with everything below.
+- The rules it uses, in the owner's words:
+  - the same fire: seen from one record to the next without a break;
+  - another fire: two at once, or further than a burning hull can drift;
+  - not settled: a gap of hours, then heat within drifting distance.
+
 ## Why
 
 - One burning ship off Khasab was posted six times in two days as a new fire
