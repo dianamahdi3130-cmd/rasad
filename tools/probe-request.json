@@ -1,5 +1,4 @@
-{"mode": "steps", "try": 16,
+{"mode": "steps", "try": 21,
  "steps": [
-  ["clip", "--lat", "26.628", "--lon", "50.163", "--time", "2026-11-25T01:40Z", "--end", "2026-11-25T02:40Z", "--frames", "13",
-   "--where", "رأس تنورة", "--country", "السعودية", "--out", "probe-out/video"]
+  ["seascan", "--start", "2026-11-25T00:30Z", "--end", "2026-11-25T03:00Z", "--boxes", "site_east_sa"]
  ]}

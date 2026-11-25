@@ -340,8 +340,11 @@ def _night(box, t, max_elev):
     return [sun_elevation(la, lo, t) <= max_elev for la in (s, n) for lo in (w, e)]
 
 
-def _ir105_change(pics, cfg, lat, lon, t, refs):
-    """How sharply the 10.5 micron picture changed at the spot, in units of its local noise."""
+def _ir105_change(pics, cfg, lat, lon, t, refs, signed=False):
+    """How sharply the 10.5 micron picture changed at the spot, in units of its local noise.
+    `signed`: + where it got brighter (colder: the picture is drawn bright where it is cold, so a
+    cloud coming), - where it got darker (warmer: a cloud going, or a blaze big enough to warm
+    10.5 micron too, as at Ras Tanura on 25 Nov 2026)."""
     C = cfg["seawatch"]
     bb = box_around(lat, lon, 15)
     W, H = 31, 31
@@ -353,6 +356,10 @@ def _ir105_change(pics, cfg, lat, lon, t, refs):
     c = d[13:18, 13:18]
     med = float(np.nanmedian(d))
     sig = robust_sigma(d) or 0.5
+    if signed:
+        x = (c - med).ravel()
+        k = int(np.nanargmax(np.abs(x)))
+        return round(float(x[k]) / max(sig, 0.5), 1)
     return round(float(np.nanmax(np.abs(c - med))) / max(sig, 0.5), 1)
 
 
@@ -482,8 +489,12 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
     old = [pics.get(layer, bbox, W, H, t - dt.timedelta(minutes=m), 0) for m in refs]
     if cur is None or any(o is None for o in old):
         return None, "picture not ready"
+    land = bool(box.get("land"))
     sea = sea_grid(bbox, W, H, float(C["min_coast_km"]), km)
-    if sea is None:
+    if land:
+        # a watched site: its land and shore, which the sea boxes leave out (open water is theirs)
+        sea = np.ones((H, W), bool) if sea is None else ~np.asarray(sea, dtype=bool)
+    elif sea is None:
         return [], "no land mask"
     ref = _baseline(old)
     rise = cur - ref
@@ -508,6 +519,12 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
     limit = int(C.get("max_candidate_px", 20000))
 
     def candidates(scale):
+        if land:   # industry is warm at night: a blaze there is a clear rise with a flame's glow
+            lr, lg = float(C.get("site_min_rise", 20.0)), float(C.get("site_min_glow", 4.0))
+            if glow is None:
+                return np.zeros_like(sea)
+            m = (spot >= max(lr, zmin * sig) * scale) & (rise >= lr * scale) & (glow >= lg)
+            return m & sea & ~np.isnan(spot)
         m = (spot >= max(rmin, zmin * sig) * scale) & (rise >= rmin * scale)
         if glow is not None:   # a smaller warming counts when a flame's glow came with it
             m |= (spot >= max(fmin, 0.5 * zmin * sig) * scale) & (rise >= fmin * scale) & (glow >= gmin)
@@ -569,29 +586,49 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if restless > float(C.get("max_restless_strong" if mighty else "max_restless", 0.05)):
             reject("restless sea around it (clouds moving)")
             continue
-        if stronger_source_near(cur, ref, sea, r, c, km, float(C.get("halo_km", 10.0)),
-                                float(C.get("halo_margin", 30.0))):
+        halo = float(C.get("site_halo_km", 3.0)) if land else float(C.get("halo_km", 10.0))
+        if stronger_source_near(cur, ref, sea, r, c, km, halo, float(C.get("halo_margin", 30.0))):
             reject("glow of a stronger source nearby (flare)")
             continue
-        if mask_fn is None:
-            reject("no land mask")
-            continue
-        la, lo = ring_points(lat, lon, (0.0, float(C["min_coast_km"]) / 2, float(C["min_coast_km"])))
-        if mask_fn(la, lo).any():
-            reject("land or shore")
-            continue
-        if geo is not None and geo.platform_within(lat, lon, float(C["platform_km"])):
-            reject("oil platform")
-            continue
+        if not land:
+            if mask_fn is None:
+                reject("no land mask")
+                continue
+            la, lo = ring_points(lat, lon, (0.0, float(C["min_coast_km"]) / 2, float(C["min_coast_km"])))
+            if mask_fn(la, lo).any():
+                reject("land or shore")
+                continue
+            if geo is not None and geo.platform_within(lat, lon, float(C["platform_km"])):
+                reject("oil platform")
+                continue
         # Recurring heat belongs to its own cell. One old nearby ship or an
         # onshore flare must not hide a new, separate hot spot in open water.
         night = (t - dt.timedelta(hours=12)).date()
         if persistent_local_heat(mem, lat, lon, night, C):
             reject("heat seen here before")
             continue
-        z10 = _ir105_change(pics, cfg, lat, lon, t, refs[:1])
+        if land:
+            # a site's own flares are its habit (NASA's long-term map): a flare coming out of a
+            # cloud looks new; their real surges are the «حرارة غير معتادة» rule's
+            from . import patterns
+            A = patterns.atlas()
+            if A and patterns.usual_flare_km(A, lat, lon, float(C.get("site_flare_km", 1.0)),
+                                             float(C.get("site_flare_share", 0.10))) is not None:
+                reject("a usual flare of the site (NASA's long-term map)")
+                continue
+        z10 = _ir105_change(pics, cfg, lat, lon, t, refs[:1], signed=land)
         notes.setdefault("z10", []).append(z10)
-        if z10 is not None and z10 >= float(C["max_z_ir105"]):
+        if land:
+            # A blaze's smoke rises cold over it: at Ras Tanura on 25 Nov 2026 the spot was 10-15
+            # levels colder at 10.5 micron from the second picture on (z 8 to 28), like a cloud
+            # coming. What no cloud has at night is a flame's glow in the short waves: with a clear
+            # glow the 10.5 micron picture is not asked. With a faint one, a sharp warming there is
+            # a cloud going away from something hot it had hidden.
+            cloud = z10 is not None and shine < float(C.get("site_sure_glow", 20.0)) \
+                and -z10 >= float(C["max_z_ir105"])
+        else:
+            cloud = z10 is not None and z10 >= float(C["max_z_ir105"])
+        if cloud:
             reject("cloud change (10.5 micron)")
             continue
         flame = shine >= gmin
@@ -600,9 +637,11 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
                     "z": round(float(vals[k]) / sig, 1), "z10": z10, "area_px": int(len(pts)),
                     "above_sea": None if above is None else round(above, 1), "extent_km": round(extent, 1),
                     "glow": round(shine, 1), "flame": bool(flame), "restless": round(restless, 3),
-                    # clear enough to be told at once, before a second picture agrees
-                    "strong": bool(float(rise[r, c]) >= float(C.get("early_min_rise", 15.0))
-                                   and shine >= float(C.get("early_min_glow", 4.0)))})
+                    # clear enough to be told at once, before a second picture agrees (at sea only:
+                    # on land a second picture always agrees first)
+                    "strong": bool(not land and float(rise[r, c]) >= float(C.get("early_min_rise", 15.0))
+                                   and shine >= float(C.get("early_min_glow", 4.0))),
+                    **({"site": box["id"]} if land else {})})
     # fires at sea do not come by the dozen: many specks in one picture is the weather (low cloud
     # or fog thinning at night makes the sea look warmer at 3.8 micron); keep only the strongest
     burst = int(C.get("burst_max", 4))
@@ -612,6 +651,11 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
             notes["rejected"]["weather (many specks at once)"] = len(out) - len(strong)
         out = strong
     return out, notes
+
+
+def live_boxes(C):
+    """The boxes read at night: the seas, and the great energy sites on land when "sites" is on."""
+    return [b for b in C.get("boxes", []) if b.get("enabled", True) and (C.get("sites") or not b.get("land"))]
 
 
 SPARKLE_KEEP_DAYS = 14        # the nights `state["sea_sparkle"]` keeps
@@ -732,7 +776,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
     avail = avail or Availability(wms, state, now)
     latest = floor_time(now - dt.timedelta(minutes=int(C["delay_min"])), cad)
     found = []
-    live = [b for b in C["boxes"] if b.get("enabled", True)]
+    live = live_boxes(C)
     if live:
         # A slow first region must not take every short cycle's acquisition budget.
         cursor = state.get("sea_day_box_cursor", 0)
@@ -876,6 +920,7 @@ def watch(cfg, wms, state, now, mem=None, geo=None, avail=None):
                 cands.append(dict(
                     {k2: sp[k2] for k2 in ("t", "lat", "lon", "rise")}, src=src,
                     **({} if is_day else {"strong": bool(sp.get("strong")), "flame": bool(sp.get("flame"))}),
+                    **({"site": sp["site"], "land": True} if sp.get("site") else {}),
                     source_grid={"box_id": box["id"], "bbox": list(box["bbox"]),
                                  "width": width, "height": height,
                                  "km_per_px": day_km if is_day else km, "layer": C["layer"]},
@@ -1031,11 +1076,12 @@ def scan(cfg, wms, start, end, mem=None, geo=None, boxes=None):
     rows, t = [], floor_time(start, cad)
     while t <= end:
         km = float(C["km_per_px"])
-        pics.prefetch([(C["layer"], b["bbox"], *box_size(b, km), tt) for b in C["boxes"]
-                       if (not boxes or b["id"] in boxes) and any(_night(b["bbox"], t, float(C["sun_max_elev"])))
+        pics.prefetch([(C["layer"], b["bbox"], *box_size(b, km), tt)
+                       for b in ([b for b in C["boxes"] if b["id"] in boxes] if boxes else live_boxes(C))
+                       if any(_night(b["bbox"], t, float(C["sun_max_elev"])))
                        for tt in [t] + [t - dt.timedelta(minutes=int(m)) for m in C["ref_minutes"]]])
         for box in C["boxes"]:
-            if (boxes and box["id"] not in boxes) or (not boxes and not box.get("enabled", True)):
+            if (boxes and box["id"] not in boxes) or (not boxes and box not in live_boxes(C)):
                 continue
             spots, notes = find_spots(cfg, pics, box, t, mem, geo)
             if spots:

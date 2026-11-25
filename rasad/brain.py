@@ -151,7 +151,7 @@ def add_to_incident(inc, det):
     # Keep acquisition positions rather than reconstructing them from the displayed
     # incident anchor later. Older state has no such provenance; leave it unknown.
     observation = {key: det[key] for key in ("src", "family", "kind", "t", "lat", "lon")}
-    for key in ("frp", "scan", "track", "conf", "night", "instrument", "satellite", "spot"):
+    for key in ("frp", "scan", "track", "conf", "night", "instrument", "satellite", "spot", "site"):
         if det.get(key) is not None:
             observation[key] = det[key]
     observations = inc.setdefault("observations", [])
@@ -563,6 +563,11 @@ def headline(inc, cfg):
     return "حريق جديد" + (f" في {inc['country']}" if inc.get("country") else "")
 
 
+def site_blaze(inc):
+    """Rasad's own finder saw it at one of the great energy sites it watches on land."""
+    return any(o.get("site") for o in inc.get("observations") or [])
+
+
 def alert_worthy(inc, cfg):
     """Important = what the watch is for: fires at sea or in ports, at energy facilities,
     and big fires. Small fires a few km from a facility are usually fields or rubbish."""
@@ -582,6 +587,8 @@ def alert_worthy(inc, cfg):
         return False   # sun on the panels of a solar plant, not heat on the ground (11 Nov 2026)
     if inc["kind"] == "unusual":
         return True
+    if site_blaze(inc) and inc.get("verdict") in ("مرجّح", "مؤكد"):
+        return True    # a blaze at a great energy site, seen in two pictures (seawatch "sites")
     if inc["place"] in ("sea", "coast"):
         return not weak_only and not (faint and seen_before)
     if f and f["km"] <= float(A.get("at_facility_km", 2)):

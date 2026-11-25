@@ -91,8 +91,8 @@ def public_candidates(cfg, state, incidents, now):
     seen = set()
     for candidate in state.get("sea_candidates") or []:
         try:
-            if not isinstance(candidate, dict) or candidate.get("src") != SOURCE:
-                continue
+            if not isinstance(candidate, dict) or candidate.get("src") != SOURCE or candidate.get("land"):
+                continue    # a watched site on land waits for its second picture
             pos = _position(candidate)
             when = parse_time(candidate["t"])
             rise = candidate["rise"]
