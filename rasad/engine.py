@@ -1441,17 +1441,17 @@ def run_cycle(cfg, send=True, alert_now=False):
             if sent is not True:
                 inc["tg_msg"] = sent  # updates answer this post
             log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
-            if thread:
-                inc["thread"] = thread
-                row = dict(thread, t=iso(now), id=inc["id"], posted_as="post")
-                try:
+            try:   # the record of the silent decision: whatever happens here, the alert is already out
+                if thread:
+                    row = dict(thread, t=iso(now), id=inc["id"], posted_as="post")
                     if thread.get("as") == "reply":
                         row["would"] = chains.reply_message(inc, thread, cfg)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("thread reply text: %s", e)
-                S.state["thread_log"] = (S.state.get("thread_log") or [])[-199:] + [row]
-                log.info("THREAD (silent) %s: would be a %s%s", inc["id"], thread.get("as"),
-                         f" under {thread['under']} ({thread.get('link')})" if thread.get("under") else "")
+                    inc["thread"] = thread
+                    S.state["thread_log"] = (S.state.get("thread_log") or [])[-199:] + [row]
+                    log.info("THREAD (silent) %s: would be a %s%s", inc["id"], thread.get("as"),
+                             f" under {thread.get('under')} ({thread.get('link')})" if thread.get("under") else "")
+            except Exception as e:  # noqa: BLE001
+                log.warning("thread record: %s", e)
     updated_ids = set()
     for inc, intensity in updates:
         updated_ids.add(inc["id"])
