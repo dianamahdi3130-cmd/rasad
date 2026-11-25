@@ -19,7 +19,7 @@ from .clip import NotVisible, make_clip
 from .geodb import Geo
 from . import seawatch
 from . import backfill, geocollect, mediaqueue, earlyalerts
-from . import acquisitions, archive, assess, flares, follow, noaafire, patterns, reading, repairs, satpic, smoke
+from . import acquisitions, archive, assess, chains, flares, follow, noaafire, patterns, reading, repairs, satpic, smoke
 from .notify import deliver, telegram_ready, tg_send
 from .sources import detect_geo_layer, fetch_frp, firms_fetch, region_tiles, union_bbox
 from .updates import intensity_update_due, peak_reading
@@ -1683,6 +1683,10 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
                       and not row.get("experimental"))
                   for key, row in status.items() if key != "recovery")
     items = [public_item(i) for i in S.incidents if i.get("headline")]
+    try:   # the app only: which records of fires at sea are one fire, and the path its heat took
+        chains.annotate(items, S.incidents, cfg)
+    except Exception as e:  # noqa: BLE001 - a drawing aid must never stop a check
+        log.warning("sea fire chains: %s", e)
     early = earlyalerts.items(cfg, S.state, S.incidents, finished)
     for item in early:   # first night specks: shown with what they are and how little is known yet
         assess.assess(item, cfg)

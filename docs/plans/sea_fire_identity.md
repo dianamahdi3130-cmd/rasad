@@ -2,6 +2,17 @@
 
 **Status, 25 Nov 2026 evening: not built. Two features are switched off until it is.**
 
+## Phase 1, shipped 25 Nov 2026 night: the app only
+
+- The owner looked at the app, saw four markers off Khasab and asked "why four fires?".
+- `rasad/chains.py` now ties the records of one heat for the app, and the app draws one marker with
+  the path the heat took; an unsettled tie is a dashed line and says «غير محسوم».
+- Nothing in the channel changed. The channel is phase 2, with everything below.
+- The rules it uses, in the owner's words:
+  - the same fire: seen from one record to the next without a break;
+  - another fire: two at once, or further than a burning hull can drift;
+  - not settled: a gap of hours, then heat within drifting distance.
+
 ## Why
 
 - One burning ship off Khasab was posted six times in two days as a new fire
@@ -52,6 +63,12 @@ Neither is switched back before the work below is done and replayed.
   never reached.
 - **A steady source is a new incident every evening** (more than 12 hours of daylight between).
 - **`reading.py` and `brain.near_posted` do not know the followed track.**
+- **«حريق مؤكد آخر» judges.** The older nearby-fire line says «رُصد حريق مؤكد آخر…» (`reading.py`,
+  `brain.verdict_of`, `brain.alert_message`, `assess.py`). «آخر» asserts a different fire, which the
+  pictures cannot tell; the owner read it as the tool's own verdict (25 Nov, screenshot of three
+  readings). The wording must be neutral: a confirmed fire was seen X km away, Y hours before.
+- **Two posts of one heat get two readings** with different durations (20:10-20:50 and 17:40-22:00
+  for the same heat off Khasab), and «ثم لم تعد تظهر» only means the finder stopped seeing it.
 - **`follow.look` takes another posted fire's heat for its own** when two burn within reach.
 - **The follow reply calls `_remember_post`**, which can swallow a strength update.
 - **`rec["from"]` in the reply is never renewed** after the fire's own sightings resume.
