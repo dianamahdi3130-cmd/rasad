@@ -47,11 +47,36 @@ All six posts were headed «حريق في البحر قرب مضيق هرمز».
 
 ## Reading
 
-- One burning ship. It burned at the shore on the morning of 23 Nov, came off it that evening and has
-  drifted, still burning, for two days.
+- **Most likely one burning ship.** It burned at the shore on the morning of 23 Nov, its heat stayed at
+  the shore until about 21:10 that evening, then left it where and when the track at sea begins, and it
+  has drifted, still burning, for two days.
 - A ship can burn for days: the fire was 3-9 MW the whole time, a slow fire, not a blaze.
-- The pictures do not tell why it burns, whose it is, or whether it was towed off or floated off.
-- So none of posts 2 to 6 was a new fire.
+- So posts 2 to 6 were most likely not new fires.
+
+**An independent analyst** was given the raw data without this reading and asked to refute it
+(workflow of 25 Nov evening):
+
+| Question | Its answer |
+|---|---|
+| One continuous source at sea, 23 Nov 22:10 to 25 Nov 21:30? | 90% |
+| Is it the hull Sentinel-2 shows at the shore? | 82% |
+| Several ship fires one after another | 5%: no join needs more than 4.2 km/h, nothing is left behind |
+| A fixed platform or flare | refuted: positions span 20 km |
+| Sunrise or cloud artifacts stitched into a track | 2%: NASA confirms the day track within 0.4-1.0 km |
+| Two sources at the same time | 3%: every NASA pass shows one cluster |
+
+**What the data cannot tell:**
+- the cause, and the ship's identity;
+- whether the hull at the shore is the hull at sea (the next clear Sentinel-2 pass would settle it);
+- whether a second ship within about 3 km of the first burned at any time (Meteosat cannot separate
+  them);
+- whether other ships were hit without a lasting fire, or outside the box that was read;
+- whether the other channels' "new ship" reports are this fire.
+
+**Weak points:**
+- 25 Nov 04:00-08:20: 4.3 hours with no solid sighting; the heat comes back 7 km away and stronger.
+- Around the sunrise of 24 Nov the track rests on a colour test alone.
+- The link to the shore rests on timing, place and direction. There is no picture of the hull leaving.
 
 ## Why it was posted six times
 
@@ -61,19 +86,14 @@ All six posts were headed «حريق في البحر قرب مضيق هرمز».
   before (`incidents.merge_km`, `merge_hours`), so a new record was made, and a new post.
 - Post 6 was the far end of the streak the fire is drawn as (see `hormuz_dusk_20261125.md`).
 
-## What changed
+## What was done
 
-- **One fire followed is one fire** (`brain._followed_km`). A posted fire at sea is followed picture
-  by picture (`follow.py`), now also after its one reply, up to five days. A sighting within 5 km of
-  where its heat was followed to in the last hour continues that fire: an update under its post, not
-  a new post.
-- **A first sighting on the followed heat is not a first sighting** (`preliminary._represented`).
-- **Replayed** on the real pictures from 24 Nov 05:00 to 25 Nov 21:30 (`python -m rasad follow`):
-  - the heat is followed in 135 pictures, also through the sunrise of 24 Nov, where the artifacts
-    are left out by their colour;
-  - posts 3, 4, 5 and 6 fall within 0.4-2.5 km of a followed sighting: they join post 1;
-  - post 2 does not: the fire was too faint that morning to be followed in the hour before NASA
-    passed. It would still be posted, with the line «على بعد 5 كم من آخر موضع لحريق في البحر نُشر
-    عند 01:54…: قد تكون النار نفسها وقد انجرفت».
-- **Diagnosis:** `s2-look` lists every Sentinel-2 pass over a place with its glowing spots and keeps
-  a picture of each. It is what settled this case.
+- **Nothing new was switched on.** A continuity rule was written and replayed on the real pictures:
+  it joined posts 3, 4, 5 and 6 to post 1. The independent review then found two real defects in it
+  (a new fire could be swallowed; the first-sighting path was not covered), so it was reverted
+  before any merge.
+- **Two features of the same day were switched off** (`config.yaml`): the steady rule and the follow
+  reply. The review found real defects in both, and two showed in the channel that evening.
+- **The work is planned as one piece:** `docs/plans/sea_fire_identity.md`.
+- **Diagnosis kept:** `python -m rasad s2-look` lists every Sentinel-2 pass over a place with its
+  glowing spots and keeps a picture of each. It is what settled this case.
