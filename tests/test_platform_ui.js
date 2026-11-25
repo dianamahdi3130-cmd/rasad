@@ -510,6 +510,8 @@ test("one fire at sea is one marker with its path; an unsettled tie is dashed an
   const solid = view.trails.filter(t => !t.dashed), dashed = view.trails.filter(t => t.dashed);
   assert.equal(solid.find(t => t.id === "noon").pts.length, 5, "one path through the records of the one fire, in time order");
   assert.deepEqual(solid.find(t => t.id === "noon").pts[0], [26.33, 56.18]);
+  assert.deepEqual(solid.find(t => t.id === "noon").stops.map(x => [x.id, x.label]), [["noon", "13:02"], ["late", "20:50"]],
+                   "the older records keep a dot on the path with the time each was first seen (Baghdad)");
   assert.ok(solid.some(t => t.id === "night"), "a fire that moved shows its own path");
   assert.deepEqual(dashed.map(t => t.pts), [[[26.35, 56.24], [26.33, 56.18]]], "the unsettled tie: from the older fire's last place to this one's first");
   assert.ok(!view.hide.has("far") && !view.hide.has("night"), "another fire and an unsettled one keep their markers");
@@ -529,7 +531,7 @@ test("the page keeps what the before/after screen and the phone need", () => {
   assert.doesNotMatch(html, /الخليج العربي/);
   assert.match(html, /viewport-fit=cover/); assert.match(html, /prefers-reduced-motion/); assert.match(html, /@media print/);
   assert.match(html, /preload="none"/); assert.doesNotMatch(html, /<video[^>]*autoplay/);
-  assert.match(sw, /const CACHE = "firms-v26"/); assert.match(html, /const APP_V = 26;/);
+  assert.match(sw, /const CACHE = "firms-v27"/); assert.match(html, /const APP_V = 27;/);
   // the three sizes of the phone's sheet are states of the page, not page reloads
   for (const state of ["sheet-peek", "sheet-half", "sheet-full"]) assert.ok(html.includes(state), state);
 });
