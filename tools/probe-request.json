@@ -1,4 +1,4 @@
-{"mode": "steps", "try": 13,
+{"mode": "steps", "try": 14,
  "steps": [
-  ["osm-near", "--lat", "18.4475", "--lon", "55.2369", "--km", "25"]
+  ["probe", "--lat", "26.688", "--lon", "50.105", "--start", "2026-11-24T15:00Z", "--end", "2026-11-25T06:10Z", "--radius", "12", "--out", "probe-out/today"]
  ]}
