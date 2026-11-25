@@ -57,4 +57,13 @@ refinery, by the terminal and its tanks. All times below are Baghdad.
 - **Ordinary nights, found nothing:**
   - the evening before at Ras Tanura (`site_ras_tanura_evening_20261124.npz`);
   - a whole night at Abqaiq (`site_abqaiq_night_20261124.npz`).
-- Whole-night replays of all the sites: see below.
+- **Whole-night replays at all ten sites** (`seascan --boxes site_…` through the probe workflow,
+  with the 10.5 micron pictures and the memory):
+  - **The blaze night (site_east_sa, 03:30-06:00).** One place, four pictures (04:40-05:10), «مرجّح».
+  - **23-24 Nov (18:00-05:30): nothing posted at any site.** The candidates were all turned down:
+    - flares that were hot before (Kuwait, Qatar, Ras Tanura);
+    - the glow of a stronger flare;
+    - clouds moving;
+    - heat seen there before.
+  - **21-22 Nov, the same hours: nothing posted at any site.** The candidates were turned down the
+    same ways: the flares at Yanbu, Ruwais and Kuwait, and clouds moving.

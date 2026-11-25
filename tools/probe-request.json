@@ -1,5 +1,4 @@
-{"mode": "steps", "try": 20,
+{"mode": "steps", "try": 21,
  "steps": [
-  ["seascan", "--start", "2026-11-23T15:00Z", "--end", "2026-11-24T02:30Z", "--boxes", "site_uae_west,site_jebel_ali,site_fujairah,site_yanbu,site_jeddah,site_jizan"],
-  ["seascan", "--start", "2026-11-21T15:00Z", "--end", "2026-11-22T02:30Z", "--boxes", "site_east_sa,site_bahrain,site_qatar,site_kuwait,site_uae_west,site_jebel_ali,site_fujairah,site_yanbu,site_jeddah,site_jizan"]
+  ["seascan", "--start", "2026-11-25T00:30Z", "--end", "2026-11-25T03:00Z", "--boxes", "site_east_sa"]
  ]}
