@@ -1,5 +1,5 @@
-{"mode": "steps", "try": 18,
+{"mode": "steps", "try": 19,
  "steps": [
-  ["grab", "--start", "2026-11-25T00:50Z", "--end", "2026-11-25T02:30Z", "--bbox", "49.8787,26.4154,50.3813,26.8646",
-   "--layers", "mtg_fd:ir105_hrfi", "--km", "0.25", "--tag", "rt_ir105"]
+  ["seascan", "--start", "2026-11-25T00:30Z", "--end", "2026-11-25T03:00Z", "--boxes", "site_east_sa"],
+  ["seascan", "--start", "2026-11-23T15:00Z", "--end", "2026-11-24T02:30Z", "--boxes", "site_east_sa,site_bahrain,site_qatar,site_kuwait"]
  ]}

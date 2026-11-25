@@ -340,8 +340,11 @@ def _night(box, t, max_elev):
     return [sun_elevation(la, lo, t) <= max_elev for la in (s, n) for lo in (w, e)]
 
 
-def _ir105_change(pics, cfg, lat, lon, t, refs):
-    """How sharply the 10.5 micron picture changed at the spot, in units of its local noise."""
+def _ir105_change(pics, cfg, lat, lon, t, refs, signed=False):
+    """How sharply the 10.5 micron picture changed at the spot, in units of its local noise.
+    `signed`: + where it got brighter (colder: the picture is drawn bright where it is cold, so a
+    cloud coming), - where it got darker (warmer: a cloud going, or a blaze big enough to warm
+    10.5 micron too, as at Ras Tanura on 25 Nov 2026)."""
     C = cfg["seawatch"]
     bb = box_around(lat, lon, 15)
     W, H = 31, 31
@@ -353,6 +356,10 @@ def _ir105_change(pics, cfg, lat, lon, t, refs):
     c = d[13:18, 13:18]
     med = float(np.nanmedian(d))
     sig = robust_sigma(d) or 0.5
+    if signed:
+        x = (c - med).ravel()
+        k = int(np.nanargmax(np.abs(x)))
+        return round(float(x[k]) / max(sig, 0.5), 1)
     return round(float(np.nanmax(np.abs(c - med))) / max(sig, 0.5), 1)
 
 
@@ -600,9 +607,28 @@ def find_spots(cfg, pics, box, t, mem=None, geo=None, refs=None):
         if persistent_local_heat(mem, lat, lon, night, C):
             reject("heat seen here before")
             continue
-        z10 = _ir105_change(pics, cfg, lat, lon, t, refs[:1])
+        if land:
+            # a site's own flares are its habit (NASA's long-term map): a flare coming out of a
+            # cloud looks new; their real surges are the «حرارة غير معتادة» rule's
+            from . import patterns
+            A = patterns.atlas()
+            if A and patterns.usual_flare_km(A, lat, lon, float(C.get("site_flare_km", 1.0)),
+                                             float(C.get("site_flare_share", 0.10))) is not None:
+                reject("a usual flare of the site (NASA's long-term map)")
+                continue
+        z10 = _ir105_change(pics, cfg, lat, lon, t, refs[:1], signed=land)
         notes.setdefault("z10", []).append(z10)
-        if z10 is not None and z10 >= float(C["max_z_ir105"]):
+        if land:
+            # A blaze's smoke rises cold over it: at Ras Tanura on 25 Nov 2026 the spot was 10-15
+            # levels colder at 10.5 micron from the second picture on (z 8 to 28), like a cloud
+            # coming. What no cloud has at night is a flame's glow in the short waves: with a clear
+            # glow the 10.5 micron picture is not asked. With a faint one, a sharp warming there is
+            # a cloud going away from something hot it had hidden.
+            cloud = z10 is not None and shine < float(C.get("site_sure_glow", 20.0)) \
+                and -z10 >= float(C["max_z_ir105"])
+        else:
+            cloud = z10 is not None and z10 >= float(C["max_z_ir105"])
+        if cloud:
             reject("cloud change (10.5 micron)")
             continue
         flame = shine >= gmin

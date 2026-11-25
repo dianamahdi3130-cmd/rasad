@@ -261,6 +261,7 @@ DEFAULTS = {
         # red, 0-255, never Kelvin or MW). Industry is warm at night; a flame's glow in the short
         # waves (1.6 and 2.2 micron) is what a lamp, a hot roof or a chimney does not have.
         "sites": False, "site_min_rise": 20.0, "site_min_glow": 4.0, "site_halo_km": 3.0,
+        "site_flare_km": 1.0, "site_flare_share": 0.10, "site_sure_glow": 20.0,
     },
 }
 

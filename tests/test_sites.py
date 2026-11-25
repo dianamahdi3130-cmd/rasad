@@ -7,18 +7,20 @@ hot roofs): only a clear rise that comes with a flame's glow in the short waves 
 """
 import copy
 import datetime as dt
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
 import numpy as np
 
-from rasad import brain, engine, preliminary, seawatch
-from rasad.util import box_around, iso, px_to_latlon
+from rasad import brain, engine, patterns, preliminary, seawatch
+from rasad.util import UTC, box_around, haversine_km, iso, px_to_latlon
 
 WHEN = dt.datetime(2026, 11, 25, 1, 40, tzinfo=dt.timezone.utc)
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def find(rise=100.0, glow=12.0, hot_before=0.0, land=True, everything_land=True):
+def find(rise=100.0, glow=12.0, hot_before=0.0, land=True, everything_land=True, z10=0.7, atlas=None):
     cfg = copy.deepcopy(engine.DEFAULTS)
     box = {"id": "site_test", "bbox": box_around(26.628, 50.163, 12.5), "land": land}
     width, height = seawatch.box_size(box, cfg["seawatch"]["km_per_px"])
@@ -43,7 +45,8 @@ def find(rise=100.0, glow=12.0, hot_before=0.0, land=True, everything_land=True)
     with patch.dict(seawatch._SEA, {}, clear=True), \
             patch.object(seawatch, "land_mask_points", return_value=mask), \
             patch.object(seawatch, "sun_elevation", return_value=-30.0), \
-            patch.object(seawatch, "_ir105_change", return_value=0.7):
+            patch.object(seawatch, "_ir105_change", return_value=z10), \
+            patch.object(patterns, "_atlas", atlas if atlas is not None else {}):
         spots, notes = seawatch.find_spots(cfg, pics, box, WHEN, mem=None, geo=None)
     return spots, notes, (lat, lon)
 
@@ -70,6 +73,27 @@ class Finder(unittest.TestCase):
         self.assertEqual(spots, [], notes)
         self.assertIn("hot before (flare)", notes["rejected"])
 
+    def test_a_blazes_cold_smoke_is_not_a_cloud_when_the_flame_glows_clearly(self):
+        # Ras Tanura: 10-15 levels colder at 10.5 micron over the blaze from its second picture on
+        spots, notes, _ = find(glow=50.0, z10=24.0)
+        self.assertEqual(len(spots), 1, notes)
+
+    def test_a_cloud_going_away_from_a_faint_glow_is_a_cloud(self):
+        spots, notes, _ = find(glow=8.0, z10=-9.0)
+        self.assertEqual(spots, [], notes)
+        self.assertIn("cloud change (10.5 micron)", notes["rejected"])
+        spots, notes, _ = find(glow=8.0, z10=9.0)
+        self.assertEqual(len(spots), 1, "cooling over a faint flame: its smoke, not a cloud uncovering it")
+
+    def test_a_usual_flare_of_the_site_is_its_habit(self):
+        _, _, (lat, lon) = find()
+        import math
+        A = {"cell": 0.005, "dates": 200, "first": "2024-03-05",
+             "cells": {f"{math.floor(lat / 0.005)},{math.floor(lon / 0.005)}": 120}}
+        spots, notes, _ = find(atlas=A)
+        self.assertEqual(spots, [], notes)
+        self.assertIn("a usual flare of the site (NASA's long-term map)", notes["rejected"])
+
     def test_the_sea_boxes_still_leave_the_land_out(self):
         spots, notes, _ = find(land=False)
         self.assertEqual(spots, [], notes)
@@ -77,6 +101,52 @@ class Finder(unittest.TestCase):
     def test_open_water_in_a_site_box_is_left_to_the_sea_boxes(self):
         spots, notes, _ = find(everything_land=False)
         self.assertEqual(spots, [], notes)
+
+
+class Cut:
+    """A kept cut of Meteosat-12's Fire Temperature picture (0.25 km), read through the probe."""
+
+    def __init__(self, name):
+        data = np.load(FIXTURES / f"{name}.npz")
+        self.bbox = [float(v) for v in data["bbox"]]
+        self.frames = {dt.datetime.strptime(k[1:], "%Y%m%dT%H%M").replace(tzinfo=UTC): data[k]
+                       for k in data.files if k.startswith("t")}
+        self.height, self.width = next(iter(self.frames.values())).shape[:2]
+
+    def get(self, layer, bbox, width, height, when, channel=None):
+        frame = self.frames.get(when)
+        if layer != "mtg_fd:rgb_firetemperature" or frame is None or (width, height) != (self.width, self.height):
+            return None   # the 10.5 micron picture was not kept: that check is skipped
+        rgb = frame.astype(np.float32)
+        return rgb.mean(axis=2) if channel is None else rgb[..., channel]
+
+    def run(self):
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        box = {"id": "site_cut", "bbox": self.bbox, "land": True}
+        found = {}
+        with patch.object(seawatch, "box_size", return_value=(self.width, self.height)):
+            for when in sorted(self.frames):
+                refs = [m for m in cfg["seawatch"]["ref_minutes"] if when - dt.timedelta(minutes=m) in self.frames]
+                if not refs:
+                    continue
+                spots, notes = seawatch.find_spots(cfg, self, box, when, refs=refs)
+                if spots:
+                    found[when.strftime("%H:%M")] = spots
+        return found
+
+
+class RealNights(unittest.TestCase):
+    def test_the_ras_tanura_blaze_is_found_in_pictures_in_a_row(self):
+        found = Cut("site_ras_tanura_20261125").run()
+        self.assertTrue({"01:40", "01:50", "02:00"} <= set(found), found)
+        for spots in found.values():
+            self.assertTrue(any(haversine_km(sp["lat"], sp["lon"], 26.634, 50.163) <= 3.0 for sp in spots))
+        self.assertGreater(found["01:40"][0]["glow"], 20, "a flame's glow, which no cloud has at night")
+
+    def test_an_ordinary_evening_at_ras_tanura_and_a_night_at_abqaiq_stay_silent(self):
+        for name in ("site_ras_tanura_evening_20261124", "site_abqaiq_night_20261124"):
+            with self.subTest(name=name):
+                self.assertEqual(Cut(name).run(), {})
 
 
 class Switch(unittest.TestCase):
