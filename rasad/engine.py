@@ -1342,7 +1342,7 @@ def run_cycle(cfg, send=True, alert_now=False):
         if inc.get("place") == "sea" and "near_confirmed" not in inc:
             # a new record learns that it is at sea only now: its first post must say it too (Hormuz,
             # 25 Nov 2026: a ship fire NASA saw at 13:02, 14 km from the confirmed fire of the night
-            # before, was posted without «قبل 10 ساعات رُصد حريق مؤكد آخر في البحر…»)
+            # before, was posted without «قبل 10 ساعات رُصد حريق مؤكد في البحر…»)
             inc["near_confirmed"] = nearby_confirmed(inc, S.incidents)
             if inc.get("status") != "alerted":
                 inc["near_posted"] = near_posted(inc, S.incidents)
@@ -1419,6 +1419,14 @@ def run_cycle(cfg, send=True, alert_now=False):
         ready = prepare_clip(inc)
         if ready and inc.get("clip"):
             media = Path(cfg["_site_dir"]) / inc["clip"]
+        # The channel's phase 2, silent for now: would this fire at sea be a reply under an older
+        # posted fire, or a post of its own? Decided and recorded; nothing is posted differently
+        # until chains.thread_post is switched on (docs/plans/sea_fire_identity.md).
+        thread = None
+        try:
+            thread = chains.decide(inc, S.incidents, cfg)
+        except Exception as e:  # noqa: BLE001 - a record of a decision must never stop an alert
+            log.warning("thread decision: %s", e)
         message = alert_message(inc, cfg)
         if media is None and cfg["clip"].get("enabled", True):
             message += "\n" + video_note(inc)
@@ -1433,6 +1441,17 @@ def run_cycle(cfg, send=True, alert_now=False):
             if sent is not True:
                 inc["tg_msg"] = sent  # updates answer this post
             log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
+            try:   # the record of the silent decision: whatever happens here, the alert is already out
+                if thread:
+                    row = dict(thread, t=iso(now), id=inc["id"], posted_as="post")
+                    if thread.get("as") == "reply":
+                        row["would"] = chains.reply_message(inc, thread, cfg)
+                    inc["thread"] = thread
+                    S.state["thread_log"] = (S.state.get("thread_log") or [])[-199:] + [row]
+                    log.info("THREAD (silent) %s: would be a %s%s", inc["id"], thread.get("as"),
+                             f" under {thread.get('under')} ({thread.get('link')})" if thread.get("under") else "")
+            except Exception as e:  # noqa: BLE001
+                log.warning("thread record: %s", e)
     updated_ids = set()
     for inc, intensity in updates:
         updated_ids.add(inc["id"])

@@ -84,5 +84,81 @@ class OneFireOneMarker(unittest.TestCase):
         self.assertEqual(rows[0][0], "2026-11-25T05:10:00Z")
 
 
+class TheChannelSilentForNow(unittest.TestCase):
+    """Phase 2: at the first post of a fire at sea, would it be a reply under an older posted fire or
+    a post of its own? Decided and recorded only (chains.thread_post is false)."""
+
+    def older(self, track=None, **extra):
+        inc = record("old", [("2026-11-24T20:30:00Z", 26.406, 56.2555), ("2026-11-25T00:30:00Z", 26.3498, 56.2431)],
+                     tg_msg=1325, alerted_at="2026-11-24T21:10:00Z", **extra)
+        if track:
+            inc["follow"] = {"track": track}
+        return inc
+
+    def decide(self, new, old):
+        before = copy.deepcopy([new, old])
+        with patch.object(chains, "_reviewed", {}):
+            out = chains.decide(new, [old, new], copy.deepcopy(engine.DEFAULTS))
+        self.assertEqual([new, old], before, "deciding changes nothing")
+        return out
+
+    NASA = record("nasa", [("2026-11-25T10:02:00Z", 26.2897, 56.1407)], families=["viirs"], max_frp=8.9)
+
+    def test_heat_followed_in_three_pictures_of_the_last_hour_would_be_a_reply(self):
+        track = [[f"2026-11-25T09:{m}:00Z", 26.2947, 56.1412, 6.0] for m in ("30", "40", "50")]
+        out = self.decide(self.NASA, self.older(track))
+        self.assertEqual((out["as"], out["link"], out["under"], out["tg"]), ("reply", "same", "old", 1325))
+        text = chains.reply_message(self.NASA, out, copy.deepcopy(engine.DEFAULTS))
+        self.assertIn("🔥 <b>ما زالت النار مشتعلة</b>", text)
+        self.assertIn("رُصدت عند 13:02 بتوقيت بغداد قرب موضعها السابق", text)
+        self.assertIn("8.9 MW", text)
+        for cause in ("هجوم", "استهداف", "ضربة", "سفينة"):
+            self.assertNotIn(cause, text)
+
+    def test_one_followed_picture_proves_nothing(self):
+        # the review of 25 Nov: a single row after hours of nothing swallowed a new fire
+        out = self.decide(self.NASA, self.older([["2026-11-25T09:50:00Z", 26.2947, 56.1412, 6.0]]))
+        self.assertEqual((out["as"], out["link"]), ("post", "maybe"))
+        self.assertIn("غير محسوم", out["text"])
+
+    def test_after_hours_unseen_it_is_a_post_of_its_own_said_as_not_settled(self):
+        out = self.decide(self.NASA, self.older())
+        self.assertEqual((out["as"], out["link"], out["gap_h"]), ("post", "maybe", 9.5))
+        self.assertIn("قد يكون الحريق نفسه وقد يكون حريقاً آخر", out["text"])
+
+    def test_an_older_fire_seen_elsewhere_in_the_same_picture_is_another_fire(self):
+        old = record("old", [("2026-11-25T10:00:00Z", 26.33, 56.18)], tg_msg=1, alerted_at="2026-11-25T09:00:00Z")
+        out = self.decide(self.NASA, old)                      # 5.6 km apart at the same time
+        self.assertEqual(out, {"as": "post", "link": None})
+
+    def test_two_peaks_in_one_picture_within_a_streaks_length_are_not_settled_and_never_a_reply(self):
+        # Hormuz, 25 Nov 2026, 20:10: a second spot 4 km from the fire's own spot of the same picture
+        old = record("old", [("2026-11-25T16:50:00Z", 26.34, 56.30), ("2026-11-25T17:00:00Z", 26.345, 56.302),
+                             ("2026-11-25T17:10:00Z", 26.3453, 56.3025)], tg_msg=1342, alerted_at="2026-11-25T15:01:00Z")
+        out = self.decide(LATE, old)
+        self.assertEqual((out["as"], out["link"]), ("post", "maybe"))
+        self.assertIn("غير محسوم: ظهر في الصورة نفسها على بعد 4 كم من موضع حريق في البحر نُشر سابقاً", out["text"])
+        # ...even when another posted record's followed heat would have made it «the same»
+        other = record("noon", [("2026-11-25T10:02:00Z", 26.2893, 56.1398)], tg_msg=1337, alerted_at="2026-11-25T10:25:00Z")
+        other["follow"] = {"track": [[f"2026-11-25T17:{m}:00Z", 26.3440, 56.2960, 8.0] for m in ("00", "10", "20")]}
+        with patch.object(chains, "_reviewed", {}):
+            both = chains.decide(LATE, [old, other, LATE], copy.deepcopy(engine.DEFAULTS))
+        self.assertEqual(both["as"], "post")
+
+    def test_far_away_unposted_or_on_land_is_not_tied(self):
+        far = record("far", [("2026-11-25T10:02:00Z", 27.2, 56.9)])
+        self.assertEqual(self.decide(far, self.older()), {"as": "post", "link": None})
+        self.assertEqual(self.decide(self.NASA, self.older(status="new")), {"as": "post", "link": None})
+        land = dict(self.NASA, place="land")
+        self.assertIsNone(chains.decide(land, [self.older()], copy.deepcopy(engine.DEFAULTS)))
+
+    def test_it_is_silent_until_switched_on(self):
+        self.assertIs(chains.SETTINGS["thread_post"], False)
+        import yaml
+        from pathlib import Path
+        cfg = yaml.safe_load((Path(__file__).resolve().parents[1] / "config.yaml").read_text(encoding="utf-8"))
+        self.assertFalse((cfg.get("chains") or {}).get("thread_post"), "the channel is switched on only after the silent days and a review")
+
+
 if __name__ == "__main__":
     unittest.main()
