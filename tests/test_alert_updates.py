@@ -204,6 +204,39 @@ class AlertUpdateIntegrationTests(unittest.TestCase):
         self.cycle()
         self.assertEqual(self.deliver.call_count, 2)
 
+    def test_a_video_the_first_post_owes_goes_with_the_next_update_and_heat_stays_heat(self):
+        # Shaybah, 25 Nov 2026: «حرارة غير معتادة» went out as text (its video was being made again
+        # for a stronger reading); the video was ready a minute before the third picture made the
+        # heat certain, and that update went out as text too, calling it «الحريق»
+        self.change_incident(
+            kind="unusual", verdict="مرجّح", alerted_verdict="مرجّح", srcs=["mtg_frp"], families=["mtg"],
+            first="2026-11-08T11:30:00Z", last="2026-11-08T11:50:00Z",
+            geo_slots=["2026-11-08T11:30:00Z", "2026-11-08T11:40:00Z", "2026-11-08T11:50:00Z"],
+            frp_series=[["2026-11-08T11:30:00Z", 51.3, "mtg"], ["2026-11-08T11:40:00Z", 57.5, "mtg"],
+                        ["2026-11-08T11:50:00Z", 42.1, "mtg"]],
+            max_frp=57.5, alerted_max_frp=57.5, clip_video_pending=True, clip_max_frp=57.5,
+            clip_peak_time="2026-11-08T11:40:00Z", clip_style=engine.CLIP_STYLE,
+            headline="حرارة غير معتادة في مصفاة", place="land",
+            facility={"label": "مصفاة", "code": "refinery", "km": 1.1}, typical_frp=2.6, site_habit=9.8,
+            site_record=10.0, known_days=28, area_days=29)
+        incident = self.cycle()
+        self.assertEqual(incident["verdict"], "مؤكد")
+        self.assertEqual(self.deliver.call_count, 1, "one reply: the update with its video")
+        text, media = self.deliver.call_args.args[2], self.deliver.call_args.args[3]
+        self.assertIsNotNone(media)
+        self.assertIn("تحديث: الحرارة مؤكدة الآن", text)
+        self.assertNotIn("الحريق", text)
+        self.assertNotIn("قيد التجهيز", text)
+        self.assertFalse(incident["clip_video_pending"])
+
+    def test_a_fire_stays_a_fire_in_its_updates(self):
+        from rasad.brain import alert_message
+        inc = self.incident()
+        inc.update(verdict="مؤكد", alerted_verdict="مرجّح", headline="حريق في البحر قرب مضيق هرمز", reason="رصده قمران")
+        self.assertIn("تحديث: الحريق مؤكد الآن", alert_message(inc, self.cfg, update=True, threaded=True))
+        inc.update(headline="حرارة جديدة مستمرة في السعودية")
+        self.assertIn("تحديث: الحرارة مؤكدة الآن", alert_message(inc, self.cfg, update=True, threaded=True))
+
     def test_failed_later_video_delivery_keeps_pending_until_success(self):
         self.refresh_ok = False
         self.cycle()

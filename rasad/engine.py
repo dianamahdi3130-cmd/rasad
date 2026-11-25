@@ -1392,7 +1392,10 @@ def run_cycle(cfg, send=True, alert_now=False):
         first_post = inc.get("tg_msg")
         media = None
         early_confirmation = bool(inc.get("early_ids")) and inc.get("early_video_sent_at") != iso(now)
-        with_video = intensity or early_confirmation
+        # a video the first post still owes goes with this update when it is made (Shaybah, 25 Nov
+        # 2026: the video was ready a minute before «الحرارة مؤكدة الآن», which went out as text)
+        owed = bool(inc.get("clip_video_pending"))
+        with_video = intensity or early_confirmation or owed
         if with_video and prepare_clip(inc, refresh=True) and inc.get("clip"):
             path = Path(cfg["_site_dir"]) / inc["clip"]
             if path.exists():
@@ -1406,7 +1409,7 @@ def run_cycle(cfg, send=True, alert_now=False):
                 media = path
         message = alert_message(inc, cfg, update=True, threaded=bool(first_post),
                                 intensity=intensity, delayed=_delayed_update(inc, cfg, now))
-        if with_video and media is None and cfg["clip"].get("enabled", True):
+        if (intensity or early_confirmation) and media is None and cfg["clip"].get("enabled", True):
             message += "\n🎞 الفيديو المحدث قيد التجهيز؛ سيُرسل عند توفر صور تُظهر الرصد الجديد بوضوح."
         if post(message, media, reply_to=first_post):
             S.sent = True

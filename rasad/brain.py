@@ -845,16 +845,22 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
     lines = []
     if update:
         newly_confirmed = sure and inc.get("alerted_verdict") != "مؤكد" and not video_update and not delayed
+        # heat that was posted as heat (a plant's surge, new sustained heat, heat at a platform) stays
+        # heat in its updates: «مؤكد» says the heat is certain, not that it is a fire (Shaybah, 25 Nov 2026)
+        heat = inc.get("kind") == "unusual" or str(inc.get("headline") or "").startswith("حرارة")
+        it, sure_now, grew = (("الحرارة", "الحرارة مؤكدة الآن", "وارتفعت شدتها") if heat
+                              else ("الحريق", "الحريق مؤكد الآن", "وارتفعت شدته"))
         if delayed:
-            title = "فيديو محدث لقياسات سابقة للحريق" if video_update else "تحديث متأخر لقياسات الحريق"
+            title = f"فيديو محدث لقياسات سابقة {'للحرارة' if heat else 'للحريق'}" if video_update \
+                else f"تحديث متأخر لقياسات {it}"
             lines.append(f"🔄 <b>{title}</b>")
         elif video_update:
-            lines.append("🔄 <b>فيديو محدث للحريق</b>")
+            lines.append(f"🔄 <b>فيديو محدث {'للحرارة' if heat else 'للحريق'}</b>")
         elif intensity:
-            title = "تحديث: الحريق مؤكد الآن وارتفعت شدته" if newly_confirmed else "تحديث: ارتفاع شدة الحريق"
+            title = f"تحديث: {sure_now} {grew}" if newly_confirmed else f"تحديث: ارتفاع شدة {it}"
             lines.append(f"🔄 <b>{title}</b>")
         else:
-            lines.append("🔄 <b>تحديث: الحريق مؤكد الآن</b>" if newly_confirmed else "🔄 <b>تحديث</b>")
+            lines.append(f"🔄 <b>تحديث: {sure_now}</b>" if newly_confirmed else "🔄 <b>تحديث</b>")
         if not threaded:
             lines.append(f"<b>{esc(bidi_safe(inc['headline']))}</b>")
         if newly_confirmed:

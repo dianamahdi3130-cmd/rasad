@@ -1,4 +1,6 @@
-{"mode": "steps", "try": 21,
+{"mode": "steps", "try": 22,
  "steps": [
-  ["seascan", "--start", "2026-11-25T00:30Z", "--end", "2026-11-25T03:00Z", "--boxes", "site_east_sa"]
+  ["clip", "--lat", "22.6769", "--lon", "54.1375", "--time", "2026-11-25T12:10Z", "--end", "2026-11-25T12:50Z", "--frames", "13",
+   "--where", "حقل شيبة", "--country", "السعودية", "--out", "probe-out/shaybah"],
+  ["probe", "--lat", "22.6769", "--lon", "54.1375", "--start", "2026-11-25T11:30Z", "--end", "2026-11-25T13:00Z", "--radius", "6", "--out", "probe-out/shaybah_probe"]
  ]}
