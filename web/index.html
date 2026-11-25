@@ -454,6 +454,8 @@ button.card:hover{border-color:var(--line-2);background:color-mix(in srgb,var(--
 .card .where{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
 .card .chain,.chain-note{display:block;color:var(--muted);font-size:12.5px;line-height:1.7;overflow-wrap:anywhere}
 .chain-note{margin-top:8px;font-size:13.5px}
+.leaflet-tooltip.stop-tip{background:var(--surface-2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:0 6px;font-size:12px;line-height:1.6;box-shadow:none}
+.leaflet-tooltip.stop-tip::before{display:none}
 .card .nums{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;margin-top:8px}
 .card .strength{font-size:14px;font-weight:600;white-space:nowrap}
 /* how sure: the verdict word, the number, and a thin bar in the verdict's colour */
@@ -1050,7 +1052,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <div id="report" aria-hidden="true"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="access.js?v=26"></script>
+<script src="access.js?v=27"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24,
@@ -1587,7 +1589,10 @@ function chainView(rows, sel){
     const latest = list.reduce((a, b) => lastTime(b) > lastTime(a) ? b : a);
     for (const it of list) { done.add(it.id); if (it !== latest && it.id !== sel) hide.add(it.id); }
     if (pts.length) pos.set(latest.id, [pts[pts.length - 1][1], pts[pts.length - 1][2]]);
-    if (pts.length > 1) trails.push({id: root, pts: pts.map(p => [p[1], p[2]]), dashed: false});
+    // the older records keep a small dot on the path, where and when each was first seen
+    const stops = list.filter(it => it !== latest && it.id !== sel)
+      .map(it => ({id: it.id, t: startTime(it) / 1000, at: [it.lat, it.lon], label: clock(it.first)}));
+    if (pts.length > 1) trails.push({id: root, pts: pts.map(p => [p[1], p[2]]), ts: pts.map(p => p[0]), stops, dashed: false});
   }
   for (const {it} of rows){
     const own = pathOf(it);
@@ -1616,14 +1621,23 @@ const smoothPath = pts => pts.length < 5 ? pts : pts.map((p, i) => {
 });
 function drawTrails(trails){
   if (!globalThis.L || !L.polyline || !S.layer) return;
-  const sig = trails.map(t => t.id + ":" + t.pts.length + ":" + t.pts[t.pts.length - 1].join()).join("|");
+  const sig = trails.map(t => t.id + ":" + t.pts.length + ":" + t.pts[t.pts.length - 1].join() + ":" + (t.stops || []).map(x => x.id).join()).join("|");
   if (sig === S.trailSig) return;
   S.trailSig = sig;
   if (!S.trailLayer) S.trailLayer = L.layerGroup().addTo(S.layer);
   S.trailLayer.clearLayers();
-  for (const t of trails)
-    L.polyline(t.dashed ? t.pts : smoothPath(t.pts), {color: t.dashed ? "#9aa3b2" : "#4d9bf0", weight: t.dashed ? 2 : 3, opacity: .9,
-                       dashArray: t.dashed ? "6 8" : null, interactive: false}).addTo(S.trailLayer);
+  for (const t of trails){
+    const line = t.dashed ? t.pts : smoothPath(t.pts);
+    L.polyline(line, {color: t.dashed ? "#9aa3b2" : "#4d9bf0", weight: t.dashed ? 2 : 3, opacity: .9,
+                      dashArray: t.dashed ? "6 8" : null, interactive: false}).addTo(S.trailLayer);
+    for (const stop of t.stops || []){            // on the line, at the picture nearest in time
+      let k = 0;
+      (t.ts || []).forEach((v, i) => { if (Math.abs(v - stop.t) < Math.abs(t.ts[k] - stop.t)) k = i; });
+      const dot = L.circleMarker(line[k] || stop.at, {radius: 6, color: "#ffffff", weight: 2, fillColor: "#e8912d", fillOpacity: 1})
+        .on("click", () => go(stop.id)).addTo(S.trailLayer);
+      if (stop.label && dot.bindTooltip) dot.bindTooltip(stop.label, {permanent: true, direction: "top", offset: [0, -6], className: "stop-tip"});
+    }
+  }
 }
 function cardHTML(it){
   const cat = categoryOf(it), c = confOf(it), f = it.facility;
@@ -3213,7 +3227,7 @@ async function signOut(){
 // The «قبل وبعد» screen (imagery.js, beforeafter.js) is behind the door on the private app, so its
 // scripts are added only once the app may run: at once on the open site, after a sign-in on the
 // private one. The app does not wait for them, and everything else works without them (hasBA()).
-const TOOLS = ["imagery.js?v=26", "beforeafter.js?v=26"];
+const TOOLS = ["imagery.js?v=27", "beforeafter.js?v=27"];
 function loadTools(){
   if (hasBA() || S.toolsBusy) return;
   S.toolsBusy = true;
@@ -3568,7 +3582,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 26;                    // the same number as CACHE in sw.js and ?v= of the scripts
+const APP_V = 27;                    // the same number as CACHE in sw.js and ?v= of the scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {
