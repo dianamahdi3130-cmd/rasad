@@ -1608,6 +1608,12 @@ function chainHTML(it, cls = "chain"){
   return (c.n > 1 ? `<span class="${cls}">🔗 الحريق نفسه: ${esc(sightingsWord(c.n))} لحرارة توبعت بلا انقطاع${Number.isFinite(Date.parse(c.since)) ? "، أولها " + esc(ago(c.since)) : ""}</span>` : "")
     + (c.maybe && c.maybe.text ? `<span class="${cls}">❔ غير محسوم: ${esc(c.maybe.text)}</span>` : "");
 }
+// a position is good to about 2 km, so the points of a path wobble: the line drawn is their running mean
+const smoothPath = pts => pts.length < 5 ? pts : pts.map((p, i) => {
+  if (i === 0 || i === pts.length - 1) return p;
+  const part = pts.slice(Math.max(0, i - 2), Math.min(pts.length, i + 3));
+  return [part.reduce((s, q) => s + q[0], 0) / part.length, part.reduce((s, q) => s + q[1], 0) / part.length];
+});
 function drawTrails(trails){
   if (!globalThis.L || !L.polyline || !S.layer) return;
   const sig = trails.map(t => t.id + ":" + t.pts.length + ":" + t.pts[t.pts.length - 1].join()).join("|");
@@ -1616,7 +1622,7 @@ function drawTrails(trails){
   if (!S.trailLayer) S.trailLayer = L.layerGroup().addTo(S.layer);
   S.trailLayer.clearLayers();
   for (const t of trails)
-    L.polyline(t.pts, {color: t.dashed ? "#9aa3b2" : "#4d9bf0", weight: t.dashed ? 2 : 3, opacity: .9,
+    L.polyline(t.dashed ? t.pts : smoothPath(t.pts), {color: t.dashed ? "#9aa3b2" : "#4d9bf0", weight: t.dashed ? 2 : 3, opacity: .9,
                        dashArray: t.dashed ? "6 8" : null, interactive: false}).addTo(S.trailLayer);
 }
 function cardHTML(it){
@@ -1685,7 +1691,9 @@ function drawMarkers(){
   const rows = !live ? [] : S.tl == null ? visible().map(it => ({it, state:""})) : timelineView(visible(), S.tl, S.hours);
   const one = live && S.sel && incidentById(S.sel);          // the opened incident is drawn even when a filter hides it from the list
   if (one && !rows.some(r => r.it === one)) rows.push({it: one, state:""});
-  const keep = new Set(), pts = [], cv = chainView(rows, S.sel);
+  const keep = new Set(), pts = [];
+  let cv = {hide: new Set(), pos: new Map(), trails: []};
+  try { cv = chainView(rows, S.sel); } catch (e) { console.warn("chains", e); }     // a drawing aid never costs the map its markers
   S.marks = S.marks || new Map();
   for (const {it, state} of rows){
     if (!Number.isFinite(it.lat) || !Number.isFinite(it.lon) || cv.hide.has(it.id)) continue;
@@ -1702,7 +1710,7 @@ function drawMarkers(){
     keep.add(it.id); pts.push(at);
   }
   for (const [id, m] of S.marks) if (!keep.has(id)) { S.fires.removeLayer(m.mark); S.marks.delete(id); }
-  drawTrails(cv.trails);
+  try { drawTrails(cv.trails); } catch (e) { console.warn("trails", e); }
   const flares = live && S.tl == null && UI.flares !== false ? flareItems() : [], sig = flares.map(f => f.id + f.last + f.peak).join();
   if (sig !== S.flareSig){
     S.flareSig = sig; S.flareMarks = {}; S.flareLayer.clearLayers();
