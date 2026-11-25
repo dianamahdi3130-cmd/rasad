@@ -41,6 +41,10 @@ SETTINGS = {
     "net_km": 2.0,          # ...and the run may not travel further than this plus the drift: a hull drifts
                             # 1.5-2.5 km/h; a sunlit cloud edge or a ship under way runs 15-30 km/h (the
                             # central Gulf, 25 Nov 2026: a speck 3 km further east in each picture)
+    "red_margin": 2.5,      # the 3.8 micron red above both short waves (1.6, 2.2 micron), each against the
+                            # 12 km around: heat. Hormuz, 25 Nov 2026, the fire all day: red 7-33 over
+                            # green and blue of 0-10, ahead by 2-26. Sunlit clouds and glint on four
+                            # fireless seas the same day: green and blue as bright as the red or brighter
     "coast_km": 2.0,        # islets and shores warm in the sun
     "flare_km": 1.5,        # a usual flare of NASA's long-term map this close is a platform, not the fire
     "max_fires": 3,         # fires followed in one check (one small picture each)
@@ -156,21 +160,22 @@ def look(cfg, pics, inc, t, geo=None):
             got = {"t": iso(t), "lat": round(lat, 4), "lon": round(lon, 4), "above": round(v, 1),
                    "km": round(haversine_km(lat0, lon0, lat, lon), 1)}
             got.update(_looks(cfg, pics, bbox, W, H, t, r, c, km, lat, lon))
-            return got
+            if "red" not in got or got["red"] - max(got.get("green", 0.0), got.get("blue", 0.0)) \
+                    >= float(F["red_margin"]):
+                return got
         b[max(0, r - k):r + k + 1, max(0, c - k):c + k + 1] = -1e9
     return {"t": iso(t), "miss": True}
 
 
 def _looks(cfg, pics, bbox, W, H, t, r, c, km, lat, lon):
-    """What else the pictures say at the spot, against the 12 km around it: the 3.8 micron red alone,
-    the short waves (1.6 and 2.2 micron: dark over the sea, bright on a sunlit cloud or glint), the
-    10.5 micron picture (drawn bright where cold: a cloud), and the sun."""
+    """What else the picture says at the spot, against the 12 km around it: the 3.8 micron red alone and
+    the short waves (1.6 and 2.2 micron: dark over the sea, bright on a sunlit cloud or glint, and the
+    flame's own glow at night), and the sun."""
     from .seawatch import local_mean
     C = cfg["seawatch"]
     out = {"sun": round(float(sun_elevation(lat, lon, t)), 1)}
     rad = max(4, round(12 / km))
-    for name, layer, channel in (("red", C["layer"], 0), ("green", C["layer"], 1), ("blue", C["layer"], 2),
-                                 ("cold", C["check_layer"], None)):
+    for name, layer, channel in (("red", C["layer"], 0), ("green", C["layer"], 1), ("blue", C["layer"], 2)):
         try:
             img = pics.get(layer, bbox, W, H, t, channel=channel)
         except Exception:  # noqa: BLE001 - a missing check picture says nothing

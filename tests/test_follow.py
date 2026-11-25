@@ -36,13 +36,14 @@ def posted(**extra):
 class Sky:
     """Pictures of a calm sea around the last sighting, with a warm speck where the fire is."""
 
-    def __init__(self, cfg, spots):
+    def __init__(self, cfg, spots, cloud=False):
         self.cfg, self.spots = cfg, spots      # {time: (lat, lon, levels above the sea)}
+        self.cloud = cloud                     # a sunlit cloud: as bright in the short waves as at 3.8 micron
 
     def get(self, layer, bbox, W, H, t, channel=None):
         img = np.full((H, W), 12.0, dtype=np.float32)
         spot = self.spots.get(t)
-        if spot is not None:
+        if spot is not None and (channel in (None, 0) or self.cloud):
             lat, lon, above = spot
             w, s, e, n = bbox
             r = int((n - lat) / (n - s) * H)
@@ -61,10 +62,10 @@ class Follow(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def run_day(self, spots, start, end, inc=None):
+    def run_day(self, spots, start, end, inc=None, cloud=False):
         cfg = config()
         inc = inc or posted()
-        sky = Sky(cfg, spots)
+        sky = Sky(cfg, spots, cloud)
         replies = []
         t = start
         while t <= end:
@@ -116,6 +117,15 @@ class Follow(unittest.TestCase):
                  for k, (lat, lon) in enumerate(path)}
         _, replies = self.run_day(spots, dt.datetime(2026, 11, 25, 3, 30, tzinfo=UTC),
                                   dt.datetime(2026, 11, 25, 9, 0, tzinfo=UTC), inc)
+        self.assertEqual(replies, [])
+
+    def test_a_sunlit_cloud_or_glint_that_stays_is_not_heat(self):
+        # four fireless seas on 22 and 25 Nov 2026: specks staying for an hour or more after sunrise,
+        # as bright at 1.6 and 2.2 micron as at 3.8 micron (the fire: red far ahead of both)
+        spots = {dt.datetime(2026, 11, 25, 3, 0, tzinfo=UTC) + dt.timedelta(minutes=30 + 10 * k): (26.355, 56.30, 9.0)
+                 for k in range(6)}
+        _, replies = self.run_day(spots, dt.datetime(2026, 11, 25, 1, 0, tzinfo=UTC),
+                                  dt.datetime(2026, 11, 25, 5, 0, tzinfo=UTC), cloud=True)
         self.assertEqual(replies, [])
 
     def test_a_flicker_is_not_enough(self):

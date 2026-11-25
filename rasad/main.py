@@ -299,7 +299,7 @@ def main(argv=None):
                     log.info("%s: picture missing", iso(t))
                 else:
                     rec = follow.note(inc, got, cfg)
-                    extra = {k: got[k] for k in ("sun", "red", "green", "blue", "cold") if k in got}
+                    extra = {k: got[k] for k in ("sun", "red", "green", "blue") if k in got}
                     log.info("%s: %s streak %d %s", iso(t), "nothing" if got.get("miss") else
                              f"{got['lat']},{got['lon']} above {got['above']} at {got['km']} km", rec["streak"],
                              extra or "")
