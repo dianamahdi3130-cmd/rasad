@@ -299,11 +299,13 @@ def main(argv=None):
                     log.info("%s: picture missing", iso(t))
                 else:
                     rec = follow.note(inc, got, cfg)
-                    log.info("%s: %s streak %d", iso(t), "nothing" if got.get("miss") else
-                             f"{got['lat']},{got['lon']} above {got['above']} at {got['km']} km", rec["streak"])
-                    if follow.due(inc, cfg):
+                    extra = {k: got[k] for k in ("sun", "red", "green", "blue", "cold") if k in got}
+                    log.info("%s: %s streak %d %s", iso(t), "nothing" if got.get("miss") else
+                             f"{got['lat']},{got['lon']} above {got['above']} at {got['km']} km", rec["streak"],
+                             extra or "")
+                    if follow.due(inc, cfg) and not inc.get("_replied"):
                         print(f"REPLY at {iso(t)}:\n{follow.message(inc, cfg)}\n")
-                        inc["still_posted"] = iso(t)
+                        inc["_replied"] = iso(t)
             pics.cache = {k: v for k, v in pics.cache.items() if k[4] >= iso(t - dt.timedelta(minutes=20))}
             t += dt.timedelta(minutes=cad)
         return

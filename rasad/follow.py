@@ -22,7 +22,8 @@ import math
 import numpy as np
 
 from . import patterns
-from .util import bearing_deg, box_around, direction_ar, floor_time, haversine_km, iso, log, parse_time
+from .util import (bearing_deg, box_around, direction_ar, floor_time, haversine_km, iso, log, parse_time,
+                   sun_elevation)
 
 SETTINGS = {
     "enabled": False,       # on in config.yaml
@@ -152,10 +153,33 @@ def look(cfg, pics, inc, t, geo=None):
             break
         lat, lon = float(lats[r]), float(lons[c])
         if not _excluded(lat, lon, geo, F):
-            return {"t": iso(t), "lat": round(lat, 4), "lon": round(lon, 4), "above": round(v, 1),
-                    "km": round(haversine_km(lat0, lon0, lat, lon), 1)}
+            got = {"t": iso(t), "lat": round(lat, 4), "lon": round(lon, 4), "above": round(v, 1),
+                   "km": round(haversine_km(lat0, lon0, lat, lon), 1)}
+            got.update(_looks(cfg, pics, bbox, W, H, t, r, c, km, lat, lon))
+            return got
         b[max(0, r - k):r + k + 1, max(0, c - k):c + k + 1] = -1e9
     return {"t": iso(t), "miss": True}
+
+
+def _looks(cfg, pics, bbox, W, H, t, r, c, km, lat, lon):
+    """What else the pictures say at the spot, against the 12 km around it: the 3.8 micron red alone,
+    the short waves (1.6 and 2.2 micron: dark over the sea, bright on a sunlit cloud or glint), the
+    10.5 micron picture (drawn bright where cold: a cloud), and the sun."""
+    from .seawatch import local_mean
+    C = cfg["seawatch"]
+    out = {"sun": round(float(sun_elevation(lat, lon, t)), 1)}
+    rad = max(4, round(12 / km))
+    for name, layer, channel in (("red", C["layer"], 0), ("green", C["layer"], 1), ("blue", C["layer"], 2),
+                                 ("cold", C["check_layer"], None)):
+        try:
+            img = pics.get(layer, bbox, W, H, t, channel=channel)
+        except Exception:  # noqa: BLE001 - a missing check picture says nothing
+            img = None
+        if img is None:
+            continue
+        r0, r1, c0, c1 = max(0, r - 1), r + 2, max(0, c - 1), c + 2
+        out[name] = round(float(np.nanmax((img - local_mean(img, rad))[r0:r1, c0:c1])), 1)
+    return out
 
 
 def note(inc, got, cfg):
