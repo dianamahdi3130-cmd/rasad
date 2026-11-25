@@ -744,13 +744,22 @@ def new_heat_note(inc):
     """Why a fire far from every mapped facility is posted: what is known, and nothing more."""
     if not inc.get("new_heat"):
         return ""
+    try:
+        record = patterns.longterm_words(inc["lat"], inc["lon"])
+    except Exception:  # noqa: BLE001 - a line of context must never stop a post
+        record = ""
+    record = f" {record}." if record else ""
+    field = inc.get("field")
     if inc.get("new_heat_path") == "b":
-        text = f"🗺 لا منشأة مسجّلة في الخريطة هنا. {patterns.quiet_words(inc)}."
+        text = (f"🗺 لا منشأة كبيرة في الخريطة هنا. " if field else "🗺 لا منشأة مسجّلة في الخريطة هنا. ") \
+            + f"{patterns.quiet_words(inc)}."
         if patterns.PA_OIL_GAS in patterns._tags(inc):
             text += " تصنّف NOAA هذه النقطة موقع نفط وغاز."
-        return text + " " + patterns.NO_CAUSE + "."
+        return text + record + " " + patterns.NO_CAUSE + "."
+    if field:   # the open map knows what is there: said in its own line (field_line)
+        return "🗺 لا منشأة كبيرة في الخريطة هنا، ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر." + record
     return ("🗺 لا منشأة مسجّلة في الخريطة هنا، ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر. "
-            "قد يكون موقعاً غير مرسوم (محطة ضخ، بئر، خط أنابيب).")
+            "قد يكون موقعاً غير مرسوم (محطة ضخ، بئر، خط أنابيب)." + record)
 
 
 def surge_note(inc):
@@ -896,6 +905,8 @@ def alert_message(inc, cfg, update=False, threaded=False, intensity=False, video
         lines.append(f"🏭 <b>أقرب منشأة:</b> {esc(bidi_safe(f.get('label') or f['cat']))} · على بعد {f['km']:.0f} كم")
     else:
         lines.append(f"🏭 <b>أقرب منشأة:</b> لا منشأة طاقة ضمن {cfg['geodata']['facility_max_km']} كم")
+    if inc.get("field") and inc.get("place") != "sea" and (not f or float(f.get("km") or 0) > 3.0):
+        lines.append(f"🛢 <b>في الخريطة المفتوحة:</b> {esc(patterns.field_words(inc['field']))}")
     names = []
     for fam in inc["families"]:
         n = SOURCE_TG.get(fam, FAMILY_AR.get(fam, fam))

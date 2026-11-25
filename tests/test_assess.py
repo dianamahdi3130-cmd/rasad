@@ -210,6 +210,27 @@ class NewHeat(unittest.TestCase):
         self.assertTrue(any("ولا منشأة مسجّلة في الخريطة" in e["text"] for e in inc["evidence"]))
         self.assertGreaterEqual(inc["confidence"], 75)
 
+    def test_a_well_site_is_told_what_lies_there_and_what_nasa_saw_before(self):
+        # 25 Nov 2026, the Jafurah gas field (Saudi Arabia): 13 -> 64 -> 9 -> 45 MW from 18:40 Baghdad
+        # time, a well 1.1 km and a pipeline 0.5 km away on the open map, heat on this spot on 6 of
+        # NASA's 197 sampled dates. It was posted as «لا منشأة مسجّلة في الخريطة هنا» and «لم تُرصد حرارة
+        # ... خلال شهر», true of the month and of the facility map, and nothing more
+        dets = [det("mtg_frp", "mtg", f"2026-11-25T{hh}:00Z", frp=frp, lat=25.4742, lon=50.1895)
+                for hh, frp in zip(["15:40", "15:50", "16:00", "16:10"], [13.2, 63.5, 9.4, 45.1])]
+        inc = incident(dets, place="land", where="على بعد 17 كم جنوب غرب جزيرة الزخنونية (السعودية)",
+                       country="السعودية", regions=["gulf", "saudi"], region_name="الخليج الفارسي",
+                       known_days=0, area_days=0, field={"well_km": 1.1, "wells": 4, "pipe_km": 0.5})
+        self.assertTrue(inc["new_heat"])
+        message = alert_message(inc, config())
+        self.assertIn("🗺 لا منشأة كبيرة في الخريطة هنا، ولم تُرصد حرارة في هذا المكان ولا حوله خلال شهر. "
+                      "سجل ناسا منذ آذار 2024: حرارة في هذه النقطة في 6 تواريخ من 197.", message)
+        self.assertIn("🛢 <b>في الخريطة المفتوحة:</b> بئر نفط أو غاز على بعد 1.1 كم (وآبار أخرى حوله)، "
+                      "وخط أنابيب على بعد 0.5 كم", message)
+        self.assertNotIn("غير مرسوم", message)
+        self.assertTrue(any("بئر نفط أو غاز" in e["text"] for e in inc["evidence"]))
+        for cause in ("هجوم", "استهداف", "ضربة", "اختبار", "تنفيس"):
+            self.assertNotIn(cause, message)
+
     def test_pictures_with_a_gap_are_not_called_an_unbroken_run(self):
         # the source stopped publishing between 18:50 and 21:30 UTC; the fire was seen again at 21:40
         times = ["17:40", "17:50", "18:00", "18:10", "18:20", "18:30", "18:40", "21:40"]

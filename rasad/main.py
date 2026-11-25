@@ -180,6 +180,11 @@ def main(argv=None):
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
     p.add_argument("--bbox", default="55.0,25.0,57.6,27.3", help="west,south,east,north")
+    p = sub.add_parser("follow", help="diagnosis: replay following a posted sea fire after its last sighting")
+    p.add_argument("--lat", type=float, required=True, help="the fire's last sighting")
+    p.add_argument("--lon", type=float, required=True)
+    p.add_argument("--seen", required=True, help="time of that sighting, UTC")
+    p.add_argument("--end", required=True)
     p = sub.add_parser("grab", help="diagnosis: keep the finder's pictures of an area and period for offline study")
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
@@ -276,6 +281,31 @@ def main(argv=None):
                          d.get("frp"), d.get("conf"), d.get("night"))
             day += dt.timedelta(days=1)
         hotspots(cfg, WMS(cfg["eumetview"]["wms_url"], session), start, end, bb)
+        return
+    if args.cmd == "follow":
+        from . import follow
+        from .seawatch import Pictures
+        cfg["follow"] = dict(follow.settings(cfg), enabled=True)
+        seen, end = parse_time(args.seen), parse_time(args.end)
+        inc = {"id": "replay", "status": "alerted", "tg_msg": 1, "place": "sea", "lat": args.lat, "lon": args.lon,
+               "first": iso(seen), "last": iso(seen), "observations": [{"t": iso(seen), "lat": args.lat, "lon": args.lon}]}
+        pics = Pictures(WMS(cfg["eumetview"]["wms_url"], make_session()), attempts=2)
+        cad = int(cfg["seawatch"]["cadence_min"])
+        t = floor_time(seen, cad) + dt.timedelta(minutes=cad)
+        while t <= end:
+            if follow.wanted(inc, cfg, t + dt.timedelta(minutes=int(cfg["seawatch"]["delay_min"]))):
+                got = follow.look(cfg, pics, inc, t)
+                if got is None:
+                    log.info("%s: picture missing", iso(t))
+                else:
+                    rec = follow.note(inc, got, cfg)
+                    log.info("%s: %s streak %d", iso(t), "nothing" if got.get("miss") else
+                             f"{got['lat']},{got['lon']} above {got['above']} at {got['km']} km", rec["streak"])
+                    if follow.due(inc, cfg):
+                        print(f"REPLY at {iso(t)}:\n{follow.message(inc, cfg)}\n")
+                        inc["still_posted"] = iso(t)
+            pics.cache = {k: v for k, v in pics.cache.items() if k[4] >= iso(t - dt.timedelta(minutes=20))}
+            t += dt.timedelta(minutes=cad)
         return
     if args.cmd == "grab":
         from .probe import grab

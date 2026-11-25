@@ -6,6 +6,9 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 
 ## Working with the owner
 - Reply in Arabic, in plain words. The owner is not a developer: say what changes for them.
+  **Every message to the owner is in Arabic, with no exception**: answers, short progress notes
+  between steps, waiting notes, questions. Never one English sentence (the owner's instruction of
+  25 Nov 2026, repeated many times). Code, commits and docs stay in English.
 - Secrets live only in GitHub repository secrets: `FIRMS_MAP_KEY`, `TELEGRAM_BOT_TOKEN`,
   `TELEGRAM_CHAT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `RASAD_ADMIN_CODE` (the
   manager's code = the manager's own access key) and a cron-job.org token; the optional
