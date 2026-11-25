@@ -207,3 +207,70 @@ class TwoShips(unittest.TestCase):
         self.assertIs(brain.find_incident([a, b], spot("2026-11-24T01:10:00Z", 26.391, 56.284), 6, 12), b)
         # the same spot given again (its strength read later) is the same fire, not another
         self.assertIs(brain.find_incident([a], dict(first), 6, 12), a)
+
+
+class EarlierFireInTheFirstPost(unittest.TestCase):
+    """Hormuz, 25 Nov 2026: NASA's day pass found a ship fire 14 km from the confirmed fire of the
+    night before; the post at 13:02 did not say so, because a new record learnt that it was at sea
+    only after the earlier fire had been looked for."""
+
+    def test_a_new_record_at_sea_says_the_confirmed_fire_close_by(self):
+        from unittest.mock import Mock, patch
+        from rasad import brain
+        from rasad.util import UTC, iso, save_json
+        now = dt.datetime(2026, 11, 25, 10, 30, tzinfo=UTC)
+        night = [{"src": "mtg_spot", "family": "mtg", "kind": "geo", "t": f"2026-11-25T00:{m:02d}:00Z",
+                  "lat": 26.3566, "lon": 56.248} for m in (0, 10, 20, 30)]
+        night.append({"src": "VIIRS_NOAA21_NRT", "family": "viirs", "kind": "polar", "t": "2026-11-24T22:49:00Z",
+                      "lat": 26.36, "lon": 56.25, "frp": 3.4, "conf": "n", "night": True})
+        old = brain.new_incident(night[-1], "new")
+        for d in night:
+            brain.add_to_incident(old, d)
+        old.update(place="sea", where="في البحر قرب مضيق هرمز", country="", regions=["hormuz"],
+                   region_name="مضيق هرمز", facility=None, known_days=0, area_days=0, typical_frp=None)
+        cfg = copy.deepcopy(engine.DEFAULTS)
+        brain.finalize(old, cfg)
+        self.assertEqual(old["verdict"], "مؤكد")
+        old.update(status="alerted", alerted_verdict="مؤكد", alerted_at="2026-11-24T23:40:00Z", tg_msg=1)
+        row = {"src": "VIIRS_NOAA20_NRT", "family": "viirs", "kind": "polar", "t": "2026-11-25T10:02:00Z",
+               "lat": 26.2893, "lon": 56.1398, "frp": 8.9, "conf": "n", "night": False, "satellite": "N20",
+               "instrument": "VIIRS"}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg.update(_state_dir=root / "state", _site_dir=root / "site", _geodata_dir=root / "geo")
+            cfg["regions"] = [{"id": "hormuz", "name": "مضيق هرمز", "bbox": [55.4, 25.3, 57.6, 27.3]}]
+            cfg["seawatch"].update(enabled=False, look_back=False)
+            cfg["eumetview"]["fire_layers"] = []
+            cfg["clip"]["enabled"] = False
+            cfg["firms"]["map_key"] = "offline-test-key"
+            cfg["noaa"]["enabled"] = True
+            save_json(root / "state" / "state.json",
+                      {"schema": 3, "rules": engine.RULES, "clip_style": engine.CLIP_STYLE, "sea_check": engine.SEA_CHECK,
+                       "bootstrapped": iso(now), "hello_sent": iso(now), "slots": {}})
+            save_json(root / "state" / "incidents.json", [old])
+            memory = brain.Memory({})                      # past the learning days, quiet at this spot
+            memory.record(30, 48, "2026-11-01", 10)
+            memory.record(30, 48, "2026-11-20", 10)
+            save_json(root / "state" / "memory.json", memory.cells)
+            session = Mock()
+            session.get.side_effect = AssertionError("No network")
+            geo = Mock(version="offline-map")
+            geo.place_kind.return_value = "sea"
+            geo.facility.return_value = {"label": "منصة نفط بحرية قرب بخا", "code": "platform", "km": 9.8}
+            geo.describe.return_value = ("في البحر قرب مضيق هرمز", "")
+            geo.solar_km.return_value = None
+            geo.fac.nearest.return_value = (None, None)
+            sent = Mock(return_value=None)
+            forbidden = Mock(side_effect=AssertionError("Unexpected source"))
+            with patch.multiple(engine, utcnow=Mock(return_value=now), make_session=Mock(return_value=session),
+                                WMS=Mock(), Geo=Mock(return_value=geo), Availability=Mock(),
+                                firms_fetch=Mock(return_value=[]), latest_time=forbidden, detect_geo_layer=forbidden,
+                                deliver=sent, tg_send=forbidden), \
+                    patch.object(engine.noaafire, "collect", Mock(return_value=[row])):
+                S = engine.run_cycle(cfg, send=False)
+        new = next(i for i in S.incidents if i["first"] == "2026-11-25T10:02:00Z")
+        self.assertEqual(new["near_confirmed"]["id"], old["id"])
+        text = brain.alert_message(new, cfg)
+        self.assertIn("رُصد حريق مؤكد آخر في البحر على بعد", text)
+        posted = " ".join(str(c.args[2]) for c in sent.call_args_list if len(c.args) > 2)
+        self.assertIn("رُصد حريق مؤكد آخر في البحر على بعد", posted, "the first post itself says it")

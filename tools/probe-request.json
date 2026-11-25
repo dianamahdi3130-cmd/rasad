@@ -1,6 +1,5 @@
-{"mode": "steps", "try": 11,
+{"mode": "steps", "try": 16,
  "steps": [
-  ["grab", "--start", "2026-11-24T15:40Z", "--end", "2026-11-24T16:20Z", "--bbox", "56.0,26.0,56.6,26.6",
-   "--layers", "mtg_fd:frp,msg_iodc:fire@15,mtg_fd:rgb_firetemperature", "--km", "0.5", "--tag", "slow"],
-  ["status"]
+  ["clip", "--lat", "26.628", "--lon", "50.163", "--time", "2026-11-25T01:40Z", "--end", "2026-11-25T02:40Z", "--frames", "13",
+   "--where", "رأس تنورة", "--country", "السعودية", "--out", "probe-out/video"]
  ]}

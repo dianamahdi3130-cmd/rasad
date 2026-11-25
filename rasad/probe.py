@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import re
 from pathlib import Path
 
@@ -409,14 +410,37 @@ def osm_near(cfg, lat, lon, km=5.0, out_dir="probe-out"):
     query = ("[out:json][timeout:60];(" +
              "".join(f'nwr{around}["{key}"];' for key in ("man_made", "industrial", "power", "pipeline", "substance",
                                                            "product", "content", "operator", "name")) +
-             f'nwr{around}["landuse"~"industrial|port|military"];' + ");out center tags;")
+             f'nwr{around}["landuse"~"industrial|port|military"];' + ");out tags geom;")
     els = overpass(make_session(), cfg["geodata"]["overpass_urls"], query)
     lines = [f"OpenStreetMap within {km} km of {lat}, {lon}:"]
     if els is None:
         lines.append("  the map servers did not answer")
+    def nearest_point(el):
+        """A line or an area is as near as its nearest point: a pipeline's middle can be far away
+        while the pipe passes the fire (the Oman fire of 25 Nov 2026, between oil fields)."""
+        k = math.cos(math.radians(lat))
+
+        def on_segment(a, b):            # the nearest point of a straight piece (flat at this scale)
+            ax, ay, bx, by = (a[1] - lon) * k, a[0] - lat, (b[1] - lon) * k, b[0] - lat
+            dx, dy = bx - ax, by - ay
+            f = 0.0 if dx == dy == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / (dx * dx + dy * dy)))
+            return a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])
+
+        lines_ = [el.get("geometry") or []] + [m.get("geometry") or [] for m in el.get("members") or []]
+        pts = []
+        for line in lines_:
+            line = [(g["lat"], g["lon"]) for g in line if g]
+            pts += line[:1] + [on_segment(a, b) for a, b in zip(line, line[1:])]
+        if pts:
+            return min(pts, key=lambda q: haversine_km(lat, lon, q[0], q[1]))
+        b = el.get("bounds")
+        if b:
+            return (b["minlat"] + b["maxlat"]) / 2, (b["minlon"] + b["maxlon"]) / 2
+        return _center(el)
+
     rows = []
     for el in els or []:
-        la, lo = _center(el)
+        la, lo = nearest_point(el)
         tags = el.get("tags") or {}
         if la is None or not tags:
             continue
@@ -427,12 +451,15 @@ def osm_near(cfg, lat, lon, km=5.0, out_dir="probe-out"):
         taken = (category[0] if category and category[0] else "asked for, but not counted as energy") if asked_for(tags) else None
         rows.append((haversine_km(lat, lon, la, lo), el.get("type"), el.get("id"), la, lo, taken, tags))
     rows.sort(key=lambda row: row[0])
-    for d, kind, ident, la, lo, taken, tags in rows[:80]:
+    pylons = [row for row in rows if row[6].get("power") in ("tower", "pole") and len(row[6]) <= 2]
+    if pylons:                           # a power line's pylons one by one would fill the list
+        lines.append(f"  (a power line's pylons: {len(pylons)}, the nearest at {pylons[0][0]:.2f} km)")
+    for d, kind, ident, la, lo, taken, tags in [row for row in rows if not any(row is p for p in pylons)][:80]:
         shown = {k: v for k, v in tags.items() if k in ("man_made", "industrial", "landuse", "power", "pipeline", "substance",
                                                         "product", "content", "operator", "name", "name:en", "name:ar",
                                                         "location", "plant:source", "building")}
         lines.append(f"  {d:5.2f} km  {kind}/{ident}  {la:.5f},{lo:.5f}  in the facility map: {taken or 'no'}  {shown}")
-    lines.append(f"  {len(rows)} tagged object(s)")
+    lines.append(f"  {len(rows)} tagged object(s); distances to each one's nearest point")
     text = "\n".join(lines)
     print(text)
     out = Path(out_dir)
