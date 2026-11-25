@@ -470,6 +470,13 @@ def enrich(inc, cfg, geo):
         inc["place"] = geo.place_kind(inc["lat"], inc["lon"])
         inc["facility"] = geo.facility(inc["lat"], inc["lon"])
         inc["where"], inc["country"] = geo.describe(inc["lat"], inc["lon"], inc["place"])
+        f = inc["facility"]
+        if f and f.get("named_site") and f["km"] <= float(cfg["geodata"].get("named_site_km", 3.0)):
+            # a place whose right name the owner gave: told by it, not by the nearest town (Shaybah,
+            # 25 Nov 2026: «على بعد 30 كم جنوب شرق بطين ليوا», a town in another country)
+            inc["country"] = f.get("country") or inc["country"]
+            inc["where"] = f"في {f['label']}" + (f" ({inc['country']})" if inc["country"] else "")
+            geo.naming_deferred = False
         if not getattr(geo, "naming_deferred", False):
             inc["_pos"] = pos
     region, ids = smallest_region(cfg, inc["lat"], inc["lon"])  # cheap: follows renamed regions

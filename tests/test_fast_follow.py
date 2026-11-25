@@ -274,3 +274,42 @@ class EarlierFireInTheFirstPost(unittest.TestCase):
         self.assertIn("رُصد حريق مؤكد آخر في البحر على بعد", text)
         posted = " ".join(str(c.args[2]) for c in sent.call_args_list if len(c.args) > 2)
         self.assertIn("رُصد حريق مؤكد آخر في البحر على بعد", posted, "the first post itself says it")
+
+
+class RightNames(unittest.TestCase):
+    """Shaybah, 25 Nov 2026: the open map calls the field «Shaybah Refinery», and the post placed it
+    by the nearest town, Batin Liwa, across the border in the UAE. The owner gave its right name."""
+
+    def enriched(self, names=None):
+        from unittest.mock import Mock
+        from rasad import brain, geodb
+        from rasad.util import save_json
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = copy.deepcopy(engine.DEFAULTS)
+            cfg.update(_geodata_dir=root / "geo", _state_dir=root / "state", _site_dir=root / "site")
+            if names:
+                cfg["geodata"]["names"] = names
+            save_json(root / "geo" / "facilities.json",
+                      {"built": "2026-11-24", "items": [[22.67995, 54.12731, "Shaybah Refinery", "مصفاة", "refinery", ""]]})
+            save_json(root / "geo" / "places.json", {"items": [[22.91, 53.96, "بطين ليوا", "village"]]})
+            blank = {"country": "", "state": "", "local": ""}
+            state = {"geocode": {"22.68,54.14": blank, "22.91,53.96": blank}}
+            geo = geodb.Geo(cfg, Mock(), Mock(), state)
+            det = {"src": "mtg_frp", "family": "mtg", "kind": "geo", "t": "2026-11-25T12:10:00Z",
+                   "lat": 22.6769, "lon": 54.1375, "frp": 51.3}
+            inc = brain.new_incident(det, "new")
+            brain.add_to_incident(inc, det)
+            inc.update(known_days=0, area_days=0, typical_frp=None)
+            return engine.enrich(inc, cfg, geo), geo
+
+    def test_the_field_is_told_by_its_right_name_and_country(self):
+        before, geo_before = self.enriched()
+        self.assertIn("بطين ليوا", before["where"])
+        self.assertEqual(before["facility"]["label"], "مصفاة (Shaybah Refinery)")
+        after, geo_after = self.enriched({"Shaybah Refinery": {"name": "حقل شيبة", "country": "السعودية"}})
+        self.assertEqual(after["facility"]["label"], "حقل شيبة")
+        self.assertEqual(after["where"], "في حقل شيبة (السعودية)")
+        self.assertEqual(after["country"], "السعودية")
+        self.assertIn("حقل شيبة", after["headline"])
+        self.assertNotEqual(geo_before.version, geo_after.version, "recent incidents are described again")

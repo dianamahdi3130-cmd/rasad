@@ -398,6 +398,20 @@ def extra_facilities(cfg):
     return out
 
 
+def site_names(cfg):
+    """The right names of places the open map names wrongly or in English (config: geodata.names,
+    the map's name -> {name, country}). Shaybah, 25 Nov 2026: the map's «Shaybah Refinery» is the
+    Shaybah field, in Saudi Arabia; the post said «مصفاة (Shaybah Refinery)» and placed it by the
+    nearest town, Batin Liwa in the UAE."""
+    out = {}
+    for key, value in ((cfg.get("geodata") or {}).get("names") or {}).items():
+        if isinstance(value, str):
+            value = {"name": value}
+        if isinstance(value, dict) and str(value.get("name") or "").strip():
+            out[str(key)] = {"name": str(value["name"]).strip(), "country": str(value.get("country") or "").strip()}
+    return out
+
+
 def _extra_mark(items):
     """Short and stable: changes whenever the hand-kept list changes."""
     import hashlib
@@ -416,7 +430,9 @@ class Geo:
         extra = extra_facilities(cfg)
         self.fac = GeoIndex(fac["items"] + extra)
         self.places = GeoIndex(load_json(d / "places.json", {"items": []})["items"])
-        self.version = f"{fac.get('built')}|{len(fac['items'])}" + (f"|+{_extra_mark(extra)}" if extra else "")
+        self.names = site_names(cfg)   # a change of the right names describes recent incidents again
+        self.version = f"{fac.get('built')}|{len(fac['items'])}" + (f"|+{_extra_mark(extra)}" if extra else "") \
+            + (f"|n{_extra_mark(sorted(self.names.items()))}" if self.names else "")
         self.broken = False
         self._last_nominatim = 0.0
 
@@ -451,14 +467,21 @@ class Geo:
             if named:
                 it, d = named, dn
         b = bearing_deg(it[0], it[1], lat, lon)
-        label = facility_label(it[2], it[3]) if it[2] else self._unnamed_label(it)
+        right = getattr(self, "names", {}).get(it[2]) if it[2] else None
+        name = right["name"] if right else it[2]
+        label = facility_label(name, it[3]) if name else self._unnamed_label(it)
         if d < 0.8:
             text = f"داخل {label} أو ملاصق لها"
         else:
             text = f"{km_text(d)} {direction_ar(b)} {label}"
-        return {"name": it[2], "cat": it[3], "code": it[4], "label": label, "km": round(d, 1),
-                "nearest_km": round(d_any, 1),
-                "dir": direction_ar(b), "lat": it[0], "lon": it[1], "text": text}
+        out = {"name": name, "cat": it[3], "code": it[4], "label": label, "km": round(d, 1),
+               "nearest_km": round(d_any, 1),
+               "dir": direction_ar(b), "lat": it[0], "lon": it[1], "text": text}
+        if right:
+            out["named_site"] = True              # its right name is known: places are told by it
+            if right["country"]:
+                out["country"] = right["country"]
+        return out
 
     def _unnamed_label(self, it):
         """A facility without a name: say whose it is, or where it is ('منصة نفط بحرية قرب جزيرة زركوه')."""
