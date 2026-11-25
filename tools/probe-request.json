@@ -1,10 +1,5 @@
-{"mode": "steps", "try": 17,
+{"mode": "steps", "try": 18,
  "steps": [
-  ["grab", "--start", "2026-11-24T23:20Z", "--end", "2026-11-25T03:00Z", "--bbox", "49.8787,26.4154,50.3813,26.8646",
-   "--layers", "mtg_fd:rgb_firetemperature", "--km", "0.25", "--tag", "rt_fire"],
-  ["grab", "--start", "2026-11-24T15:20Z", "--end", "2026-11-24T23:20Z", "--bbox", "49.8787,26.4154,50.3813,26.8646",
-   "--layers", "mtg_fd:rgb_firetemperature", "--km", "0.25", "--tag", "rt_night"],
-  ["grab", "--start", "2026-11-24T15:20Z", "--end", "2026-11-25T02:30Z", "--bbox", "49.4303,25.7054,49.9297,26.1546",
-   "--layers", "mtg_fd:rgb_firetemperature", "--km", "0.25", "--tag", "abqaiq_night"],
-  ["seascan", "--start", "2026-11-25T00:30Z", "--end", "2026-11-25T03:00Z", "--boxes", "site_east_sa"]
+  ["grab", "--start", "2026-11-25T00:50Z", "--end", "2026-11-25T02:30Z", "--bbox", "49.8787,26.4154,50.3813,26.8646",
+   "--layers", "mtg_fd:ir105_hrfi", "--km", "0.25", "--tag", "rt_ir105"]
  ]}
