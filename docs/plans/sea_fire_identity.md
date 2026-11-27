@@ -55,6 +55,7 @@
 |---|---|---|
 | Steady heat at sea (`seawatch.steady_spots`) | `seawatch.steady_min_above` | 0 (was 8): off |
 | Follow reply (`follow.py`) | `follow.post` | false: it follows and records, posts nothing |
+| First sighting from one picture (`earlyalerts`) | `seawatch.early_alerts.enabled` | false since 27 Nov: it posted the Khasab ship again at 23:00 |
 | Continuity through the followed track (`brain._followed_km`) | – | reverted on the work branch, never on `main` |
 
 Neither is switched back before the work below is done and replayed.
@@ -73,6 +74,15 @@ Neither is switched back before the work below is done and replayed.
 4. **NASA's pixel is matched to the fire's first position only.** `_track_km` is not applied to polar
    detections, so a pixel on a fire that has drifted 13 km is a new incident, even while the finder
    holds the fire.
+
+## A miss of the other kind (Khasab, 26-27 Nov 2026, `docs/reviews/khasab_20261126.md`)
+
+- New heat at sea off Khasab, about a day after the earlier fire was last seen.
+- NASA saw it at 01:10 with two night pixels of 3.2 and 3.7 MW. It was never posted.
+- `brain.open_sea_fire` refuses a spot with `known_days` above 0, and the earlier ship was that one
+  day. In open water the tool's own measure of usual heat is "on most days" (`engine.usual_heat`).
+- That same refusal is also what keeps a lingering ship from a daily new post. So the change belongs
+  here, with "where the fire is now" and a line saying a fire burned near the spot in the days before.
 
 ## Further findings, reproduced by the reviewers but not checked a second time
 

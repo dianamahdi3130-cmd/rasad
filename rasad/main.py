@@ -147,6 +147,9 @@ def main(argv=None):
     p.add_argument("--where", help="the place's name written in the video")
     p.add_argument("--country", help="the country written in the video")
     p.add_argument("--out", help="folder to keep the video in (default: the app's clips)")
+    p.add_argument("--place", default="land", choices=["land", "sea", "coast"])
+    p.add_argument("--trust-center", action="store_true",
+                   help="draw it centred on the point even when the speck cannot be made out (a faint speck)")
     p.add_argument("--send", action="store_true")
     p = sub.add_parser("probe", help="what each satellite saw at a place and period (checks a known fire)")
     p.add_argument("--lat", type=float, required=True)
@@ -433,8 +436,9 @@ def main(argv=None):
         from .clip import NotVisible
         from .engine import clip_layers
         # the same pictures as an alert's video: Meteosat-12's fire picture first, then IODC's
-        info = {"where": args.where, "country": args.country, "place": "land",
-                "first": iso(floor_time(parse_time(args.time), 10)) if args.time else None}
+        info = {"where": args.where, "country": args.country, "place": args.place,
+                "first": iso(floor_time(parse_time(args.time), 10)) if args.time else None,
+                "trust_center": bool(args.trust_center)}
         video = err = None
         for L in clip_layers(cfg):
             cad = int(L["cadence_min"])

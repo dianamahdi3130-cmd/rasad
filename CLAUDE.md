@@ -16,6 +16,12 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
   (app only) for days; it is replayed on kept real pictures and on the stored events; and it gets an
   independent adversarial review before the merge. A wrong or doubled post in the channel is still
   mended at once, by switching the feature off in `config.yaml` first.
+- **Change nothing unless the owner asks (27 Nov 2026).** His words: «انت اتعبتني بالتعديلات وكل تعديل
+  يولد اخطا».
+  - Change nothing that decides or words what is posted unless he asks for that change.
+  - Do not ask him one question per case. Keep each miss or wrong post in `docs/reviews/`, and bring
+    them once a week as one short list with one plan. The first list is due on 4 Dec 2026.
+  - A wrong or doubled post is still switched off at once, and he is told in one line.
 - An analysis for the owner says what the pictures show and how sure it is, and what they cannot tell.
   Look at everything first (the whole days, `s2-look`), not a few hours: three answers about Hormuz
   on 25 Nov were guesses that the next question overturned.
@@ -145,6 +151,10 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   Hormuz, 24 Nov 2026, 25 km north of Khasab: the ship fire of the night before and specks on three
   other nights held a burning ship's pairs from 22:30 to 00:08 Baghdad time; another channel posted
   it at 00:10, Rasad at 00:10 too (`docs/reviews/hormuz_khasab_20261124.md`).
+- **Switched off on 27 Nov 2026** (`seawatch.early_alerts.enabled: false`). At 23:00 it posted the
+  heat of the Khasab ship, posted at 18:30, as a new «رصد حراري أولي». It takes a posted fire as the
+  same only within 1.5 km and 40 minutes (`match_km`, `match_minutes`). New fires now go out from
+  their second picture. The rest of this rule describes it when on.
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture. In a field of platforms NASA's long-term map
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture
