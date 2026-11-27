@@ -374,7 +374,9 @@ def pictures_ar(times):
     return f"{n} صور متتالية" if row else f"{n} صور"
 
 
-def verdict_of(inc):
+def verdict_of(inc, sea=None):
+    """The verdict and its reason. `sea`: the rules of open_sea_fire to use (sea_rules of
+    config.yaml for the channel; sea_trial for the silent trial)."""
     fams = inc["families"]
     slots = len(inc["geo_slots"])
     names = "، ".join(sorted({FAMILY_AR.get(f, f) for f in fams}))
@@ -417,7 +419,7 @@ def verdict_of(inc):
     strong = any(p.get("conf") in ("h", "high") or (p.get("frp") or 0) >= 10 for p in inc["polar"])
     if strong:
         return "مرجّح", "رصده قمر أمريكي بوضوح" + ctx
-    if open_sea_fire(inc):
+    if open_sea_fire(inc, **(sea or {})):
         night = any(p.get("night") for p in inc["polar"])
         return "مرجّح", ("رصده قمر أمريكي " + ("ليلاً " if night else "") + "في عرض البحر، بعيداً عن أي "
                          "منصة نفطية معروفة، ولم تُسجَّل حرارة في هذا المكان من قبل" + ctx)
@@ -479,14 +481,49 @@ def _clear(p):
 SEA_FAINT_MW = 2.0   # below this, one night pixel at sea is what a platform's small flare looks like
 
 
-def open_sea_fire(inc):
+def pass_count(rows):
+    """How many satellite passes these NASA pixels come from: pixels of one satellite within ten
+    minutes are one pass (patterns.PASS_GAP_S). Neighbouring pixels of one pass are one look."""
+    passes = []
+    for row in sorted(rows, key=lambda r: r["t"]):
+        t = parse_time(row["t"])
+        if not any(src == row.get("src") and abs((t - t0).total_seconds()) <= patterns.PASS_GAP_S
+                   for src, t0 in passes):
+            passes.append((row.get("src"), t))
+    return len(passes)
+
+
+def rare_in_open_water(inc):
+    """Earlier heat at a spot in open water that is not its usual heat: open water (no facility but a
+    port within 5 km, outside every field of platforms NASA's long-term map knows) and heat there on
+    fewer than most of the days of memory (engine.usual_heat). Khasab, 26 Nov 2026: one earlier day
+    (the burning ship of 23-25 Nov) held NASA's 3.7 MW night pixels back; never posted."""
+    f = inc.get("facility")
+    if f and f.get("code") != "port" and float(f.get("nearest_km", f.get("km", 99))) <= 5:
+        return False
+    try:
+        if patterns.platform_area(float(inc["lat"]), float(inc["lon"])) is not None:
+            return False
+    except Exception:  # noqa: BLE001 - unknown: not open water, the plain rule holds
+        return False
+    days = int(inc.get("memory_days") or 30)
+    return int(inc.get("known_days") or 0) < max(3, math.ceil(0.5 * days))
+
+
+def open_sea_fire(inc, open_water_rare=False, one_pass_one_sighting=False):
     """Out at sea, away from platforms and with no earlier heat there, a NASA hotspot has few
     innocent explanations. At night there is no sun glint and there are no fields, but there are
     oil platforms that are on no map: a single faint pixel (under 2 MW) is how their small flares
     look (three such posts went out on 10-12 November 2026, all in oil-field waters), so one of
     those waits for a second look. By day it has to be a clear detection of some strength (ships
-    hit in the Strait of Hormuz burn by day too)."""
-    if inc.get("place") != "sea" or inc.get("kind") != "new" or (inc.get("known_days") or 0) > 0:
+    hit in the Strait of Hormuz burn by day too).
+    Two rules can be switched on in config.yaml (alerts.sea_rules; alerts.sea_trial tries them in
+    silence): `open_water_rare` (earlier heat in open water counts only on most days,
+    rare_in_open_water) and `one_pass_one_sighting` (two pixels of one pass are one look: the 1.1 MW
+    pair posted on 26 Nov 2026 in the Persian Gulf, most likely a platform's small flare)."""
+    if inc.get("place") != "sea" or inc.get("kind") != "new":
+        return False
+    if (inc.get("known_days") or 0) > 0 and not (open_water_rare and rare_in_open_water(inc)):
         return False
     f = inc.get("facility")
     if f and f.get("nearest_km", f["km"]) <= 3:
@@ -496,7 +533,8 @@ def open_sea_fire(inc):
     # never reach FIRMS, mostly faint night pixels at offshore flares (14 Nov 2026, 29.33 N 49.49 E)
     night = [p for p in clear if p.get("night")
              and not (p.get("via") == "noaa" and (p.get("frp") or 0) < SEA_FAINT_MW)]
-    if night and (len(night) >= 2 or max((p.get("frp") or 0) for p in night) >= SEA_FAINT_MW):
+    looks = pass_count(night) if one_pass_one_sighting else len(night)
+    if night and (looks >= 2 or max((p.get("frp") or 0) for p in night) >= SEA_FAINT_MW):
         return True
     return any((p.get("frp") or 0) >= 5 for p in clear)
 
@@ -674,9 +712,42 @@ def in_focus(inc, cfg):
     return not names or not country or any(n in country for n in names)
 
 
+SEA_RULES = ("open_water_rare", "one_pass_one_sighting")
+
+
+def sea_rules(cfg, key="sea_rules"):
+    """The switches of open_sea_fire in config.yaml → alerts.<key>."""
+    conf = (cfg.get("alerts") or {}).get(key) or {}
+    return {name: bool(conf.get(name)) for name in SEA_RULES}
+
+
+def sea_trial(inc, cfg):
+    """The silent trial (alerts.sea_trial): the verdict the trial rules would give, when it differs
+    from the channel's, and which rule makes the difference. Never read by a post."""
+    conf = (cfg.get("alerts") or {}).get("sea_trial") or {}
+    if not conf.get("enabled") or inc.get("place") != "sea":
+        return None
+    trial = sea_rules(cfg, "sea_trial")
+    live = sea_rules(cfg)
+    verdict = verdict_of(inc, trial)[0]
+    if verdict == inc["verdict"]:
+        return None
+    rules = [name for name in SEA_RULES if trial[name] and not live[name]
+             and verdict_of(inc, dict(live, **{name: True}))[0] != inc["verdict"]]
+    return {"verdict": verdict, "live": inc["verdict"], "rules": rules or [n for n in SEA_RULES if trial[n]]}
+
+
 def finalize(inc, cfg):
     """Fill the display fields the app and the alerts use."""
-    inc["verdict"], inc["reason"] = verdict_of(inc)
+    inc["verdict"], inc["reason"] = verdict_of(inc, sea_rules(cfg))
+    try:
+        trial = sea_trial(inc, cfg)
+    except Exception:  # noqa: BLE001 - a silent trial must never stop a judgement
+        trial = None
+    if trial:
+        inc["trial"] = trial
+    else:
+        inc.pop("trial", None)
     if inc["kind"] == "unusual" and (inc.get("site_habit") or inc.get("typical_frp")) and inc.get("max_frp"):
         # against the place's own habit (the second-highest day of the month), not its quiet daily
         # level: As-Safaniyah, 24 Nov 2026, 111 MW read «72 times» a 1.5 MW day though it burns 16 MW

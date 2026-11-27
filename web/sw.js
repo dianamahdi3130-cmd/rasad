@@ -1,12 +1,12 @@
 // Rasad service worker: the app opens offline; incidents are always fetched fresh first.
-const CACHE = "firms-v27";
+const CACHE = "firms-v28";
 // what anyone may have: the page itself and what a browser needs to install the app
 const SHELL = ["./", "index.html", "manifest.webmanifest", "brand-mark.svg", "icons/icon-192.png", "icons/icon-512.png"];
 // Files that may not answer when the worker is installed: access.js exists only on the private app,
 // and there the «قبل وبعد» scripts answer 401 until somebody is signed in. Each is tried on its own,
 // so one that is missing never stops the install, and each is kept the first time it does answer.
 // The scripts carry the same ?v= as in index.html, so a new version is never mixed with an old page.
-const LATER = ["access.js?v=27", "imagery.js?v=27", "beforeafter.js?v=27"];
+const LATER = ["access.js?v=28", "imagery.js?v=28", "beforeafter.js?v=28"];
 const KEEP = new Set([...SHELL, ...LATER].map(file => new URL(file, self.location).href));
 
 self.addEventListener("install", e => {

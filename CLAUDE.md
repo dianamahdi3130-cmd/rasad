@@ -185,6 +185,27 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   is drawn as a streak about 4 km long east to west, so a steady spot within `steady_found_km` (6)
   of a spot the finder found in the same picture is that fire, not another (Hormuz, 25 Nov 2026,
   20:10: the west end of a fire being followed was posted as a new one).
+- **Two sea rules on silent trial since 28 Nov 2026** (the owner's «ابدا» after the exam). Both are
+  switches of `brain.open_sea_fire`, off for the channel (`alerts.sea_rules`):
+  - `open_water_rare` (`rare_in_open_water`): in open water, earlier heat at the spot counts only on
+    most days, as in `engine.usual_heat`. The case: Khasab, 26 Nov 2026. One earlier day, the
+    burning ship of 23-25 Nov, held NASA's 3.7 MW night pixels back, and they were never posted.
+  - `one_pass_one_sighting` (`pass_count`): NASA pixels of one pass are one look. The case: the
+    1.1 MW pair posted on 26 Nov 2026.
+
+  How the trial works:
+  - `alerts.sea_trial` gives each sea incident the verdict the rules would give, when it differs
+    (`brain.sea_trial`, `inc["trial"]`).
+  - The app shows it in the details («🧪 تجربة صامتة …», `trialHTML`).
+  - `engine.log_trials` keeps one row per change in `state["trial_log"]`.
+  - Nothing a post reads changes (`tests/test_sea_trial.py`; the exam: 0 changes).
+
+  On the exam each rule changed exactly one of 1025 events, the case it was made for. They go live
+  only after:
+  - the log is read against the channel;
+  - an independent review;
+  - the owner's yes. Then `alerts.sea_rules` is switched in `config.yaml`, and the reason text of the
+    open-sea road («ولم تُسجَّل حرارة في هذا المكان من قبل») must say the earlier days.
 - A first post at sea near a fire already posted says so, from the posted fire's sighting at that
   time (or its last): «📌 على بعد 4 كم من حريق في البحر نُشر عند 18:01 وما زال ظاهراً في الصور», or
   «… من آخر موضع لحريق … آخر رصد له قبل 10 ساعات: قد تكون النار نفسها وقد انجرفت» (`brain.near_posted`,
