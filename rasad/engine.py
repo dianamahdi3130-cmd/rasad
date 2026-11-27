@@ -58,6 +58,10 @@ DEFAULTS = {
                "new_heat_min_mw": 5, "new_heat_min_pictures": 4, "new_heat_strong_mw": 20,
                # ...and a confirmed fire there that carries a sign worth attention (brain.sign_worthy)
                "sign_alerts": True, "sign_min_mw": 5,
+               # the two switches of brain.open_sea_fire: off for the channel until the owner says so;
+               # sea_trial tries them in silence (the app and state["trial_log"] only)
+               "sea_rules": {"open_water_rare": False, "one_pass_one_sighting": False},
+               "sea_trial": {"enabled": False, "open_water_rare": True, "one_pass_one_sighting": True},
                # ...and heat that comes back to a place quiet for a week and burns on (patterns.new_heat_path)
                "new_heat_sustained": True, "new_heat_quiet_days": 7, "new_heat_max_known_days": 2,
                "new_heat_max_area_days": 1, "new_heat_sustained_min_mw": 10, "new_heat_sustained_hours": 6,
@@ -716,6 +720,24 @@ def _delayed_update(inc, cfg, now):
     peak = peak_reading(inc)
     return peak is not None and now - parse_time(peak[0]) > dt.timedelta(
         hours=float(cfg["alerts"].get("max_age_hours", 8)))
+
+
+def log_trials(S, now, keep=300):
+    """Each incident whose verdict the silent trial of the sea rules would change (brain.sea_trial),
+    once per trial verdict, in state["trial_log"]: read against the channel before a rule goes live."""
+    book = S.state.setdefault("trial_log", [])
+    seen = {(row.get("id"), row.get("trial")) for row in book}
+    for inc in S.incidents:
+        trial = inc.get("trial")
+        if not trial or (inc.get("id"), trial.get("verdict")) in seen:
+            continue
+        book.append({"id": inc["id"], "t": iso(now), "first": inc.get("first"), "lat": inc.get("lat"),
+                     "lon": inc.get("lon"), "live": trial.get("live"), "trial": trial.get("verdict"),
+                     "rules": trial.get("rules"), "posted": inc.get("alerted_verdict") is not None})
+        seen.add((inc["id"], trial.get("verdict")))
+        log.info("TRIAL (silent) %s: %s -> %s (%s)", inc["id"], trial.get("live"), trial.get("verdict"),
+                 ", ".join(trial.get("rules") or []))
+    del book[:-keep]
 
 
 def usual_heat(known, steady, open_water):
@@ -1383,6 +1405,13 @@ def run_cycle(cfg, send=True, alert_now=False):
             elif verdict_changed:
                 inc["alerted_verdict"] = inc["verdict"]  # remember it quietly: the app shows it
 
+    # the silent trial of the sea rules (alerts.sea_trial): what it would have decided, kept to be
+    # read against the channel before the owner switches a rule on
+    try:
+        log_trials(S, now)
+    except Exception as e:  # noqa: BLE001 - a silent trial must never disturb an alert
+        log.warning("sea trial log: %s", e)
+
     # heat patterns (silent): new sustained or wide heat that started at another such place within
     # hours is tagged in the app; its reasons line is written again
     try:
@@ -1667,7 +1696,7 @@ PUBLIC = ["id", "kind", "headline", "where", "country", "place", "facility", "st
           "clip_video_pending", "clip_needs_refresh", "clip_updated_at", "clip_max_frp",
           "recovered_historical", "association_uncertain", "association", "correction_note", "satpic", "smoke",
           "reading",
-          "early_ids", "early_promotion_ambiguous",
+          "early_ids", "early_promotion_ambiguous", "trial",
           # the assessment (assess.py): what kind of event, how sure and why, how serious
           "category", "category_text", "confidence", "confidence_level", "confidence_label", "severity",
           "known_days", "typical_frp", "site_record", "site_habit", "new_heat",
