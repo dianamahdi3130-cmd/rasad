@@ -151,6 +151,10 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   Hormuz, 24 Nov 2026, 25 km north of Khasab: the ship fire of the night before and specks on three
   other nights held a burning ship's pairs from 22:30 to 00:08 Baghdad time; another channel posted
   it at 00:10, Rasad at 00:10 too (`docs/reviews/hormuz_khasab_20261124.md`).
+- **Switched off on 27 Nov 2026** (`seawatch.early_alerts.enabled: false`). At 23:00 it posted the
+  heat of the Khasab ship, posted at 18:30, as a new «رصد حراري أولي». It takes a posted fire as the
+  same only within 1.5 km and 40 minutes (`match_km`, `match_minutes`). New fires now go out from
+  their second picture. The rest of this rule describes it when on.
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture. In a field of platforms NASA's long-term map
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture

@@ -55,6 +55,7 @@
 |---|---|---|
 | Steady heat at sea (`seawatch.steady_spots`) | `seawatch.steady_min_above` | 0 (was 8): off |
 | Follow reply (`follow.py`) | `follow.post` | false: it follows and records, posts nothing |
+| First sighting from one picture (`earlyalerts`) | `seawatch.early_alerts.enabled` | false since 27 Nov: it posted the Khasab ship again at 23:00 |
 | Continuity through the followed track (`brain._followed_km`) | – | reverted on the work branch, never on `main` |
 
 Neither is switched back before the work below is done and replayed.
