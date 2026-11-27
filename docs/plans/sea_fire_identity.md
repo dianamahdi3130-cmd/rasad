@@ -74,6 +74,15 @@ Neither is switched back before the work below is done and replayed.
    detections, so a pixel on a fire that has drifted 13 km is a new incident, even while the finder
    holds the fire.
 
+## A miss of the other kind (Khasab, 26-27 Nov 2026, `docs/reviews/khasab_20261126.md`)
+
+- New heat at sea off Khasab, about a day after the earlier fire was last seen.
+- NASA saw it at 01:10 with two night pixels of 3.2 and 3.7 MW. It was never posted.
+- `brain.open_sea_fire` refuses a spot with `known_days` above 0, and the earlier ship was that one
+  day. In open water the tool's own measure of usual heat is "on most days" (`engine.usual_heat`).
+- That same refusal is also what keeps a lingering ship from a daily new post. So the change belongs
+  here, with "where the fire is now" and a line saying a fire burned near the spot in the days before.
+
 ## Further findings, reproduced by the reviewers but not checked a second time
 
 - **Several records, one heat.** Each posted record of one source is followed on its own: several
