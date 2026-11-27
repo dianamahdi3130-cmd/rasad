@@ -18,6 +18,10 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
   mended at once, by switching the feature off in `config.yaml` first.
 - **Change nothing unless the owner asks (27 Nov 2026).** His words: «انت اتعبتني بالتعديلات وكل تعديل
   يولد اخطا».
+  - **The exam (28 Nov 2026).** Every change to what is posted is run through it first: `python
+    tools/exam.py compare <ref>` (`exam/README.md`). It replays the posting decision on every stored
+    event, and every difference is read before the merge. Known truths go in `exam/cases.json`.
+    Run `python tools/exam.py snapshot` weekly: the live memory keeps only about ten days.
   - Change nothing that decides or words what is posted unless he asks for that change.
   - Do not ask him one question per case. Keep each miss or wrong post in `docs/reviews/`, and bring
     them once a week as one short list with one plan. The first list is due on 4 Dec 2026.
@@ -67,6 +71,7 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
 | `scripts/loop.sh`, `scripts/branches.sh` | the ~5.5-hour watching loop; saving to the data branches |
 | `.github/workflows/` | `rasad.yml` monitor, `probe.yml` diagnosis on real data (can be started by hand on any branch: it then follows that branch's `tools/probe-request.json`), `deploy-worker.yml` private app, `tests.yml` every test on pull requests and work branches |
 | `config.yaml` | regions and alert rules (Arabic comments); defaults are in `engine.DEFAULTS` |
+| `tools/exam.py`, `exam/` | the exam: what any version would post, replayed on the stored real events (`exam/events/`, snapshots of the live memory) and the known cases (`exam/cases.json`); `compare <ref>` lists every event whose decision changes. Level 1 keeps each event's facts as stored; levels 2 (sightings as a stream) and 3 (kept pictures) are to come (`exam/README.md`) |
 | `docs/` | `reviews/` checked cases; `plans/` agreed designs (start with `plans/before-after.md`; the open one for fires at sea is `plans/sea_fire_identity.md`) |
 
 Big files: read by line range or grep, never whole: `web/index.html` (260 KB), `web/beforeafter.js`
@@ -152,9 +157,18 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   other nights held a burning ship's pairs from 22:30 to 00:08 Baghdad time; another channel posted
   it at 00:10, Rasad at 00:10 too (`docs/reviews/hormuz_khasab_20261124.md`).
 - **Switched off on 27 Nov 2026** (`seawatch.early_alerts.enabled: false`). At 23:00 it posted the
-  heat of the Khasab ship, posted at 18:30, as a new «رصد حراري أولي». It takes a posted fire as the
-  same only within 1.5 km and 40 minutes (`match_km`, `match_minutes`). New fires now go out from
-  their second picture. The rest of this rule describes it when on.
+  heat of the Khasab ship, posted at 18:30, as a new «رصد حراري أولي». It never asks whether a posted
+  fire is near: it holds back only a sighting already in an incident from the same picture
+  (`earlyalerts._incident_for`), which a first picture never is. (`match_km` and `match_minutes` only
+  group first sightings among themselves.) New fires now go out from their second picture. On the
+  exam of 28 Nov, the seven first sightings it sent from 21 to 27 Nov were:
+  - one gain: the Khasab ship of 23 Nov, 1.5 hours before its normal post;
+  - one repeat, or a second tanker (not settled);
+  - one most likely a platform flare in Qatar's North Field, before `platform_min_rise`;
+  - two of 21 Nov whose truth is not known;
+  - two only 1 and 7 minutes ahead of the normal post.
+
+  It stays off until the exam and the owner decide. The rest of this rule describes it when on.
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture. In a field of platforms NASA's long-term map
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture

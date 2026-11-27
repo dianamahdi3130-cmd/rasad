@@ -1,0 +1,67 @@
+{
+  "about": "Known truths for tools/exam.py. A case is an area (lat, lon, km) and a time (UTC). truth: post (at least one post, by post_by if given), one_post (exactly one post there), no_post, or open (not settled: shown, never scored). sure: sure / likely. Add a case only from a review in docs/reviews.",
+  "cases": [
+    {
+      "id": "hormuz_ship_23_25",
+      "where": [26.33, 56.25, 15],
+      "from": "2026-11-23T18:00:00Z",
+      "to": "2026-11-25T21:30:00Z",
+      "truth": "one_post",
+      "post_by": "2026-11-23T23:00:00Z",
+      "sure": "likely",
+      "review": "docs/reviews/hormuz_one_source_20261125.md",
+      "note": "One burning ship off Khasab, posted six times as a new fire. An independent analyst put one source at 90%."
+    },
+    {
+      "id": "khasab_first_night_26",
+      "where": [26.29, 56.27, 8],
+      "from": "2026-11-26T18:00:00Z",
+      "to": "2026-11-27T06:00:00Z",
+      "truth": "post",
+      "post_by": "2026-11-26T23:30:00Z",
+      "sure": "likely",
+      "review": "docs/reviews/khasab_20261126.md",
+      "note": "Heat at sea from 22:00 Baghdad; NASA 3.2 and 3.7 MW at 01:10. US Central Command said it disabled the ship Pacific Archer that day. Never posted that night."
+    },
+    {
+      "id": "khasab_evening_27",
+      "where": [26.28, 56.26, 8],
+      "from": "2026-11-27T14:00:00Z",
+      "to": "2026-11-28T03:00:00Z",
+      "truth": "open",
+      "sure": "likely",
+      "review": "docs/reviews/khasab_20261126.md",
+      "note": "Heat again from 17:50 Baghdad, posted at 18:30, a first sighting again at 23:00. The IRGC navy said a tanker hit a mine at the mouth of Khasab port that evening: one fire or two is not settled."
+    },
+    {
+      "id": "gulf_faint_pixels_25",
+      "where": [26.377, 52.067, 3],
+      "from": "2026-11-25T21:00:00Z",
+      "to": "2026-11-26T06:00:00Z",
+      "truth": "no_post",
+      "sure": "likely",
+      "review": "summary of 26 Nov in this session",
+      "note": "Two 1.1 MW NASA pixels of one night pass in the Persian Gulf: most likely a platform's small flare that no map holds. Posted because two pixels of one pass counted as two sightings."
+    },
+    {
+      "id": "oman_arabian_sea_27",
+      "where": [18.602, 58.307, 5],
+      "from": "2026-11-26T21:00:00Z",
+      "to": "2026-11-27T03:00:00Z",
+      "truth": "open",
+      "sure": "likely",
+      "review": "docs/reviews/khasab_20261126.md",
+      "note": "Posted at 01:30 Baghdad. Read as likely cloud or fog; the announced strike was elsewhere. Not settled."
+    },
+    {
+      "id": "jafurah_25",
+      "where": [25.474, 50.19, 3],
+      "from": "2026-11-25T15:00:00Z",
+      "to": "2026-11-25T22:00:00Z",
+      "truth": "post",
+      "sure": "sure",
+      "review": "docs/reviews/jafurah_20261125.md",
+      "note": "A 64 MW blaze at a well site in the Jafurah gas field: real heat, rightly posted."
+    }
+  ]
+}
