@@ -164,11 +164,11 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   exam of 28 Nov, the seven first sightings it sent from 21 to 27 Nov were:
   - one gain: the Khasab ship of 23 Nov, 1.5 hours before its normal post;
   - one repeat, or a second tanker (not settled);
-  - one platform flare, before `platform_min_rise`;
-  - two never judged;
-  - two minutes ahead of the normal post.
+  - one most likely a platform flare in Qatar's North Field, before `platform_min_rise`;
+  - two of 21 Nov whose truth is not known;
+  - two only 1 and 7 minutes ahead of the normal post.
 
-  It was switched back by no one. The rest of this rule describes it when on.
+  It stays off until the exam and the owner decide. The rest of this rule describes it when on.
 - A first sea sighting from one picture is posted only when `strong` (a rise of 15 with a flame
   glow of 4); a fainter one waits for its second picture. In a field of platforms NASA's long-term map
   knows (`patterns.platform_area`: a usual flare within 6 km, or the spot hot on 3+ dates) one picture
