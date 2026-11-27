@@ -16,6 +16,12 @@ phone web app. It runs unattended on GitHub Actions; a private copy of the app r
   (app only) for days; it is replayed on kept real pictures and on the stored events; and it gets an
   independent adversarial review before the merge. A wrong or doubled post in the channel is still
   mended at once, by switching the feature off in `config.yaml` first.
+- **Change nothing unless the owner asks (27 Nov 2026).** His words: «انت اتعبتني بالتعديلات وكل تعديل
+  يولد اخطا».
+  - Change nothing that decides or words what is posted unless he asks for that change.
+  - Do not ask him one question per case. Keep each miss or wrong post in `docs/reviews/`, and bring
+    them once a week as one short list with one plan. The first list is due on 4 Dec 2026.
+  - A wrong or doubled post is still switched off at once, and he is told in one line.
 - An analysis for the owner says what the pictures show and how sure it is, and what they cannot tell.
   Look at everything first (the whole days, `s2-look`), not a few hours: three answers about Hormuz
   on 25 Nov were guesses that the next question overturned.
