@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-28T16:45:20Z",
- "scan_started": "2026-11-28T16:44:35Z",
- "scan_finished": "2026-11-28T16:45:20Z",
- "scan_duration_s": 45.2,
+ "generated": "2026-11-28T16:53:44Z",
+ "scan_started": "2026-11-28T16:53:13Z",
+ "scan_finished": "2026-11-28T16:53:44Z",
+ "scan_duration_s": 31.1,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
@@ -297,7 +297,7 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-28T16:30:00Z",
+   "latest": "2026-11-28T16:45:00Z",
    "checked": 0,
    "missing": 0,
    "pending": 0,
@@ -309,7 +309,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T16:20:00Z",
+   "latest": "2026-11-28T16:30:00Z",
    "checked": 0,
    "missing": 0,
    "pending": 0,
