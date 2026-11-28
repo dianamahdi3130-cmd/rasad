@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-28T07:27:49Z",
- "scan_started": "2026-11-28T07:27:38Z",
- "scan_finished": "2026-11-28T07:27:49Z",
- "scan_duration_s": 10.9,
+ "generated": "2026-11-28T07:31:05Z",
+ "scan_started": "2026-11-28T07:30:09Z",
+ "scan_finished": "2026-11-28T07:31:05Z",
+ "scan_duration_s": 56.0,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 20,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -294,25 +294,25 @@
   }
  ],
  "sources": {
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
+  "mtg_frp": {
+   "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T07:15:00Z",
-   "checked": 12,
+   "latest": "2026-11-28T07:10:00Z",
+   "checked": 16,
    "missing": 0,
-   "pending": 0,
+   "pending": 16,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": false,
    "budget_exhausted": false
   },
-  "mtg_frp": {
-   "name": "القمر الأوروبي Meteosat-12",
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-28T07:00:00Z",
+   "latest": "2026-11-28T07:15:00Z",
    "checked": 0,
    "missing": 0,
-   "pending": 16,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
@@ -328,11 +328,11 @@
    "experimental": true,
    "checked": 0,
    "missing": 4,
-   "waiting": 18,
+   "waiting": 20,
    "candidates": 0,
    "spots": 0,
    "last_checked": "2026-11-28T06:20:00Z",
-   "last_attempt": "2026-11-28T07:20:00Z",
+   "last_attempt": "2026-11-28T07:30:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري (Meteosat-12)",
    "ok": false,
@@ -485,22 +485,6 @@
    "text": "اشتعلت الشعلة في محطة الحمار للإنتاج الأولي أكثر من المعتاد: رمز حريق في 18 صورة خلال 3 ساعات، منها 4 بقوة ضعف المعتاد أو أكثر. علامة في التطبيق لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
    "clip": "clips/flare-3eb8870b0d-86a31f3cbfc5.mp4",
    "snap": "clips/flare-3eb8870b0d-86a31f3cbfc5.jpg",
-   "clip_note": null
-  },
-  {
-   "id": "flare-db90c846b5",
-   "lat": 27.9354,
-   "lon": 52.2015,
-   "label": "مصفاة (Fajr Jam Refinery Power Station)",
-   "first": "2026-11-26T05:30:00Z",
-   "last": "2026-11-26T07:30:00Z",
-   "peak": 42.2,
-   "typical": 15.38,
-   "pictures": 13,
-   "strong": 9,
-   "text": "اشتعلت الشعلة في مصفاة (⁨Fajr Jam Refinery Power Station⁩‏) أكثر من المعتاد: رمز حريق في 13 صورة خلال 3 ساعات، منها 9 بقوة ضعف المعتاد أو أكثر. علامة في التطبيق لا تُرسل إلى القناة؛ قد تكون حرقاً تشغيلياً للغاز أو أثر ضرر، والصور وحدها لا تفرّق بينهما.",
-   "clip": "clips/flare-db90c846b5-6eb5c5f536be.mp4",
-   "snap": "clips/flare-db90c846b5-6eb5c5f536be.jpg",
    "clip_note": null
   }
  ]
