@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-28T17:48:17Z",
- "scan_started": "2026-11-28T17:47:40Z",
- "scan_finished": "2026-11-28T17:48:17Z",
- "scan_duration_s": 37.1,
+ "generated": "2026-11-28T17:58:07Z",
+ "scan_started": "2026-11-28T17:57:42Z",
+ "scan_finished": "2026-11-28T17:58:07Z",
+ "scan_duration_s": 24.5,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
@@ -297,7 +297,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T17:30:00Z",
+   "latest": "2026-11-28T17:40:00Z",
    "checked": 20,
    "missing": 20,
    "pending": 16,
@@ -309,14 +309,14 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-28T17:30:00Z",
+   "latest": "2026-11-28T17:45:00Z",
    "checked": 0,
    "missing": 0,
-   "pending": 0,
+   "pending": 12,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -339,12 +339,12 @@
    "latest": "2026-11-28T14:10:00Z"
   },
   "noaa": {
-   "read": 2,
+   "read": 7,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-28T17:01:08Z",
+   "latest": "2026-11-28T17:09:41Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
