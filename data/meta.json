@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-28T17:14:08Z",
- "scan_started": "2026-11-28T17:13:56Z",
- "scan_finished": "2026-11-28T17:14:08Z",
- "scan_duration_s": 12.6,
+ "generated": "2026-11-28T17:24:11Z",
+ "scan_started": "2026-11-28T17:23:40Z",
+ "scan_finished": "2026-11-28T17:24:11Z",
+ "scan_duration_s": 30.8,
  "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 6,
+ "detections_this_run": 1,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -297,8 +297,8 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T16:50:00Z",
-   "checked": 10,
+   "latest": "2026-11-28T17:00:00Z",
+   "checked": 6,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -309,14 +309,14 @@
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
-   "latest": "2026-11-28T17:00:00Z",
-   "checked": 10,
+   "latest": "2026-11-28T17:15:00Z",
+   "checked": 6,
    "missing": 0,
-   "pending": 4,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -339,7 +339,7 @@
    "latest": "2026-11-28T14:10:00Z"
   },
   "noaa": {
-   "read": 3,
+   "read": 0,
    "over": 0,
    "pixels": 0,
    "failed": 0,
