@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-28T10:12:11Z",
- "scan_started": "2026-11-28T10:11:54Z",
- "scan_finished": "2026-11-28T10:12:11Z",
- "scan_duration_s": 17.4,
- "scan_partial": false,
+ "generated": "2026-11-28T10:19:50Z",
+ "scan_started": "2026-11-28T10:19:24Z",
+ "scan_finished": "2026-11-28T10:19:50Z",
+ "scan_duration_s": 25.9,
+ "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 1,
+ "detections_this_run": 0,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -294,22 +294,22 @@
   }
  ],
  "sources": {
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
-   "ok": true,
-   "latest": "2026-11-28T10:00:00Z",
-   "checked": 14,
-   "missing": 0,
-   "pending": 0,
-   "pending_recent": 0,
-   "scan_complete": true,
-   "clock_cached": false,
-   "budget_exhausted": false
-  },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T09:50:00Z",
+   "latest": "2026-11-28T10:00:00Z",
+   "checked": 20,
+   "missing": 20,
+   "pending": 28,
+   "pending_recent": 16,
+   "scan_complete": false,
+   "clock_cached": false,
+   "budget_exhausted": true
+  },
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
+   "ok": true,
+   "latest": "2026-11-28T10:15:00Z",
    "checked": 0,
    "missing": 0,
    "pending": 0,
@@ -326,25 +326,25 @@
   "seawatch_day": {
    "enabled": true,
    "experimental": true,
-   "checked": 0,
-   "missing": 4,
+   "checked": 2,
+   "missing": 2,
    "waiting": 22,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-28T09:50:00Z",
+   "last_checked": "2026-11-28T10:00:00Z",
    "last_attempt": "2026-11-28T10:10:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-28T09:50:00Z"
+   "latest": "2026-11-28T10:00:00Z"
   },
   "noaa": {
-   "read": 0,
+   "read": 11,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-28T09:25:57Z",
+   "latest": "2026-11-28T09:44:26Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
