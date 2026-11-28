@@ -269,6 +269,15 @@ in `imagery.js`: `listPasses`, `assessPass`, `loadScene`, `loadBands`, `sampleBa
   هنا إن ظهر الحدث بوضوح في الصور.» (`brain.video_note`); some events never show clearly enough.
 - The before/after picture goes out once per alerted fire on land, as a reply to its alert, when
   a clear Sentinel-2 pass comes (within `satpic.max_days`); the fire is kept in memory until then.
+  - **At sea, in silence since 28 Nov 2026** (`satpic.sea_app`; the owner's «ابدا» after the picture of
+    the burning ship off Khasab).
+  - **The pass.** The first clear pass while a posted sea fire burns or just after, within
+    `sea_max_days` (2) of its last sighting. The box is wider (`sea_half_km` 4), and the request is
+    not renewed by each later sighting (`_token`).
+  - **Kept for the app, never posted** (`satpic.sea` stays false). It is copied to
+    `clips/satpic-*.jpg` and kept by the clip pruning. It is shown in the details by `seaPictureHTML`
+    with «تجربة صامتة: لم تُرسل إلى القناة».
+  - **No change words.** It never says «تغيّر مرصود»: change on water means nothing.
 - A watched place is posted only for a new clear pass with a connected patch of change of at
   least `watch.min_patch_ha`, once, as its own post; its first clear pass is the starting point
   and is never posted. What was handled is in the memory (`state["watch"]`).

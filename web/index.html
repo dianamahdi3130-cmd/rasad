@@ -1052,7 +1052,7 @@ body.door-down .gate label,body.door-down .gate input,body.door-down .gate #lBtn
 <div id="report" aria-hidden="true"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="access.js?v=28"></script>
+<script src="access.js?v=29"></script>
 <script>
 "use strict";
 const S = {meta:null, items:[], region:"all", important:true, map:null, layer:null, focus:null, sat:false, sel:null, hours:24,
@@ -1607,6 +1607,14 @@ function chainView(rows, sel){
   return {hide, pos, trails};
 }
 const sightingsWord = n => n === 2 ? "رصدتان" : `${n} رصدات`;
+// a fire at sea: Sentinel-2's clear pass while it burned (config.yaml → satpic.sea_app), here only
+function seaPictureHTML(it){
+  const p = it.satpic;
+  if (!p || !p.app_only || !p.img) return "";
+  return `<figure class="sea-pic"><img src="${esc(p.img)}" alt="Sentinel-2" loading="lazy" style="width:100%;border-radius:10px">`
+    + `<figcaption class="note">🛰 صورة القمر <bdi dir="ltr">Sentinel-2</bdi> بتاريخ <bdi dir="ltr">${esc(p.after || "")}</bdi>`
+    + `${p.hot ? " · حرارة شديدة ظاهرة في الصورة" : ""}: يسار ما قبل الحريق، ويمين أثناءه. تجربة صامتة: لم تُرسل إلى القناة.</figcaption></figure>`;
+}
 // the silent trial of two sea rules (config.yaml → alerts.sea_trial): shown here, never in the channel
 const TRIAL_RULES = {open_water_rare: "حرارة يوم سابق في المياه المفتوحة لا تمنع النشر",
                      one_pass_one_sighting: "نقاط ناسا في مرور واحد رصدة واحدة"};
@@ -2087,6 +2095,7 @@ function detailHTML(it){
     ${it.early_promotion_ambiguous ? `<p class="note" role="status" style="margin-top:10px">توجد عدة بقع أولية قرب هذا الموقع؛ ارتباطها بهذا الحدث قيد المراجعة.</p>` : ""}
     <div class="verdict">${dialHTML(c)}<div class="v"><span class="badge ${c.cls}">${esc(it.verdict || "غير محدد")}</span><span class="lvl">${esc(c.label)}: ${esc(c.level)}</span><p>${esc(it.reason)}</p></div></div>
     ${trialHTML(it)}
+    ${seaPictureHTML(it)}
     ${signalsHTML(it)}
     <div class="media">
     ${it.clip ? `<video src="${esc(it.clip)}" ${it.snap?`poster="${esc(it.snap)}"`:""} controls playsinline muted loop preload="none"></video>`
@@ -2104,7 +2113,7 @@ function detailHTML(it){
       <div class="fact"><dt>الحجم</dt><dd>${it.preliminary ? "غير مقاسة حالياً" : it.size ? esc(it.size) + (it.max_frp != null ? ` (${esc(mwText(it.max_frp))})` : "") : "يُعرف بعد مرور قمر أمريكي"}</dd></div>
       <div class="fact"><dt>دقة الموقع</dt><dd>${it.preliminary ? "تقريبية (نحو 3 كم)" : it.best === "polar" ? "دقيقة (نحو نصف كيلومتر)" : "تقريبية (نحو 3 كم) حتى يمر قمر أمريكي"}</dd></div>
       <div class="fact wide"><dt>الإحداثيات</dt><dd><button class="btn sm" type="button" id="copyBtn" dir="ltr" title="نسخ الإحداثيات">${icon("copy")}${it.lat.toFixed(4)},${it.lon.toFixed(4)}</button></dd></div>
-      ${it.satpic && it.satpic.after ? `<div class="fact wide"><dt>صورة قبل وبعد</dt><dd>صورة القمر Sentinel-2 بتاريخ <bdi dir="ltr">${esc(it.satpic.after)}</bdi>: ${it.satpic.quiet ? "لا تغيّر واضح بدقة 10 أمتار" : "تغيّر مرصود نحو " + esc(hasBA() ? BA._.areaText(it.satpic.area_ha) : it.satpic.area_ha + " هكتار")}</dd></div>` : ""}
+      ${it.satpic && it.satpic.after && !it.satpic.app_only ? `<div class="fact wide"><dt>صورة قبل وبعد</dt><dd>صورة القمر Sentinel-2 بتاريخ <bdi dir="ltr">${esc(it.satpic.after)}</bdi>: ${it.satpic.quiet ? "لا تغيّر واضح بدقة 10 أمتار" : "تغيّر مرصود نحو " + esc(hasBA() ? BA._.areaText(it.satpic.area_ha) : it.satpic.area_ha + " هكتار")}</dd></div>` : ""}
     </dl>
     ${evidence ? `<section class="sec"><h3>لماذا هذه الدرجة؟</h3>${evidence}</section>` : ""}
     ${sources ? `<section class="sec"><h3>من رآه ومتى</h3>${sources}</section>` : ""}
@@ -3237,7 +3246,7 @@ async function signOut(){
 // The «قبل وبعد» screen (imagery.js, beforeafter.js) is behind the door on the private app, so its
 // scripts are added only once the app may run: at once on the open site, after a sign-in on the
 // private one. The app does not wait for them, and everything else works without them (hasBA()).
-const TOOLS = ["imagery.js?v=28", "beforeafter.js?v=28"];
+const TOOLS = ["imagery.js?v=29", "beforeafter.js?v=29"];
 function loadTools(){
   if (hasBA() || S.toolsBusy) return;
   S.toolsBusy = true;
@@ -3592,7 +3601,7 @@ if (!standalone && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 // An installed app stays open in the phone's memory for days and keeps the page it started with.
 // When the site has a newer version than this page, say so and offer to load it.
-const APP_V = 28;                    // the same number as CACHE in sw.js and ?v= of the scripts
+const APP_V = 29;                    // the same number as CACHE in sw.js and ?v= of the scripts
 function newerVersion(swText){ const m = /firms-v(\d+)/.exec(swText || ""); return !!m && +m[1] > APP_V; }
 async function checkUpdate(){
   try {
