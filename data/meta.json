@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-28T10:19:50Z",
- "scan_started": "2026-11-28T10:19:24Z",
- "scan_finished": "2026-11-28T10:19:50Z",
- "scan_duration_s": 25.9,
+ "generated": "2026-11-28T10:22:57Z",
+ "scan_started": "2026-11-28T10:22:33Z",
+ "scan_finished": "2026-11-28T10:22:57Z",
+ "scan_duration_s": 23.2,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
@@ -294,18 +294,6 @@
   }
  ],
  "sources": {
-  "mtg_frp": {
-   "name": "القمر الأوروبي Meteosat-12",
-   "ok": true,
-   "latest": "2026-11-28T10:00:00Z",
-   "checked": 20,
-   "missing": 20,
-   "pending": 28,
-   "pending_recent": 16,
-   "scan_complete": false,
-   "clock_cached": false,
-   "budget_exhausted": true
-  },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
@@ -315,8 +303,20 @@
    "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
-   "clock_cached": true,
+   "clock_cached": false,
    "budget_exhausted": false
+  },
+  "mtg_frp": {
+   "name": "القمر الأوروبي Meteosat-12",
+   "ok": true,
+   "latest": "2026-11-28T10:00:00Z",
+   "checked": 20,
+   "missing": 20,
+   "pending": 28,
+   "pending_recent": 16,
+   "scan_complete": false,
+   "clock_cached": true,
+   "budget_exhausted": true
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -326,25 +326,25 @@
   "seawatch_day": {
    "enabled": true,
    "experimental": true,
-   "checked": 2,
-   "missing": 2,
+   "checked": 0,
+   "missing": 4,
    "waiting": 22,
    "candidates": 0,
    "spots": 0,
    "last_checked": "2026-11-28T10:00:00Z",
-   "last_attempt": "2026-11-28T10:10:00Z",
+   "last_attempt": "2026-11-28T10:20:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري (Meteosat-12)",
    "ok": false,
    "latest": "2026-11-28T10:00:00Z"
   },
   "noaa": {
-   "read": 11,
+   "read": 19,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-28T09:44:26Z",
+   "latest": "2026-11-28T10:04:21Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
