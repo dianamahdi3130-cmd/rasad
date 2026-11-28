@@ -1456,12 +1456,21 @@ def run_cycle(cfg, send=True, alert_now=False):
             thread = chains.decide(inc, S.incidents, cfg)
         except Exception as e:  # noqa: BLE001 - a record of a decision must never stop an alert
             log.warning("thread decision: %s", e)
-        message = alert_message(inc, cfg)
+        # one ship, one thread (chains.thread_post): a reply under the older fire's post instead of a post
+        try:
+            how, under = chains.form(thread, cfg)
+        except Exception as e:  # noqa: BLE001 - when in doubt, the plain post
+            log.warning("thread form: %s", e)
+            how, under = "post", None
+        if how == "reply":
+            message = chains.reply_message(inc, thread, cfg)
+        else:
+            message = alert_message(inc, cfg)
         if media is None and cfg["clip"].get("enabled", True):
             message += "\n" + video_note(inc)
-        if cfg["satpic"].get("enabled", True) and (inc.get("place") != "sea" or cfg["satpic"].get("sea")):
+        if how == "post" and cfg["satpic"].get("enabled", True) and (inc.get("place") != "sea" or cfg["satpic"].get("sea")):
             message += "\n🛰 صورة «قبل وبعد» للموقع تُرسل هنا إذا التقط القمر الأوروبي \u2068Sentinel-2\u2069\u200f صورة صافية له في الأيام القادمة."
-        sent = post(message, media)
+        sent = post(message, media, reply_to=under)
         if sent:
             S.sent = True
             inc["alerted_verdict"], inc["status"], inc["alerted_at"] = inc["verdict"], "alerted", iso(now)
@@ -1469,15 +1478,19 @@ def run_cycle(cfg, send=True, alert_now=False):
             inc["clip_video_pending"] = bool(cfg["clip"].get("enabled", True) and media is None)
             if sent is not True:
                 inc["tg_msg"] = sent  # updates answer this post
-            log.info("ALERT %s: %s (%s)", inc["id"], inc["headline"], inc["verdict"])
-            try:   # the record of the silent decision: whatever happens here, the alert is already out
+            if how == "reply":
+                inc["thread_of"] = thread.get("under")   # one thread: no reading of its own (reading.due)
+            log.info("ALERT %s: %s (%s)%s", inc["id"], inc["headline"], inc["verdict"],
+                     f" as a reply under {thread.get('under')}" if how == "reply" else "")
+            try:   # the record of the decision: whatever happens here, the alert is already out
                 if thread:
-                    row = dict(thread, t=iso(now), id=inc["id"], posted_as="post")
+                    row = dict(thread, t=iso(now), id=inc["id"], posted_as=how)
                     if thread.get("as") == "reply":
                         row["would"] = chains.reply_message(inc, thread, cfg)
                     inc["thread"] = thread
                     S.state["thread_log"] = (S.state.get("thread_log") or [])[-199:] + [row]
-                    log.info("THREAD (silent) %s: would be a %s%s", inc["id"], thread.get("as"),
+                    log.info("THREAD (%s) %s: %s a %s%s", "acted" if how == "reply" else "silent", inc["id"],
+                             "is" if how == "reply" else "would be", thread.get("as"),
                              f" under {thread.get('under')} ({thread.get('link')})" if thread.get("under") else "")
             except Exception as e:  # noqa: BLE001
                 log.warning("thread record: %s", e)
@@ -1614,7 +1627,7 @@ def run_cycle(cfg, send=True, alert_now=False):
             if out is None:
                 continue
             inc["reading"] = out
-            if reading.due(inc, cfg, now) and post(reading.message(out), reply_to=inc.get("tg_msg")):
+            if reading.due(inc, cfg, now, S.incidents) and post(reading.message(out), reply_to=inc.get("tg_msg")):
                 S.sent = True
                 inc["reading_posted"] = iso(now)
                 _remember_post(inc, now)

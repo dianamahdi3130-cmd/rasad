@@ -25,7 +25,17 @@ SETTINGS = {"enabled": True, "same_km": 5.0, "same_minutes": 60, "picture_minute
             "drift_kmh": 3.0, "max_km": 20.0, "max_hours": 12.0, "path_points": 160,
             # the channel (phase 2 of docs/plans/sea_fire_identity.md). "thread": decide and record at each
             # first alert at sea; "thread_post": act on it. False = silent: nothing is posted differently.
-            "thread": True, "thread_post": False, "run_pictures": 3, "apart_km": 2.5}
+            "thread": True, "thread_post": False, "run_pictures": 3, "apart_km": 2.5,
+            # one ship, one thread (the owner's choice of 28 Nov 2026): heat within drifting distance of a
+            # posted fire within `reply_hours` is a reply under it, said as not settled when not followed
+            "reply_hours": 24.0,
+            # a strong source is drawn as a streak east to west: two peaks of one picture on one line
+            # (within `streak_lat_km` north-south) and within `streak_km` are one fire (Khasab, 28 Nov
+            # 2026, 02:50: 3.0 km apart on the same latitude; Hormuz, 25 Nov, 20:10: 4.0 km)
+            "streak_km": 4.5, "streak_lat_km": 1.5,
+            # a reply says the fire grew suddenly when the new heat is this much stronger than anything the
+            # older fire showed (Khasab, 28 Nov 2026: 11 MW at 12:49 after 4-6 MW the night before)
+            "surge_ratio": 1.8, "surge_add_mw": 3.0, "surge_min_mw": 5.0}
 REVIEWS = Path(__file__).resolve().parent / "reviews"
 _reviewed = None
 
@@ -160,11 +170,16 @@ def annotate(items, incidents, cfg):
 # ---------------------------------------------------------------- the channel (silent for now)
 def decide(inc, incidents, cfg):
     """What the channel should do with a fire at sea that is about to get its first post: a reply under
-    an older posted fire (its heat was seen in at least `run_pictures` pictures of the hour before, the
-    newest of them within `same_km`: one sighting never proves it), or a post of its own, said as
-    not settled when it lies within drifting distance of an older fire's last place. An older fire
-    seen elsewhere in the same picture is another fire beyond `same_km`; between `apart_km` and
-    `same_km` the two peaks may be one streak or two ships: not settled, and never a reply.
+    an older posted fire, or a post of its own. The owner's rules of 28 Nov 2026 (one ship, one thread):
+    - the same fire, a reply («same»): the older fire's heat seen in at least `run_pictures` pictures of
+      the hour before, the newest within `same_km`; or a second peak of the same picture within
+      `apart_km`, or on the same east-west line within `streak_km` (how one strong fire is drawn);
+    - not settled, a reply said so («maybe»): within drifting distance of the older fire's last place
+      after a gap of at most `reply_hours`. One followed picture never proves «same» (the review of
+      25 Nov), but the news is not lost: it goes out under the older post, saying it may be another fire;
+    - another fire, a post: the older fire seen elsewhere in the same picture beyond those distances
+      (two fires at once), beyond drifting distance, or after a longer gap.
+    A reply carries `surge` when the new heat is `surge_ratio` times the older fire's strongest reading.
     Returns {"as": "reply" | "post", "link": "same" | "maybe" | None, ...}; None on land.
     While `thread_post` is false this is only recorded (engine: state["thread_log"])."""
     P = settings(cfg)
@@ -175,22 +190,26 @@ def decide(inc, incidents, cfg):
         return None
     t0, lat, lon = rows[0]
     picture = float(P["picture_minutes"]) * 60
-    best, two_peaks = None, False
+    best = None
     for older in incidents:
         if older is inc or older.get("id") == inc.get("id") or older.get("place") != "sea" \
                 or older.get("status") != "alerted" or not older.get("tg_msg") or older.get("recovered_historical"):
             continue
-        # the older fire's own sightings in this very picture: a second peak beside it is never «the same»
-        now_km = [haversine_km(lat, lon, s[1], s[2]) for s in sightings({"observations": older.get("observations")})
-                  if abs((s[0] - t0).total_seconds()) <= picture]
+        # the older fire's own sightings in this very picture (a Meteosat picture every ten minutes;
+        # a NASA pass is matched to the picture nearest its time)
+        same_picture = [s for s in sightings({"observations": older.get("observations")})
+                        if abs((s[0] - t0).total_seconds()) <= picture / 2]
         seen = [s for s in sightings(older) if s[0] <= t0 + dt.timedelta(seconds=picture)]
-        if now_km and min(now_km) > float(P["apart_km"]):
-            if min(now_km) > float(P["same_km"]):
+        if same_picture:
+            def one_fire(s):
+                km_ = haversine_km(lat, lon, s[1], s[2])
+                return km_ <= float(P["apart_km"]) or (km_ <= float(P["streak_km"])
+                                                        and haversine_km(lat, lon, s[1], lon) <= float(P["streak_lat_km"]))
+            near = [s for s in same_picture if one_fire(s)]
+            if not near:
                 continue                   # it burns elsewhere in this very picture: two fires
-            two_peaks = True               # two peaks within the length of one streak: not settled
-            nearest = min((s for s in seen if abs((s[0] - t0).total_seconds()) <= picture),
-                          key=lambda s: haversine_km(lat, lon, s[1], s[2]))
-            kind, gap, km, last = "maybe", 0.0, min(now_km), nearest
+            last = min(near, key=lambda s: haversine_km(lat, lon, s[1], s[2]))
+            kind, gap, km = "same", 0.0, haversine_km(lat, lon, last[1], last[2])
         else:
             if not seen:
                 continue
@@ -200,7 +219,7 @@ def decide(inc, incidents, cfg):
             run = [s for s in seen if (t0 - s[0]).total_seconds() <= float(P["same_minutes"]) * 60]
             if len(run) >= int(P["run_pictures"]) and km <= float(P["same_km"]):
                 kind = "same"
-            elif gap <= float(P["max_hours"]) and km <= min(float(P["max_km"]), float(P["base_km"]) + float(P["drift_kmh"]) * gap):
+            elif gap <= float(P["reply_hours"]) and km <= min(float(P["max_km"]), float(P["base_km"]) + float(P["drift_kmh"]) * gap):
                 kind = "maybe"
             else:
                 continue
@@ -210,15 +229,38 @@ def decide(inc, incidents, cfg):
     if best is None:
         return {"as": "post", "link": None}
     _, kind, older, gap, km, last = best
-    if kind == "same" and two_peaks:
-        kind = "maybe"                     # the picture shows this spot beside another posted fire's spot
-    out = {"as": "reply" if kind == "same" else "post", "link": kind, "under": older["id"], "tg": older.get("tg_msg"),
+    out = {"as": "reply", "link": kind, "under": older["id"], "tg": older.get("tg_msg"),
            "gap_h": round(gap, 1), "km": round(km, 1), "from": [iso(last[0]), round(last[1], 4), round(last[2], 4)]}
     if kind == "maybe":
         seen_how = "ظهر في الصورة نفسها" if gap < 0.2 else f"ظهر بعد انقطاع {_hours(gap)}"
         out["text"] = (f"غير محسوم: {seen_how} على بعد {max(1, round(km))} كم من {'موضع' if gap < 0.2 else 'آخر موضع ل'}"
                        f"{' ' if gap < 0.2 else ''}حريق في البحر نُشر سابقاً؛ قد يكون الحريق نفسه وقد يكون حريقاً آخر")
+    surge = _surge(inc, older, P)
+    if surge:
+        out["surge"] = surge
     return out
+
+
+def form(decision, cfg):
+    """How the first alert goes out: ("reply", the older post's message id) when the decision is a reply
+    and replies are switched on (chains.thread_post), otherwise ("post", None)."""
+    P = settings(cfg)
+    if P.get("thread_post") and decision and decision.get("as") == "reply" and decision.get("tg"):
+        return "reply", decision["tg"]
+    return "post", None
+
+
+def _surge(inc, older, P):
+    """The new heat far stronger than anything the older fire showed: {"mw", "was"} or None."""
+    try:
+        new = float(inc.get("max_frp") or 0)
+        was = float(older.get("max_frp") or 0)
+    except (TypeError, ValueError):
+        return None
+    if new >= float(P["surge_min_mw"]) and was > 0 and new >= float(P["surge_ratio"]) * was \
+            and new - was >= float(P["surge_add_mw"]):
+        return {"mw": round(new, 1), "was": round(was, 1)}
+    return None
 
 
 def reply_message(inc, decision, cfg):
@@ -230,7 +272,14 @@ def reply_message(inc, decision, cfg):
     rows = sightings(inc)
     t0, lat, lon = rows[0]
     when = f"{t0 + dt.timedelta(hours=float(lt['offset_hours'])):%H:%M} بتوقيت {lt['name']}"
-    lines = ["🔥 <b>ما زالت النار مشتعلة</b>"]
+    maybe = decision.get("link") == "maybe"
+    lines = ["🔥 <b>عادت الحرارة قرب موضع هذا الحريق</b>" if maybe else "🔥 <b>ما زالت النار مشتعلة</b>"]
+    if maybe and decision.get("text"):
+        lines.append(f"❔ {decision['text']}")
+    surge = decision.get("surge")
+    if surge:
+        lines.append(f"⚠️ <b>اشتدت النار فجأة:</b> {mw_ar(surge['mw'])} وكانت أعلى قراءة قبلها {mw_ar(surge['was'])}؛ "
+                     "قد تكون النار نفسها اشتدت، وقد يكون حريقاً جديداً قربها")
     frm = decision.get("from") or []
     if len(frm) == 3 and decision.get("km", 0) >= 1.5:
         lines.append(f"📍 رُصدت عند {when} على بعد {decision['km']:.0f} كم "
@@ -250,5 +299,6 @@ def reply_message(inc, decision, cfg):
     except (TypeError, ValueError):
         pass
     lines += ["", f"<code>{lat:.4f}, {lon:.4f}</code>", "",
-              "الحرارة توبعت في الصور حتى هذا الموضع؛ صور الأقمار ترى الحرارة ولا ترى سببها."]
+              ("صور الأقمار ترى الحرارة ولا ترى سببها." if maybe else
+               "الحرارة توبعت في الصور حتى هذا الموضع؛ صور الأقمار ترى الحرارة ولا ترى سببها.")]
     return "\n".join(lines)
