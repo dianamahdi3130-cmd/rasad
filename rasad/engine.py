@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import os
+import shutil
 from contextlib import nullcontext
 import sys
 import time
@@ -154,7 +155,9 @@ DEFAULTS = {
              "refresh_retry_min": 10},
     # The before/after Sentinel-2 picture sent under an alert once a clear pass comes (satpic.py).
     "satpic": {"enabled": True, "max_days": 12, "retry_hours": 3, "half_km": 2, "approx_half_km": 3,
-               "lookback_days": 75, "job_budget_s": 170, "sea": False},
+               "lookback_days": 75, "job_budget_s": 170, "sea": False,
+               # at sea: a pass while it burns, kept for the app in silence (on in config.yaml)
+               "sea_app": False, "sea_max_days": 2, "sea_half_km": 4},
     # Places watched whether or not anything burns there (satpic.py): add them in config.yaml.
     "watch": {"enabled": True, "places": [], "check_hours": 3, "min_patch_ha": 0.5, "lookback_days": 45,
               "half_km": 2, "job_budget_s": 170},
@@ -1565,6 +1568,19 @@ def run_cycle(cfg, send=True, alert_now=False):
             continue
         picture, result = ready
         pictures_left -= 1
+        if inc.get("place") == "sea" and not cfg["satpic"].get("sea"):
+            # at sea in silence (satpic.sea_app): the picture is kept for the app, never posted
+            try:
+                img = f"clips/satpic-{satpic._key(inc['id'])[:16]}.jpg"
+                dest = Path(cfg["_site_dir"]) / img
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(picture, dest)
+                inc["satpic"] = dict(satpic.facts(inc, result), made_at=iso(now), app_only=True, img=img,
+                                     hot=int(result.get("hot_after") or 0))
+                log.info("SATELLITE PICTURE (app only) %s: %s", inc["id"], inc["satpic"]["after"])
+            except Exception as e:  # noqa: BLE001 - a silent picture must never stop a check
+                log.warning("satellite picture for the app %s: %s", inc["id"], e)
+            continue
         if post(satpic.caption(inc, result, cfg), picture, reply_to=inc.get("tg_msg")):
             S.sent = True
             inc["satpic"] = dict(satpic.facts(inc, result), sent_at=iso(now))
@@ -1790,7 +1806,8 @@ def publish(cfg, S, status, now, learning, n_dets, *, finished=None, duration=No
         "sources": status, "telegram": bool(cfg["telegram"].get("bot_token")),
         "flare_activity": busy})
     # remove clips of incidents that are gone
-    keep = {i.get(k) for i in items + busy for k in ("clip", "snap")}
+    keep = {i.get(k) for i in items + busy for k in ("clip", "snap")} \
+        | {(i.get("satpic") or {}).get("img") for i in items if isinstance(i.get("satpic"), dict)}
     clips = site / "clips"
     if clips.exists():
         for f in clips.iterdir():

@@ -387,6 +387,47 @@ class PictureTests(unittest.TestCase):
         self.assertIsNotNone(satpic.collect(self.cfg, self.inc, T("2026-11-10T03:30:00Z")))
 
 
+class SeaPictureTests(unittest.TestCase):
+    """A fire at sea (28 Nov 2026, the owner's «ابدا»): a clear pass while it burns is kept for the app in
+    silence (satpic.sea_app), never posted. The case: Sentinel-2 of 28 Nov, 07:02 UTC, a ship burning
+    off Khasab, about 36 hours after its heat first showed."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        self.cfg = copy.deepcopy(engine.DEFAULTS)
+        self.cfg.update(_state_dir=self.root / "state", _site_dir=self.root / "site")
+        self.cfg["satpic"].update(sea_app=True, sea_half_km=2)   # the made-up archive covers 2.5 km around
+        self.inc = {"id": "20261108-2000_26.000_50.000", "lat": LAT, "lon": LON, "first": "2026-11-08T20:00:00Z",
+                    "last": "2026-11-10T00:00:00Z", "status": "alerted", "place": "sea", "best": "polar",
+                    "polar": [{}], "headline": "حريق في البحر", "where": "في البحر", "tg_msg": 77}
+
+    def test_only_with_sea_app_and_for_two_days(self):
+        now = T("2026-11-10T06:00:00Z")
+        self.assertTrue(satpic.wanted(self.inc, self.cfg, now))
+        self.assertFalse(satpic.wanted(self.inc, self.cfg, T("2026-11-12T01:00:00Z")), "a ship moves on")
+        self.assertFalse(satpic.wanted(dict(self.inc, satpic={"made_at": "2026-11-10T01:00:00Z"}), self.cfg, now))
+        self.cfg["satpic"]["sea_app"] = False
+        self.assertFalse(satpic.wanted(self.inc, self.cfg, now))
+
+    def test_the_request_is_wider_and_a_later_sighting_keeps_it(self):
+        satpic.request(self.cfg, self.inc, T("2026-11-09T00:00:00Z"))
+        job = load_json(next((satpic.queue_dir(self.cfg) / "jobs").glob("*.json")), {})
+        self.assertEqual((job["sea"], job["half_km"], job["max_days"]), (True, 2.0, 2.0))
+        self.assertEqual(satpic._token(self.inc), satpic._token(dict(self.inc, last="2026-11-11T00:00:00Z")))
+        land = dict(self.inc, place="land")
+        self.assertNotEqual(satpic._token(land), satpic._token(dict(land, last="2026-11-11T00:00:00Z")))
+
+    def test_the_pass_while_it_burns_is_taken(self):
+        satpic.request(self.cfg, self.inc, T("2026-11-09T00:00:00Z"))
+        self.assertEqual(satpic.work_one(self.cfg, T("2026-11-10T01:00:00Z"), session=FakeArchive(PASSES)), self.inc["id"])
+        picture, res = satpic.collect(self.cfg, self.inc, T("2026-11-10T01:00:00Z"))
+        self.assertEqual(res["after_time"][:10], "2026-11-09")       # before the last sighting: it still burned
+        self.assertGreater(res["hot_after"], 0)
+        self.assertTrue(picture.is_file())
+
+
 class WatchedPlaceTests(unittest.TestCase):
     """Places watched whether or not anything burns: a new clear pass is compared with the one
     before it, and only a patch of clear change is posted."""
@@ -542,6 +583,27 @@ class CycleTests(unittest.TestCase):
         state = engine.run_cycle(self.cfg, send=False)
         self.deliver.assert_called_once()
         self.assertEqual(state.incidents[0]["satpic"]["sent_at"], "2026-11-10T00:00:00Z")
+
+    def test_at_sea_the_picture_is_kept_for_the_app_and_never_posted(self):
+        self.cfg["satpic"].update(sea_app=True, sea_half_km=2)
+        self.running_since("2026-10-30T00:00:00Z")
+        self.stored(place="sea", first="2026-11-08T20:00:00Z", last="2026-11-09T22:00:00Z",
+                    frp_series=[["2026-11-08T20:00:00Z", 80.0, "viirs"]],
+                    alerted_at="2026-11-08T20:40:00Z", alert_updated_at="2026-11-08T20:40:00Z")
+        engine.run_cycle(self.cfg, send=False)
+        self.assertEqual(satpic.work_one(self.cfg, self.now, session=FakeArchive(PASSES)), self.incident["id"])
+        state = engine.run_cycle(self.cfg, send=False)
+        self.deliver.assert_not_called()
+        kept = state.incidents[0]["satpic"]
+        self.assertEqual((kept["after"], kept["app_only"], kept["made_at"]), ("2026-11-09", True, iso(self.now)))
+        self.assertGreater(kept["hot"], 0)
+        self.assertTrue((self.cfg["_site_dir"] / kept["img"]).is_file())
+        shown = load_json(self.cfg["_site_dir"] / "data" / "incidents.json", {})
+        self.assertEqual([i["satpic"]["img"] for i in shown["items"]], [kept["img"]], "the app shows it")
+        self.now = T("2026-11-10T00:05:00Z")                        # the next check keeps the file, posts nothing
+        engine.run_cycle(self.cfg, send=False)
+        self.deliver.assert_not_called()
+        self.assertTrue((self.cfg["_site_dir"] / kept["img"]).is_file())
 
     def test_switching_the_feature_on_starts_three_days_back_and_two_ready_pictures_go_out_one_per_check(self):
         second = dict(self.incident, id="20261107-0900_26.000_50.000", first="2026-11-07T09:00:00Z", last="2026-11-07T09:30:00Z",

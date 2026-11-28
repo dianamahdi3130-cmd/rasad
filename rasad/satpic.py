@@ -36,7 +36,10 @@ def _key(inc_id):
 
 
 def _token(inc):
-    """A result belongs to one state of the fire: a later sighting asks for a later picture."""
+    """A result belongs to one state of the fire: a later sighting asks for a later picture. At sea the
+    picture is of the fire while it burns (sea_app), so a later sighting keeps the same request."""
+    if inc.get("place") == "sea":
+        return hashlib.sha256(f"{inc['id']}|{inc['first']}|sea|{STYLE}".encode()).hexdigest()[:32]
     return hashlib.sha256(f"{inc['id']}|{inc['first']}|{inc['last']}|{STYLE}".encode()).hexdigest()[:32]
 
 
@@ -46,14 +49,21 @@ def wanted(inc, cfg, now):
     S = cfg["satpic"]
     if not S.get("enabled", True) or inc.get("status") != "alerted" or inc.get("recovered_historical"):
         return False
-    if (inc.get("satpic") or {}).get("sent_at") or (inc.get("satpic") or {}).get("closed"):
+    done = inc.get("satpic") or {}
+    if done.get("sent_at") or done.get("closed") or done.get("made_at"):
         return False
-    if inc.get("place") == "sea" and not S.get("sea", False):
-        return False                       # a ship moves away: nothing to compare at that spot
+    days = float(S.get("max_days", 12))
+    if inc.get("place") == "sea":
+        # a ship moves away: a picture days later shows nothing at that spot. Since 28 Nov 2026 a pass
+        # while it burns (or just after) is kept for the app in silence (sea_app); never posted unless
+        # `sea` is switched on. The case: Sentinel-2 of 28 Nov, 07:02 UTC, a ship burning off Khasab
+        if not (S.get("sea", False) or S.get("sea_app", False)):
+            return False
+        days = float(S.get("sea_max_days", 2))
     # switched on in a running monitor: only fires alerted shortly before that, not the whole week
     if S.get("_since") and str(inc.get("alerted_at") or "") < S["_since"]:
         return False
-    return now - parse_time(inc["last"]) <= dt.timedelta(days=float(S.get("max_days", 12)))
+    return now - parse_time(inc["last"]) <= dt.timedelta(days=days)
 
 
 def request(cfg, inc, now):
@@ -64,10 +74,14 @@ def request(cfg, inc, now):
     if load_json(path, {}).get("token") == token:
         return
     approximate = inc.get("best") != "polar" and not inc.get("polar")
-    save_json(path, {"token": token, "id": inc["id"], "lat": inc["lat"], "lon": inc["lon"], "first": inc["first"],
-                     "last": inc["last"], "headline": inc.get("headline") or "", "where": inc.get("where") or "",
-                     "half_km": float(S.get("approx_half_km", 3) if approximate else S.get("half_km", 2)),
-                     "created_at": iso(now)}, compact=True)
+    job = {"token": token, "id": inc["id"], "lat": inc["lat"], "lon": inc["lon"], "first": inc["first"],
+           "last": inc["last"], "headline": inc.get("headline") or "", "where": inc.get("where") or "",
+           "half_km": float(S.get("approx_half_km", 3) if approximate else S.get("half_km", 2)),
+           "created_at": iso(now)}
+    if inc.get("place") == "sea":
+        # a burning hull drifts: a wider box, a pass while it burns, and a short wait
+        job.update(sea=True, half_km=float(S.get("sea_half_km", 4)), max_days=float(S.get("sea_max_days", 2)))
+    save_json(path, job, compact=True)
 
 
 def collect(cfg, inc, now):
@@ -180,7 +194,10 @@ def _make(cfg, job, now, session, out):
     archive = s2.Archive(session or make_session(), deadline=time.monotonic() + float(S.get("job_budget_s", 170)))
     grid = s2.Grid(job["lat"], job["lon"], job["half_km"])
     passes = archive.list_passes(grid, first - s2.days(float(S.get("lookback_days", 75))), now)
-    later = [p for p in reversed(passes) if p["time"] > last]          # oldest first
+    if job.get("sea"):   # at sea: the first clear pass while it burns or just after (a ship moves on)
+        later = [p for p in reversed(passes) if p["time"] >= first]
+    else:
+        later = [p for p in reversed(passes) if p["time"] > last]      # oldest first
     after = None
     for p in later:
         archive.assess(p, grid)
@@ -188,7 +205,7 @@ def _make(cfg, job, now, session, out):
             after = p
             break
     if after is None:
-        gone = now - last > dt.timedelta(days=float(S.get("max_days", 12)))
+        gone = now - last > dt.timedelta(days=float(job.get("max_days") or S.get("max_days", 12)))
         return {"final": gone, "why": "no clear pass after the fire" + (" in time" if gone else " yet")}
     before = None
     older = [p for p in passes if p["time"] < first]                      # newest first
