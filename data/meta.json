@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-28T17:43:15Z",
- "scan_started": "2026-11-28T17:42:56Z",
- "scan_finished": "2026-11-28T17:43:15Z",
- "scan_duration_s": 18.7,
- "scan_partial": false,
+ "generated": "2026-11-28T17:48:17Z",
+ "scan_started": "2026-11-28T17:47:40Z",
+ "scan_finished": "2026-11-28T17:48:17Z",
+ "scan_duration_s": 37.1,
+ "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 25,
+ "detections_this_run": 0,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -297,26 +297,26 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T17:20:00Z",
-   "checked": 10,
-   "missing": 0,
-   "pending": 0,
-   "pending_recent": 0,
-   "scan_complete": true,
+   "latest": "2026-11-28T17:30:00Z",
+   "checked": 20,
+   "missing": 20,
+   "pending": 16,
+   "pending_recent": 16,
+   "scan_complete": false,
    "clock_cached": false,
-   "budget_exhausted": false
+   "budget_exhausted": true
   },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
    "latest": "2026-11-28T17:30:00Z",
-   "checked": 10,
+   "checked": 0,
    "missing": 0,
-   "pending": 4,
+   "pending": 0,
    "pending_recent": 0,
    "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -339,12 +339,12 @@
    "latest": "2026-11-28T14:10:00Z"
   },
   "noaa": {
-   "read": 0,
+   "read": 2,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-28T16:54:02Z",
+   "latest": "2026-11-28T17:01:08Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
@@ -355,7 +355,7 @@
    "deferred": 0,
    "ok": true,
    "name": "الأقمار الأمريكية (ناسا)",
-   "latest": "2026-11-28T13:16:00Z"
+   "latest": "2026-11-28T16:58:00Z"
   },
   "recovery": {
    "enabled": true,
