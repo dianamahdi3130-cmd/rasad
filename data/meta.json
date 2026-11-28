@@ -1,9 +1,9 @@
 {
- "generated": "2026-11-28T13:07:53Z",
- "scan_started": "2026-11-28T13:07:22Z",
- "scan_finished": "2026-11-28T13:07:53Z",
- "scan_duration_s": 31.4,
- "scan_partial": false,
+ "generated": "2026-11-28T13:10:07Z",
+ "scan_started": "2026-11-28T13:09:52Z",
+ "scan_finished": "2026-11-28T13:10:07Z",
+ "scan_duration_s": 14.6,
+ "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
  "detections_this_run": 0,
@@ -294,22 +294,22 @@
   }
  ],
  "sources": {
+  "mtg_frp": {
+   "name": "القمر الأوروبي Meteosat-12",
+   "ok": true,
+   "latest": "2026-11-28T12:50:00Z",
+   "checked": 20,
+   "missing": 20,
+   "pending": 16,
+   "pending_recent": 16,
+   "scan_complete": false,
+   "clock_cached": false,
+   "budget_exhausted": true
+  },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
    "latest": "2026-11-28T13:00:00Z",
-   "checked": 0,
-   "missing": 0,
-   "pending": 0,
-   "pending_recent": 0,
-   "scan_complete": true,
-   "clock_cached": false,
-   "budget_exhausted": false
-  },
-  "mtg_frp": {
-   "name": "القمر الأوروبي Meteosat-12",
-   "ok": true,
-   "latest": "2026-11-28T12:40:00Z",
    "checked": 0,
    "missing": 0,
    "pending": 0,
@@ -326,17 +326,17 @@
   "seawatch_day": {
    "enabled": true,
    "experimental": true,
-   "checked": 0,
-   "missing": 4,
+   "checked": 2,
+   "missing": 2,
    "waiting": 6,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-28T12:40:00Z",
+   "last_checked": "2026-11-28T12:50:00Z",
    "last_attempt": "2026-11-28T13:00:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-28T12:40:00Z"
+   "latest": "2026-11-28T12:50:00Z"
   },
   "noaa": {
    "read": 0,
