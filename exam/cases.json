@@ -3,7 +3,11 @@
   "cases": [
     {
       "id": "hormuz_ship_23_25",
-      "where": [26.33, 56.25, 15],
+      "where": [
+        26.33,
+        56.25,
+        15
+      ],
       "from": "2026-11-23T18:00:00Z",
       "to": "2026-11-25T21:30:00Z",
       "truth": "one_post",
@@ -14,7 +18,11 @@
     },
     {
       "id": "khasab_first_night_26",
-      "where": [26.29, 56.27, 8],
+      "where": [
+        26.29,
+        56.27,
+        8
+      ],
       "from": "2026-11-26T18:00:00Z",
       "to": "2026-11-27T06:00:00Z",
       "truth": "post",
@@ -24,18 +32,27 @@
       "note": "Heat at sea from 22:00 Baghdad; NASA 3.2 and 3.7 MW at 01:10. US Central Command said it disabled the ship Pacific Archer that day. Never posted that night."
     },
     {
-      "id": "khasab_evening_27",
-      "where": [26.28, 56.26, 8],
-      "from": "2026-11-27T14:00:00Z",
-      "to": "2026-11-28T03:00:00Z",
-      "truth": "open",
+      "id": "khasab_one_ship_26_28",
+      "where": [
+        26.278,
+        56.262,
+        6
+      ],
+      "from": "2026-11-26T18:00:00Z",
+      "to": "2026-11-28T12:00:00Z",
+      "truth": "one_post",
+      "post_by": "2026-11-26T23:30:00Z",
       "sure": "likely",
       "review": "docs/reviews/khasab_20261126.md",
-      "note": "Heat again from 17:50 Baghdad, posted at 18:30, a first sighting again at 23:00. The IRGC navy said a tanker hit a mine at the mouth of Khasab port that evening: one fire or two is not settled."
+      "note": "Sentinel-2 on 28 Nov 07:02 UTC: one ship of about 200 m still burning at 26.277 N, 56.265 E, within 1-2 km of every sighting since 26 Nov 22:00 Baghdad; no second burning hull within 8 km. The posts of 27 Nov 18:30 and 23:00 were that ship again."
     },
     {
       "id": "gulf_faint_pixels_25",
-      "where": [26.377, 52.067, 3],
+      "where": [
+        26.377,
+        52.067,
+        3
+      ],
       "from": "2026-11-25T21:00:00Z",
       "to": "2026-11-26T06:00:00Z",
       "truth": "no_post",
@@ -45,7 +62,11 @@
     },
     {
       "id": "oman_arabian_sea_27",
-      "where": [18.602, 58.307, 5],
+      "where": [
+        18.602,
+        58.307,
+        5
+      ],
       "from": "2026-11-26T21:00:00Z",
       "to": "2026-11-27T03:00:00Z",
       "truth": "open",
@@ -55,7 +76,11 @@
     },
     {
       "id": "jafurah_25",
-      "where": [25.474, 50.19, 3],
+      "where": [
+        25.474,
+        50.19,
+        3
+      ],
       "from": "2026-11-25T15:00:00Z",
       "to": "2026-11-25T22:00:00Z",
       "truth": "post",

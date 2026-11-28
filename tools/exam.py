@@ -138,6 +138,15 @@ def import_version(code_dir):
     return brain, seawatch, cfg
 
 
+def import_chains():
+    """The version's chains module (the one-thread decision), or None for a version without it."""
+    try:
+        from rasad import chains  # noqa: E402
+    except ImportError:
+        return None
+    return chains if hasattr(chains, "decide") else None
+
+
 def cut(stored, t):
     """The incident as it stood once its sightings up to time t were in."""
     inc = copy.deepcopy({k: v for k, v in stored.items() if k not in DERIVED})
@@ -275,6 +284,47 @@ def early_posts(events, out, cfg):
     return res
 
 
+def thread(result, events, chains, cfg):
+    """With replies switched on (chains.thread_post): which posts at sea would go out as a reply under
+    an older post instead of a post of their own. The version's own chains.decide is asked of each
+    post in time order, against the posts before it, each cut to what was seen by then. Fills
+    result["threads"] = {post id: decision}."""
+    stored = {i["id"]: i for i in events["incidents"]}
+    early = {r["id"]: r for r in events["early"]}
+    tcfg = copy.deepcopy(cfg)
+    tcfg["chains"] = dict(tcfg.get("chains") or {}, thread=True, thread_post=True)
+    done, out = [], {}
+    for row in posts(result):
+        t = row["t"]
+        if row["early"]:
+            rec = early.get(row["id"]) or {}
+            inc = {"id": row["id"], "place": "sea", "observations": rec.get("observations") or [],
+                   "lat": row["lat"], "lon": row["lon"], "first": rec.get("first"), "max_frp": None}
+        else:
+            inc = cut(stored[row["id"]], t)
+        olders = []
+        for pid in done:
+            if pid in stored:
+                older = cut(stored[pid], t)
+            else:
+                rec = early.get(pid) or {}
+                older = {"id": pid, "place": "sea", "observations": [o for o in rec.get("observations") or []
+                                                                     if o.get("t", "") <= t]}
+            older.update(status="alerted", tg_msg=1, place=older.get("place") or "sea")
+            older.pop("recovered_historical", None)
+            olders.append(older)
+        decision = None
+        if inc.get("place") in ("sea", "coast"):
+            try:
+                decision = chains.decide(dict(inc, place="sea"), olders, tcfg)
+            except Exception as e:  # noqa: BLE001 - a version's fault is shown, never hidden
+                decision = {"as": "post", "error": str(e)}
+        out[row["id"]] = decision or {"as": "post", "link": None}
+        done.append(row["id"])
+    result["threads"] = out
+    return out
+
+
 # ---------------------------------------------------------------------------------------------
 # the scorecard
 
@@ -299,7 +349,8 @@ def same_fire_at_sea(a, b, base_km=5.0, drift_kmh=3.0, max_km=20.0, hours=24.0):
 
 
 def score(result, cases):
-    P = posts(result)
+    replies = {pid for pid, d in (result.get("threads") or {}).items() if d.get("as") == "reply"}
+    P = [p for p in posts(result) if p["id"] not in replies]
     sea = [p for p in P if p["place"] in ("sea", "coast")]
     repeat = []
     for i, p in enumerate(sea):
@@ -310,6 +361,7 @@ def score(result, cases):
     live_posted = {d["id"] for d in inc if d["live"] in ("alerted",)}
     now_posted = {d["id"] for d in inc if d["posted"]}
     card = {
+        "threads": "threads" in result, "replies": len(replies),
         "posts": len(P), "posts_sea": len(sea), "posts_first_sightings": sum(p["early"] for p in P),
         "sea_posts_maybe_same_fire": len(repeat),
         "incidents": len(result["incidents"]), "posted_incidents": len(now_posted),
@@ -343,7 +395,8 @@ def judge_case(case, result, P):
 
 
 def report(card, title):
-    out = [f"== {title}",
+    out = [f"== {title}" + (" (replies switched on: posts below are the new threads)" if card.get("threads") else ""),
+           (f"replies under an older post: {card['replies']}" if card.get("threads") else "replies: off"),
            f"posts: {card['posts']} (at sea {card['posts_sea']}, first sightings {card['posts_first_sightings']}); "
            f"at sea possibly the same fire as an earlier post: {card['sea_posts_maybe_same_fire']}",
            f"incidents: {card['incidents']}, posted: {card['posted_incidents']} (live: {card['live_posted_incidents']})"]
@@ -365,31 +418,34 @@ def report(card, title):
 # ---------------------------------------------------------------------------------------------
 # commands
 
-def run(code_dir=HERE, events=None, quiet=False):
+def run(code_dir=HERE, events=None, quiet=False, threads=False):
     brain, seawatch, cfg = import_version(code_dir)
     ev = events or load_events()
     result = decide(ev, brain, seawatch, cfg)
+    chains = import_chains()
+    if threads and chains is not None:
+        thread(result, ev, chains, cfg)
     card = score(result, load_cases())
     if not quiet:
         print(report(card, f"version in {os.path.relpath(os.path.abspath(code_dir), HERE) or '.'}"))
     return result, card
 
 
-def _run_elsewhere(code_dir, out):
-    subprocess.run([sys.executable, os.path.abspath(__file__), "run", "--code", code_dir, "--json", out, "--quiet"],
-                   check=True, cwd=HERE)
+def _run_elsewhere(code_dir, out, threads=False):
+    subprocess.run([sys.executable, os.path.abspath(__file__), "run", "--code", code_dir, "--json", out, "--quiet"]
+                   + (["--threads"] if threads else []), check=True, cwd=HERE)
     with open(out, encoding="utf-8") as f:
         return json.load(f)
 
 
-def compare(ref):
+def compare(ref, threads=False):
     """This checkout against the version at a git ref: every incident whose decision changes."""
     tmp = tempfile.mkdtemp(prefix="exam-")
     base_dir = os.path.join(tmp, "base")
     subprocess.run(["git", "-C", HERE, "worktree", "add", "-q", "--detach", base_dir, ref], check=True)
     try:
-        base = _run_elsewhere(base_dir, os.path.join(tmp, "base.json"))
-        here = _run_elsewhere(HERE, os.path.join(tmp, "here.json"))
+        base = _run_elsewhere(base_dir, os.path.join(tmp, "base.json"), threads)
+        here = _run_elsewhere(HERE, os.path.join(tmp, "here.json"), threads)
     finally:
         subprocess.run(["git", "-C", HERE, "worktree", "remove", "--force", base_dir], check=False)
     print(report(base["card"], f"base: {ref}"))
@@ -406,7 +462,14 @@ def compare(ref):
     eb = {r["id"]: r for r in base["result"]["early"]}
     early_changed = [(r, eb.get(r["id"])) for r in here["result"]["early"]
                      if eb.get(r["id"]) and eb[r["id"]]["posted"] != r["posted"]]
-    print(f"== changes: {len(changed)} incident(s), {len(early_changed)} first sighting(s)")
+    bt, ht = base["result"].get("threads") or {}, here["result"].get("threads") or {}
+    thread_changed = sorted(k for k in set(bt) | set(ht) if (bt.get(k) or {}).get("as") != (ht.get(k) or {}).get("as"))
+    print(f"== changes: {len(changed)} incident(s), {len(early_changed)} first sighting(s)"
+          + (f", {len(thread_changed)} reply-or-post" if threads else ""))
+    for k in thread_changed:
+        b, h = bt.get(k) or {}, ht.get(k) or {}
+        print(f"  {k}: base {b.get('as', '-')} -> here {h.get('as', '-')}"
+              + (f" under {h.get('under')} ({h.get('link')}, {h.get('km')} km, {h.get('gap_h')} h)" if h.get("as") == "reply" else ""))
     for iid, b, h in sorted(changed, key=lambda x: x[0]):
         def say(d):
             if d["posted"] and d.get("posted_by_early"):
@@ -428,18 +491,20 @@ def main(argv=None):
     r.add_argument("--code", default=HERE)
     r.add_argument("--json")
     r.add_argument("--quiet", action="store_true")
+    r.add_argument("--threads", action="store_true", help="as if replies under older posts were switched on")
     c = sub.add_parser("compare")
     c.add_argument("ref")
+    c.add_argument("--threads", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "snapshot":
         snapshot()
     elif a.cmd == "run":
-        result, card = run(a.code, quiet=a.quiet)
+        result, card = run(a.code, quiet=a.quiet, threads=a.threads)
         if a.json:
             with open(a.json, "w", encoding="utf-8") as f:
                 json.dump({"result": result, "card": card}, f, ensure_ascii=False)
     else:
-        compare(a.ref)
+        compare(a.ref, threads=a.threads)
 
 
 if __name__ == "__main__":

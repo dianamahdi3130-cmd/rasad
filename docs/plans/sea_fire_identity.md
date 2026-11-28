@@ -36,6 +36,38 @@
      told as a reply;
   3. an independent review.
 
+## 28 Nov 2026: the owner's rules for one thread, built and silent
+
+The owner asked for the solution: one post per ship and the rest as replies under it. When unsure, a
+reply that says so. How Rasad tells the same fire from a new one is in `chains.decide`, summed up in
+CLAUDE.md under `rasad/chains.py`.
+
+**What changed from the silent step of 25 Nov:**
+- **Not settled is now a reply, said as not settled, not a post.** The 25 Nov review's worry was a new
+  fire swallowed. Here it still goes out, under the older post: «❔ غير محسوم: … قد يكون الحريق نفسه وقد
+  يكون حريقاً آخر».
+- **Two peaks of one picture.** On the same east-west line within 4.5 km they are one streak, the same
+  fire. Hormuz, 25 Nov, 20:10 was 4.0 km; Khasab, 28 Nov, 02:50 was 3.0 km. Apart north to south they
+  are two fires.
+- **«Same picture»** means within 5 minutes, not 10. The neighbouring picture's spot had been taken as
+  the same picture's.
+- **A sudden rise** gets a warning line in the reply, with no cause word.
+- **The acting side is built and off:**
+  - `chains.form` and the engine's `reply_to`;
+  - `thread_of`;
+  - `reading.due` waits for the thread.
+
+**The exam on 1142 stored events, 18-28 Nov:**
+- **Replies on:** six alerts change, all repeats.
+  - The Hormuz ship goes from 6 posts to 1 post and 5 replies.
+  - The Khasab ship's 04:46 post becomes a reply.
+  - No other sea post changes.
+- **With the two sea rules on as well:** all five known cases pass. Khasab is then posted on its first
+  night, and its evening heat of 27 Nov becomes a reply.
+
+**Before switching on:** a silent week read against the channel, an independent review of
+`chains.decide` and the acting side, then the owner's yes.
+
 ## Why
 
 - One burning ship off Khasab was posted six times in two days as a new fire

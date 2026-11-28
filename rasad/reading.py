@@ -246,12 +246,17 @@ def lines(inc, cfg, F):
     return out
 
 
-def due(inc, cfg, now):
-    """Read once, for a posted event, when it has run its course, while it is still news."""
+def due(inc, cfg, now, incidents=()):
+    """Read once, for a posted event, when it has run its course, while it is still news. A reply under
+    an older post (one ship, one thread: `thread_of`) gets no reading of its own, and a thread's first
+    post waits while heat answered under it is still seen (its replies are part of its course)."""
     P = settings(cfg)
     if not (P.get("enabled") and P.get("post")) or inc.get("reading_posted") or not inc.get("tg_msg"):
         return False
-    if inc.get("status") != "alerted" or inc.get("recovered_historical"):
+    if inc.get("status") != "alerted" or inc.get("recovered_historical") or inc.get("thread_of"):
+        return False
+    quiet = dt.timedelta(minutes=float(P.get("quiet_min", 60)))
+    if any(o.get("thread_of") == inc.get("id") and now - parse_time(o["last"]) < quiet for o in incidents or ()):
         return False
     return now - parse_time(inc["last"]) <= dt.timedelta(hours=float(P["max_age_hours"]))
 

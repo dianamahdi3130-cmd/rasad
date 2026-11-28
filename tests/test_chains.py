@@ -116,34 +116,62 @@ class TheChannelSilentForNow(unittest.TestCase):
             self.assertNotIn(cause, text)
 
     def test_one_followed_picture_proves_nothing(self):
-        # the review of 25 Nov: a single row after hours of nothing swallowed a new fire
+        # the review of 25 Nov: a single row after hours of nothing swallowed a new fire. It is never
+        # «the same»; since 28 Nov it goes out under the older post, said as not settled
         out = self.decide(self.NASA, self.older([["2026-11-25T09:50:00Z", 26.2947, 56.1412, 6.0]]))
-        self.assertEqual((out["as"], out["link"]), ("post", "maybe"))
+        self.assertEqual((out["as"], out["link"]), ("reply", "maybe"))
         self.assertIn("غير محسوم", out["text"])
 
-    def test_after_hours_unseen_it_is_a_post_of_its_own_said_as_not_settled(self):
+    def test_after_hours_unseen_it_is_a_reply_said_as_not_settled(self):
         out = self.decide(self.NASA, self.older())
-        self.assertEqual((out["as"], out["link"], out["gap_h"]), ("post", "maybe", 9.5))
+        self.assertEqual((out["as"], out["link"], out["gap_h"]), ("reply", "maybe", 9.5))
         self.assertIn("قد يكون الحريق نفسه وقد يكون حريقاً آخر", out["text"])
+        text = chains.reply_message(self.NASA, out, copy.deepcopy(engine.DEFAULTS))
+        self.assertIn("🔥 <b>عادت الحرارة قرب موضع هذا الحريق</b>", text)
+        self.assertIn("❔ غير محسوم: ظهر بعد انقطاع", text)
+        self.assertNotIn("توبعت", text)               # it was not followed there
+        for cause in ("هجوم", "استهداف", "ضربة", "سفينة"):
+            self.assertNotIn(cause, text)
+
+    def test_after_a_day_unseen_it_is_a_post_of_its_own(self):
+        later = record("later", [("2026-11-26T03:00:00Z", 26.2897, 56.1407)], families=["viirs"], max_frp=8.9)
+        out = self.decide(later, self.older())        # 26.5 hours after the older fire's last sighting
+        self.assertEqual(out, {"as": "post", "link": None})
 
     def test_an_older_fire_seen_elsewhere_in_the_same_picture_is_another_fire(self):
         old = record("old", [("2026-11-25T10:00:00Z", 26.33, 56.18)], tg_msg=1, alerted_at="2026-11-25T09:00:00Z")
         out = self.decide(self.NASA, old)                      # 5.6 km apart at the same time
         self.assertEqual(out, {"as": "post", "link": None})
 
-    def test_two_peaks_in_one_picture_within_a_streaks_length_are_not_settled_and_never_a_reply(self):
-        # Hormuz, 25 Nov 2026, 20:10: a second spot 4 km from the fire's own spot of the same picture
+    def test_two_peaks_of_one_picture_on_one_east_west_line_are_one_streak(self):
+        # Hormuz, 25 Nov 2026, 20:10: a second spot 4.0 km west of the fire's own spot of the same picture,
+        # on its latitude: the west end of the streak the fire is drawn as (docs/reviews/hormuz_dusk_20261125.md)
         old = record("old", [("2026-11-25T16:50:00Z", 26.34, 56.30), ("2026-11-25T17:00:00Z", 26.345, 56.302),
                              ("2026-11-25T17:10:00Z", 26.3453, 56.3025)], tg_msg=1342, alerted_at="2026-11-25T15:01:00Z")
         out = self.decide(LATE, old)
-        self.assertEqual((out["as"], out["link"]), ("post", "maybe"))
-        self.assertIn("غير محسوم: ظهر في الصورة نفسها على بعد 4 كم من موضع حريق في البحر نُشر سابقاً", out["text"])
-        # ...even when another posted record's followed heat would have made it «the same»
-        other = record("noon", [("2026-11-25T10:02:00Z", 26.2893, 56.1398)], tg_msg=1337, alerted_at="2026-11-25T10:25:00Z")
-        other["follow"] = {"track": [[f"2026-11-25T17:{m}:00Z", 26.3440, 56.2960, 8.0] for m in ("00", "10", "20")]}
-        with patch.object(chains, "_reviewed", {}):
-            both = chains.decide(LATE, [old, other, LATE], copy.deepcopy(engine.DEFAULTS))
-        self.assertEqual(both["as"], "post")
+        self.assertEqual((out["as"], out["link"], out["gap_h"]), ("reply", "same", 0.0))
+        # Khasab, 28 Nov 2026, 02:50: two spots 3.0 km apart on the same latitude, posted as a new fire at 04:46
+        ship = record("ship", [("2026-11-27T23:30:00Z", 26.2869, 56.2555), ("2026-11-27T23:40:00Z", 26.2869, 56.248),
+                               ("2026-11-27T23:50:00Z", 26.2937, 56.248)], tg_msg=1393, alerted_at="2026-11-27T15:51:50Z")
+        east = record("east", [("2026-11-27T23:50:00Z", 26.2937, 56.2777), ("2026-11-28T01:30:00Z", 26.2847, 56.2703)])
+        self.assertEqual(self.decide(east, ship)["as"], "reply")
+
+    def test_two_peaks_of_one_picture_apart_north_to_south_are_two_fires(self):
+        old = record("old", [("2026-11-25T17:10:00Z", 26.3453, 56.3025)], tg_msg=1342, alerted_at="2026-11-25T15:01:00Z")
+        south = record("south", [("2026-11-25T17:10:00Z", 26.3183, 56.3025)])      # 3.0 km due south
+        self.assertEqual(self.decide(south, old), {"as": "post", "link": None})
+
+    def test_a_reply_says_when_the_fire_grew_suddenly(self):
+        old = self.older(max_frp=5.65)
+        new = dict(self.NASA, max_frp=11.0)
+        out = self.decide(new, old)
+        self.assertEqual(out["surge"], {"mw": 11.0, "was": 5.7})
+        text = chains.reply_message(new, out, copy.deepcopy(engine.DEFAULTS))
+        self.assertIn("⚠️ <b>اشتدت النار فجأة:</b> 11 MW وكانت أعلى قراءة قبلها 5.7 MW", text)
+        self.assertIn("وقد يكون حريقاً جديداً قربها", text)
+        for cause in ("هجوم", "استهداف", "ضربة", "سفينة"):
+            self.assertNotIn(cause, text)
+        self.assertNotIn("surge", self.decide(dict(self.NASA, max_frp=7.0), old))
 
     def test_far_away_unposted_or_on_land_is_not_tied(self):
         far = record("far", [("2026-11-25T10:02:00Z", 27.2, 56.9)])
@@ -151,6 +179,16 @@ class TheChannelSilentForNow(unittest.TestCase):
         self.assertEqual(self.decide(self.NASA, self.older(status="new")), {"as": "post", "link": None})
         land = dict(self.NASA, place="land")
         self.assertIsNone(chains.decide(land, [self.older()], copy.deepcopy(engine.DEFAULTS)))
+
+    def test_the_alert_goes_as_a_reply_only_when_switched_on(self):
+        reply = {"as": "reply", "link": "same", "under": "old", "tg": 1325}
+        off = copy.deepcopy(engine.DEFAULTS)
+        on = dict(off, chains={"thread_post": True})
+        self.assertEqual(chains.form(reply, off), ("post", None))
+        self.assertEqual(chains.form(reply, on), ("reply", 1325))
+        self.assertEqual(chains.form({"as": "post", "link": None}, on), ("post", None))
+        self.assertEqual(chains.form(None, on), ("post", None))
+        self.assertEqual(chains.form(dict(reply, tg=None), on), ("post", None))   # nothing to answer
 
     def test_it_is_silent_until_switched_on(self):
         self.assertIs(chains.SETTINGS["thread_post"], False)
