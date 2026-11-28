@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-28T04:03:47Z",
- "scan_started": "2026-11-28T04:02:36Z",
- "scan_finished": "2026-11-28T04:03:47Z",
- "scan_duration_s": 70.4,
+ "generated": "2026-11-28T04:13:29Z",
+ "scan_started": "2026-11-28T04:12:39Z",
+ "scan_finished": "2026-11-28T04:13:29Z",
+ "scan_duration_s": 50.5,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 8,
+ "detections_this_run": 1,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -298,7 +298,7 @@
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
    "latest": "2026-11-28T04:00:00Z",
-   "checked": 16,
+   "checked": 12,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -309,8 +309,8 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T03:40:00Z",
-   "checked": 4,
+   "latest": "2026-11-28T03:50:00Z",
+   "checked": 0,
    "missing": 0,
    "pending": 0,
    "pending_recent": 0,
@@ -331,12 +331,12 @@
    "waiting": 6,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-28T03:30:00Z",
-   "last_attempt": "2026-11-28T04:00:00Z",
+   "last_checked": "2026-11-28T03:50:00Z",
+   "last_attempt": "2026-11-28T04:10:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-28T03:30:00Z"
+   "latest": "2026-11-28T03:50:00Z"
   },
   "noaa": {
    "read": 0,
