@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-28T11:13:23Z",
- "scan_started": "2026-11-28T11:11:26Z",
- "scan_finished": "2026-11-28T11:13:23Z",
- "scan_duration_s": 116.5,
- "scan_partial": true,
+ "generated": "2026-11-28T11:24:26Z",
+ "scan_started": "2026-11-28T11:24:00Z",
+ "scan_finished": "2026-11-28T11:24:26Z",
+ "scan_duration_s": 25.6,
+ "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 0,
+ "detections_this_run": 13,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -294,29 +294,29 @@
   }
  ],
  "sources": {
-  "mtg_frp": {
-   "name": "القمر الأوروبي Meteosat-12",
-   "ok": true,
-   "latest": "2026-11-28T10:50:00Z",
-   "checked": 6,
-   "missing": 3,
-   "pending": 23,
-   "pending_recent": 18,
-   "scan_complete": false,
-   "clock_cached": false,
-   "budget_exhausted": true
-  },
   "iodc_fire": {
    "name": "القمر الأوروبي فوق المحيط الهندي",
    "ok": true,
+   "latest": "2026-11-28T11:15:00Z",
+   "checked": 0,
+   "missing": 0,
+   "pending": 0,
+   "pending_recent": 0,
+   "scan_complete": true,
+   "clock_cached": false,
+   "budget_exhausted": false
+  },
+  "mtg_frp": {
+   "name": "القمر الأوروبي Meteosat-12",
+   "ok": true,
    "latest": "2026-11-28T11:00:00Z",
-   "checked": 6,
-   "missing": 4,
-   "pending": 24,
-   "pending_recent": 8,
-   "scan_complete": false,
+   "checked": 16,
+   "missing": 0,
+   "pending": 0,
+   "pending_recent": 0,
+   "scan_complete": true,
    "clock_cached": true,
-   "budget_exhausted": true
+   "budget_exhausted": false
   },
   "seawatch": {
    "name": "كاشف رصد للبحر ليلاً (Meteosat-12)",
@@ -328,23 +328,23 @@
    "experimental": true,
    "checked": 0,
    "missing": 4,
-   "waiting": 16,
+   "waiting": 14,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-28T10:40:00Z",
-   "last_attempt": "2026-11-28T11:10:00Z",
+   "last_checked": "2026-11-28T11:00:00Z",
+   "last_attempt": "2026-11-28T11:20:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-28T10:40:00Z"
+   "latest": "2026-11-28T11:00:00Z"
   },
   "noaa": {
-   "read": 2,
+   "read": 0,
    "over": 0,
    "pixels": 0,
    "failed": 0,
    "ok": true,
-   "latest": "2026-11-28T10:54:09Z",
+   "latest": "2026-11-28T11:01:15Z",
    "name": "أقمار ناسا من ملفات NOAA المباشرة (VIIRS)",
    "detections": 0
   },
