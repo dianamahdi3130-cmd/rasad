@@ -1,8 +1,8 @@
 {
- "generated": "2026-11-28T13:10:07Z",
- "scan_started": "2026-11-28T13:09:52Z",
- "scan_finished": "2026-11-28T13:10:07Z",
- "scan_duration_s": 14.6,
+ "generated": "2026-11-28T13:20:26Z",
+ "scan_started": "2026-11-28T13:19:54Z",
+ "scan_finished": "2026-11-28T13:20:26Z",
+ "scan_duration_s": 32.0,
  "scan_partial": true,
  "app_name": "رصد",
  "learning": false,
@@ -297,7 +297,7 @@
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
-   "latest": "2026-11-28T12:50:00Z",
+   "latest": "2026-11-28T13:00:00Z",
    "checked": 20,
    "missing": 20,
    "pending": 16,
@@ -331,12 +331,12 @@
    "waiting": 6,
    "candidates": 0,
    "spots": 0,
-   "last_checked": "2026-11-28T12:50:00Z",
-   "last_attempt": "2026-11-28T13:00:00Z",
+   "last_checked": "2026-11-28T13:00:00Z",
+   "last_attempt": "2026-11-28T13:10:00Z",
    "daylight": true,
    "name": "كاشف رصد النهاري (Meteosat-12)",
    "ok": false,
-   "latest": "2026-11-28T12:50:00Z"
+   "latest": "2026-11-28T13:00:00Z"
   },
   "noaa": {
    "read": 0,
