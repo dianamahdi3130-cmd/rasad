@@ -1,12 +1,12 @@
 {
- "generated": "2026-11-28T16:31:15Z",
- "scan_started": "2026-11-28T16:30:11Z",
- "scan_finished": "2026-11-28T16:31:15Z",
- "scan_duration_s": 64.0,
- "scan_partial": true,
+ "generated": "2026-11-28T16:41:42Z",
+ "scan_started": "2026-11-28T16:41:22Z",
+ "scan_finished": "2026-11-28T16:41:42Z",
+ "scan_duration_s": 20.3,
+ "scan_partial": false,
  "app_name": "رصد",
  "learning": false,
- "detections_this_run": 16,
+ "detections_this_run": 0,
  "local_offset_hours": 3,
  "local_name": "بغداد",
  "regions": [
@@ -294,22 +294,22 @@
   }
  ],
  "sources": {
+  "iodc_fire": {
+   "name": "القمر الأوروبي فوق المحيط الهندي",
+   "ok": true,
+   "latest": "2026-11-28T16:30:00Z",
+   "checked": 16,
+   "missing": 0,
+   "pending": 0,
+   "pending_recent": 0,
+   "scan_complete": true,
+   "clock_cached": false,
+   "budget_exhausted": false
+  },
   "mtg_frp": {
    "name": "القمر الأوروبي Meteosat-12",
    "ok": true,
    "latest": "2026-11-28T16:10:00Z",
-   "checked": 20,
-   "missing": 11,
-   "pending": 7,
-   "pending_recent": 7,
-   "scan_complete": false,
-   "clock_cached": false,
-   "budget_exhausted": true
-  },
-  "iodc_fire": {
-   "name": "القمر الأوروبي فوق المحيط الهندي",
-   "ok": true,
-   "latest": "2026-11-28T16:15:00Z",
    "checked": 0,
    "missing": 0,
    "pending": 0,
